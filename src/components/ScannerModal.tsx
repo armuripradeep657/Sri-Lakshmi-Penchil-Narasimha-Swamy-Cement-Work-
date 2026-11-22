@@ -1,0 +1,556 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import jsQR from 'jsqr';
+import { Camera, RefreshCw, Search, ShieldAlert, X, CheckCircle2, QrCode, Barcode, ReceiptText } from 'lucide-react';
+import { Bill, Product } from '../types/billing';
+import { formatTimestamp } from '../lib/firebase';
+import { deriveMixedVerificationCode, getBillVerificationBarcode } from '../lib/barcodeAndBillImage';
+
+export interface ScanClassification {
+  rawText: string;
+  kind: 'upi' | 'product_barcode' | 'bill_barcode' | 'unsupported';
+  upiDetails?: { pa?: string; pn?: string; am?: string; tn?: string };
+  matchedProduct?: Product;
+  matchedBill?: Bill;
+  reason: string;
+}
+
+interface ScannerModalProps {
+  open: boolean;
+  onClose: () => void;
+  products: Product[];
+  bills?: Bill[];
+  onProductFound?: (product: Product) => void;
+  onBillFound?: (bill: Bill) => void;
+  title?: string;
+}
+
+export function classifyScannedPayload(rawText: string, products: Product[], bills: Bill[] = []): ScanClassification {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return {
+      rawText: trimmed,
+      kind: 'unsupported',
+      reason: 'Empty scan payload received. Point the camera clearly at a barcode or UPI QR code.',
+    };
+  }
+
+  // 1. Check UPI URI
+  if (/^upi:\/\/pay\?/i.test(trimmed)) {
+    const queryStr = trimmed.split('?')[1] || '';
+    const params = new URLSearchParams(queryStr);
+    const pa = params.get('pa') || undefined;
+    const pn = params.get('pn') || undefined;
+    const am = params.get('am') || undefined;
+    const tn = params.get('tn') || undefined;
+    return {
+      rawText: trimmed,
+      kind: 'upi',
+      upiDetails: { pa, pn, am, tn },
+      reason: pa
+        ? `Detected valid UPI payment QR for ${pn || 'Payee'} (${pa}). Note: Scanning a UPI QR only reads payee details and does NOT verify completed payment.`
+        : 'Detected UPI URI missing payee VPA (pa).',
+    };
+  }
+
+  const lower = trimmed.toLowerCase();
+
+  // 2. Check Bill Verification Barcode (unique mixed numbers + letters code, plus bill # / ID)
+  const matchedBill = bills.find(
+    (b) =>
+      (b.verificationBarcode && b.verificationBarcode.toLowerCase() === lower) ||
+      getBillVerificationBarcode(b).toLowerCase() === lower ||
+      b.billNumber.toLowerCase() === lower ||
+      b.id.toLowerCase() === lower
+  );
+  if (matchedBill) {
+    const verifyCode = getBillVerificationBarcode(matchedBill);
+    const statusText =
+      matchedBill.billStatus !== 'active'
+        ? matchedBill.billStatus.toUpperCase()
+        : matchedBill.pendingBalance <= 0
+        ? 'AMOUNT PAID'
+        : `DUE ₹${matchedBill.pendingBalance.toFixed(2)}`;
+    return {
+      rawText: trimmed,
+      kind: 'bill_barcode',
+      matchedBill,
+      reason: `Verified authentic bill ${matchedBill.billNumber} (Code ${verifyCode}) for ${matchedBill.customerName} (${statusText}).`,
+    };
+  }
+
+  // 3. Check Product Barcode (unique mixed code or derived code) or Product Code
+  const matched = products.find(
+    (p) =>
+      (p.barcode && p.barcode.toLowerCase() === lower) ||
+      deriveMixedVerificationCode(p.id || p.productCode).toLowerCase() === lower ||
+      p.productCode.toLowerCase() === lower ||
+      p.name.toLowerCase() === lower
+  );
+
+  if (matched) {
+    return {
+      rawText: trimmed,
+      kind: 'product_barcode',
+      matchedProduct: matched,
+      reason: `Matched product "${matched.name}" (${matched.productCode}) in catalog.`,
+    };
+  }
+
+  // Numeric/alphanumeric barcode not in catalog vs arbitrary QR
+  const looksLikeBarcode = /^[0-9A-Za-z\-_]{4,32}$/.test(trimmed);
+  return {
+    rawText: trimmed,
+    kind: 'unsupported',
+    reason: looksLikeBarcode
+      ? `Scanned code "${trimmed}" did not match any product barcode or bill number in the cloud database.`
+      : `Unsupported QR content detected ("${trimmed.slice(0, 80)}"). Only product barcodes, bill barcodes, and UPI payment URIs are supported.`,
+  };
+}
+
+export interface ScannerPanelProps {
+  active?: boolean;
+  products: Product[];
+  bills?: Bill[];
+  onProductFound?: (product: Product) => void;
+  onBillFound?: (bill: Bill) => void;
+  onClose?: () => void;
+  title?: string;
+  embedded?: boolean;
+}
+
+export const ScannerPanel: React.FC<ScannerPanelProps> = ({
+  active = true,
+  products,
+  bills = [],
+  onProductFound,
+  onBillFound,
+  onClose,
+  title = 'QR & Barcode Scanner',
+  embedded = false,
+}) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const productsRef = useRef<Product[]>(products);
+  const billsRef = useRef<Bill[]>(bills);
+  productsRef.current = products;
+  billsRef.current = bills;
+
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [manualInput, setManualInput] = useState('');
+  const [classification, setClassification] = useState<ScanClassification | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+
+  const stopStream = () => {
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+      } catch {
+        // ignore video cleanup errors
+      }
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {
+          // ignore track stop errors
+        }
+      });
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  useEffect(() => {
+    if (!active) {
+      stopStream();
+      setClassification(null);
+      setCameraError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let rafId = 0;
+    let lastZxingAt = 0;
+    const zxingReader = new BrowserMultiFormatReader();
+
+    async function openStreamWithFallback(): Promise<MediaStream> {
+      try {
+        const constraints: MediaStreamConstraints = {
+          video: selectedDeviceId
+            ? { deviceId: { exact: selectedDeviceId } }
+            : { facingMode: { ideal: 'environment' } },
+          audio: false,
+        };
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+    }
+
+    async function startCamera() {
+      setCameraError(null);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError('Camera access is not available in this browser context. Use Manual Entry below.');
+        return;
+      }
+
+      try {
+        const stream = await openStreamWithFallback();
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        setCameraActive(true);
+
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          if (!cancelled) {
+            setCameras(devices.filter((d) => d.kind === 'videoinput'));
+          }
+        } catch {
+          // enumerateDevices optional
+        }
+
+        const videoEl = videoRef.current;
+        if (!videoEl || cancelled) return;
+
+        videoEl.srcObject = stream;
+        try {
+          await videoEl.play();
+        } catch {
+          // Ignore play interruption if modal closed or autoPlay deferred
+        }
+        if (cancelled) return;
+
+        const scanFrame = (now: number) => {
+          if (cancelled) return;
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          if (
+            video &&
+            canvas &&
+            video.readyState >= video.HAVE_CURRENT_DATA &&
+            video.videoWidth > 0 &&
+            video.videoHeight > 0
+          ) {
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+            }
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+              try {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const qr = jsQR(imgData.data, canvas.width, canvas.height);
+                if (qr?.data && !cancelled) {
+                  setClassification(
+                    classifyScannedPayload(qr.data, productsRef.current, billsRef.current)
+                  );
+                }
+              } catch {
+                // ignore frame read error
+              }
+
+              if (now - lastZxingAt >= 160) {
+                lastZxingAt = now;
+                try {
+                  const zxingResult = zxingReader.decodeFromCanvas(canvas);
+                  const text = zxingResult?.getText();
+                  if (text && !cancelled) {
+                    setClassification(
+                      classifyScannedPayload(text, productsRef.current, billsRef.current)
+                    );
+                  }
+                } catch {
+                  // Expected on non-barcode frames
+                }
+              }
+            }
+          }
+          rafId = requestAnimationFrame(scanFrame);
+        };
+        rafId = requestAnimationFrame(scanFrame);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unable to open camera';
+        setCameraError(
+          `Camera permission denied or hardware unavailable (${msg}). Enter a verification barcode (e.g. 8K4M92X7P3Q1), bill #, product barcode, or UPI URI manually below.`
+        );
+      }
+    }
+
+    startCamera();
+
+    return () => {
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      stopStream();
+    };
+  }, [active, selectedDeviceId]);
+
+  const handleManualLookup = (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = classifyScannedPayload(manualInput, products, bills);
+    setClassification(res);
+  };
+
+  const handleSwitchCamera = () => {
+    if (cameras.length < 2) return;
+    const idx = cameras.findIndex((c) => c.deviceId === selectedDeviceId);
+    const next = cameras[(idx + 1) % cameras.length];
+    setSelectedDeviceId(next.deviceId);
+  };
+
+  return (
+    <div
+      className={
+        embedded
+          ? 'w-full rounded-2xl bg-white border border-blue-100 shadow-sm overflow-hidden'
+          : 'w-full sm:max-w-xl min-h-screen sm:min-h-0 rounded-none sm:rounded-2xl bg-white border-0 sm:border border-slate-200 shadow-xl overflow-hidden sm:max-h-[92vh] overflow-y-auto'
+      }
+    >
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+        <div className="flex items-center gap-2.5">
+          <Camera className="w-5 h-5 text-[#1D4ED8]" />
+          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {cameras.length > 1 && (
+            <button
+              type="button"
+              onClick={handleSwitchCamera}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Switch
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4">
+        <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+          <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+          <canvas ref={canvasRef} className="hidden" />
+          {cameraActive && (
+            <div className="pointer-events-none absolute inset-6 border-2 border-sky-400/70 rounded-lg" />
+          )}
+          {cameraError && (
+            <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center">
+              <ShieldAlert className="w-8 h-8 text-amber-400 mb-2" />
+              <p className="text-xs text-slate-200 max-w-sm leading-relaxed">{cameraError}</p>
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleManualLookup} className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={manualInput}
+              onChange={(e) => setManualInput(e.target.value)}
+              placeholder="Enter verification barcode, bill #, product code, or upi://pay?..."
+              className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+            />
+          </div>
+          <button
+            type="submit"
+            className="px-4 py-2.5 rounded-xl bg-[#0B1F44] text-white text-sm font-medium hover:bg-[#13326b] whitespace-nowrap"
+          >
+            Verify
+          </button>
+        </form>
+
+        {classification && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                {classification.kind === 'bill_barcode' && (
+                  <>
+                    <ReceiptText className="w-4 h-4 text-emerald-600" />
+                    <span className="text-emerald-700">BILL VERIFIED</span>
+                  </>
+                )}
+                {classification.kind === 'product_barcode' && (
+                  <>
+                    <Barcode className="w-4 h-4 text-emerald-600" />
+                    <span className="text-emerald-700">Product Barcode Matched</span>
+                  </>
+                )}
+                {classification.kind === 'upi' && (
+                  <>
+                    <QrCode className="w-4 h-4 text-sky-600" />
+                    <span className="text-sky-700">UPI Payment QR Detected</span>
+                  </>
+                )}
+                {classification.kind === 'unsupported' && (
+                  <>
+                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                    <span className="text-amber-700">Unmatched / Unsupported Content</span>
+                  </>
+                )}
+              </div>
+              <span className="font-mono text-xs text-slate-500 truncate max-w-[180px]">
+                {classification.rawText}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">{classification.reason}</p>
+
+            {classification.kind === 'bill_barcode' && classification.matchedBill && (
+              <div className="p-3 rounded-lg bg-white border border-emerald-200 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-mono font-bold text-sm text-slate-900">
+                      {classification.matchedBill.billNumber}
+                    </div>
+                    <div className="text-[11px] font-mono text-emerald-700">
+                      Verify Code: {getBillVerificationBarcode(classification.matchedBill)}
+                    </div>
+                    <div className="text-slate-500">
+                      {classification.matchedBill.customerName} ·{' '}
+                      {formatTimestamp(classification.matchedBill.createdAt).toLocaleDateString('en-IN')}
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-md font-bold text-[11px] uppercase ${
+                      classification.matchedBill.pendingBalance <= 0 &&
+                      classification.matchedBill.billStatus === 'active'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {classification.matchedBill.pendingBalance <= 0 &&
+                    classification.matchedBill.billStatus === 'active'
+                      ? 'AMOUNT PAID'
+                      : `DUE ₹${classification.matchedBill.pendingBalance.toFixed(2)}`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 font-mono">
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">TOTAL</span>
+                    <span className="font-bold">₹{classification.matchedBill.grandTotal.toFixed(2)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">PAID</span>
+                    <span className="font-bold text-emerald-600">
+                      ₹{classification.matchedBill.amountPaid.toFixed(2)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">BALANCE</span>
+                    <span className="font-bold text-amber-600">
+                      ₹{classification.matchedBill.pendingBalance.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+                {onBillFound && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onBillFound(classification.matchedBill!);
+                      onClose?.();
+                    }}
+                    className="w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Open Bill &amp; Share Receipt
+                  </button>
+                )}
+              </div>
+            )}
+
+            {classification.kind === 'upi' && classification.upiDetails && (
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs">
+                <div>
+                  <span className="text-slate-500">UPI ID:</span>{' '}
+                  <span className="font-mono font-medium text-slate-900">
+                    {classification.upiDetails.pa || 'N/A'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Payee Name:</span>{' '}
+                  <span className="font-medium text-slate-900">
+                    {classification.upiDetails.pn || 'N/A'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {classification.kind === 'product_barcode' && classification.matchedProduct && (
+              <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {classification.matchedProduct.name}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    ₹{classification.matchedProduct.sellingPrice.toFixed(2)} · Stock:{' '}
+                    {classification.matchedProduct.stock}
+                  </p>
+                </div>
+                {onProductFound && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onProductFound(classification.matchedProduct!);
+                      onClose?.();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Use Product
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const ScannerModal: React.FC<ScannerModalProps> = ({
+  open,
+  onClose,
+  products,
+  bills = [],
+  onProductFound,
+  onBillFound,
+  title = 'QR & Barcode Scanner',
+}) => {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-0 sm:pt-6 sm:px-4 overflow-y-auto">
+      <ScannerPanel
+        active={open}
+        onClose={onClose}
+        products={products}
+        bills={bills}
+        onProductFound={onProductFound}
+        onBillFound={onBillFound}
+        title={title}
+      />
+    </div>
+  );
+};
+

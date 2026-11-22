@@ -1,0 +1,606 @@
+{
+  "entities": {
+    "Business": {
+      "title": "Business",
+      "description": "Central business profile for SLP Billing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "proprietor": { "type": "string", "maxLength": 120 },
+        "address": { "type": "string", "maxLength": 400 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "gstin": { "type": "string", "maxLength": 20 },
+        "currency": { "type": "string", "maxLength": 10 },
+        "taxEnabled": { "type": "boolean" },
+        "defaultTaxRate": { "type": "number" },
+        "billPrefix": { "type": "string", "maxLength": 20 },
+        "nextBillNumber": { "type": "integer" },
+        "logoUrl": { "type": "string", "maxLength": 2000 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "ownerEmail": { "type": "string", "maxLength": 160 },
+        "authorizedUids": { "type": "array" },
+        "authorizedEmails": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerUid", "authorizedUids", "createdAt", "updatedAt"]
+    },
+    "Invite": {
+      "title": "Invite",
+      "description": "Email-based staff invitation created by Admin for cashier or co-admin access.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "cashier"] },
+        "status": { "type": "string", "enum": ["pending", "accepted", "revoked"] },
+        "canEditBills": { "type": "boolean" },
+        "canCancelBills": { "type": "boolean" },
+        "canViewReports": { "type": "boolean" },
+        "canManageProducts": { "type": "boolean" },
+        "phoneNumber": { "type": "string", "maxLength": 30 },
+        "photoDataUrl": { "type": "string", "maxLength": 120000 },
+        "mpinHash": { "type": "string", "maxLength": 160 },
+        "mpinSalt": { "type": "string", "maxLength": 80 },
+        "mpinEnabled": { "type": "boolean" },
+        "previousUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "email", "displayName", "role", "status", "createdAt", "updatedAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authorized admin or cashier account.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "cashier"] },
+        "status": { "type": "string", "enum": ["active", "disabled", "revoked"] },
+        "businessId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "inviteId": { "type": "string", "maxLength": 128 },
+        "canEditBills": { "type": "boolean" },
+        "canCancelBills": { "type": "boolean" },
+        "canViewReports": { "type": "boolean" },
+        "canManageProducts": { "type": "boolean" },
+        "phoneNumber": { "type": "string", "maxLength": 30 },
+        "photoDataUrl": { "type": "string", "maxLength": 120000 },
+        "mpinHash": { "type": "string", "maxLength": 160 },
+        "mpinSalt": { "type": "string", "maxLength": 80 },
+        "mpinEnabled": { "type": "boolean" },
+        "mpinUpdatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "role", "status", "businessId", "ownerUid", "authorizedUids", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin lookup table.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 160 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "businessId", "createdAt"]
+    },
+    "DeviceSession": {
+      "title": "DeviceSession",
+      "description": "Registered browser/device session for multi-device sync and access control.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 160 },
+        "userName": { "type": "string", "maxLength": 120 },
+        "deviceName": { "type": "string", "maxLength": 160 },
+        "browser": { "type": "string", "maxLength": 120 },
+        "deviceType": { "type": "string", "enum": ["desktop", "mobile", "tablet"] },
+        "status": { "type": "string", "enum": ["authorized", "revoked"] },
+        "lastActiveAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "userId", "deviceName", "browser", "deviceType", "status", "lastActiveAt", "createdAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category with optional Telugu translation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "nameTe": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "name", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product catalog item with variant pricing, barcode, and stock.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "productCode": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "nameTe": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 120 },
+        "barcode": { "type": "string", "maxLength": 80 },
+        "purchasePrice": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "lowStockThreshold": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 40 },
+        "variantsSummary": { "type": "string", "maxLength": 500 },
+        "imageUrl": { "type": "string", "maxLength": 2000 },
+        "description": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "productCode", "name", "category", "purchasePrice", "sellingPrice", "stock", "taxRate", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer profile and running balance ledger.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "mobile": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 160 },
+        "address": { "type": "string", "maxLength": 400 },
+        "totalPurchases": { "type": "number" },
+        "outstandingBalance": { "type": "number" },
+        "billCount": { "type": "integer" },
+        "lastPurchaseAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "name", "totalPurchases", "outstandingBalance", "createdAt", "updatedAt"]
+    },
+    "Bill": {
+      "title": "Bill",
+      "description": "Sales bill header with server-verified totals and payment status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "billNumber": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "customerMobile": { "type": "string", "maxLength": 30 },
+        "customerAddress": { "type": "string", "maxLength": 400 },
+        "itemsSummary": { "type": "string", "maxLength": 600 },
+        "itemCount": { "type": "integer" },
+        "subtotal": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "taxableAmount": { "type": "number" },
+        "gstType": { "type": "string", "enum": ["NONE", "CGST_SGST", "IGST"] },
+        "cgstAmount": { "type": "number" },
+        "sgstAmount": { "type": "number" },
+        "igstAmount": { "type": "number" },
+        "totalTax": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "amountPaid": { "type": "number" },
+        "pendingBalance": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "UPI", "Bank Transfer", "Other", "Unpaid"] },
+        "paymentStatus": { "type": "string", "enum": ["paid", "partial", "pending", "cancelled", "refunded"] },
+        "billStatus": { "type": "string", "enum": ["active", "cancelled", "refunded"] },
+        "publicToken": { "type": "string", "maxLength": 128 },
+        "publicLinkRevoked": { "type": "boolean" },
+        "verificationBarcode": { "type": "string", "maxLength": 64 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdByName": { "type": "string", "maxLength": 120 },
+        "editedByUid": { "type": "string", "maxLength": 128 },
+        "editedByName": { "type": "string", "maxLength": 120 },
+        "editedAt": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "billNumber", "customerName", "itemCount", "subtotal", "discountAmount", "taxableAmount", "gstType", "totalTax", "grandTotal", "amountPaid", "pendingBalance", "paymentMethod", "paymentStatus", "billStatus", "publicToken", "publicLinkRevoked", "createdByUid", "createdByName", "createdAt", "updatedAt"]
+    },
+    "BillItem": {
+      "title": "BillItem",
+      "description": "Normalized line item belonging to a Bill.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "billId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productCode": { "type": "string", "maxLength": 40 },
+        "productName": { "type": "string", "maxLength": 160 },
+        "variantLabel": { "type": "string", "maxLength": 80 },
+        "barcode": { "type": "string", "maxLength": 80 },
+        "imageUrl": { "type": "string", "maxLength": 2000 },
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "discount": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "lineTotal": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "billId", "businessId", "ownerUid", "authorizedUids", "productId", "productName", "quantity", "unitPrice", "discount", "taxRate", "taxAmount", "lineTotal", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Immutable payment or refund transaction linked to a bill.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "billId": { "type": "string", "maxLength": 128 },
+        "billNumber": { "type": "string", "maxLength": 40 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["Cash", "UPI", "Bank Transfer", "Other"] },
+        "referenceId": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["completed", "pending", "refunded"] },
+        "type": { "type": "string", "enum": ["payment", "refund"] },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "recordedByName": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "billId", "billNumber", "customerName", "amount", "method", "status", "type", "recordedByUid", "createdAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Tax invoice record linked to a bill.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "billId": { "type": "string", "maxLength": 128 },
+        "invoiceNumber": { "type": "string", "maxLength": 40 },
+        "publicToken": { "type": "string", "maxLength": 128 },
+        "revoked": { "type": "boolean" },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "grandTotal": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["paid", "partial", "pending", "cancelled", "refunded"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "billId", "invoiceNumber", "publicToken", "revoked", "customerName", "grandTotal", "paymentStatus", "createdAt", "updatedAt"]
+    },
+    "PublicInvoice": {
+      "title": "PublicInvoice",
+      "description": "Token-gated customer-facing invoice view (non-listable, revocable).",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string", "minLength": 16, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "revoked": { "type": "boolean" },
+        "invoiceNumber": { "type": "string", "maxLength": 40 },
+        "issuedAtIso": { "type": "string", "maxLength": 60 },
+        "businessName": { "type": "string", "maxLength": 160 },
+        "businessPhone": { "type": "string", "maxLength": 30 },
+        "businessAddress": { "type": "string", "maxLength": 400 },
+        "businessGstin": { "type": "string", "maxLength": 20 },
+        "businessLogoUrl": { "type": "string", "maxLength": 2000 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "customerPhoneMasked": { "type": "string", "maxLength": 30 },
+        "customerAddress": { "type": "string", "maxLength": 400 },
+        "itemsSummary": { "type": "string", "maxLength": 1500 },
+        "itemsJson": { "type": "string", "maxLength": 8000 },
+        "subtotal": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "cgstAmount": { "type": "number" },
+        "sgstAmount": { "type": "number" },
+        "igstAmount": { "type": "number" },
+        "totalTax": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "amountPaid": { "type": "number" },
+        "pendingBalance": { "type": "number" },
+        "paymentMethod": { "type": "string", "maxLength": 40 },
+        "paymentStatus": { "type": "string", "enum": ["paid", "partial", "pending", "cancelled", "refunded"] },
+        "upiId": { "type": "string", "maxLength": 120 },
+        "upiName": { "type": "string", "maxLength": 120 },
+        "verificationBarcode": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["token", "businessId", "ownerUid", "revoked", "invoiceNumber", "businessName", "customerName", "grandTotal", "paymentStatus", "createdAt", "updatedAt"]
+    },
+    "InventoryTransaction": {
+      "title": "InventoryTransaction",
+      "description": "Stock adjustment audit entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 160 },
+        "type": { "type": "string", "enum": ["sale", "restock", "adjustment", "return"] },
+        "quantityChange": { "type": "number" },
+        "previousStock": { "type": "number" },
+        "newStock": { "type": "number" },
+        "billId": { "type": "string", "maxLength": 128 },
+        "billNumber": { "type": "string", "maxLength": 40 },
+        "note": { "type": "string", "maxLength": 300 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "productId", "productName", "type", "quantityChange", "previousStock", "newStock", "createdByUid", "createdAt"]
+    },
+    "UpiSetting": {
+      "title": "UpiSetting",
+      "description": "UPI QR configuration synchronized across devices.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "upiId": { "type": "string", "maxLength": 120 },
+        "accountHolderName": { "type": "string", "maxLength": 120 },
+        "businessName": { "type": "string", "maxLength": 160 },
+        "paymentDescription": { "type": "string", "maxLength": 160 },
+        "uploadedQrDataUrl": { "type": "string", "maxLength": 300000 },
+        "activeMode": { "type": "string", "enum": ["generated", "uploaded"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "upiId", "accountHolderName", "businessName", "activeMode", "updatedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Live business alert synchronized across devices.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "title": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 400 },
+        "type": { "type": "string", "enum": ["bill", "payment", "low_stock", "customer", "settings", "device", "cancellation", "refund"] },
+        "relatedRecordType": { "type": "string", "maxLength": 60 },
+        "relatedRecordId": { "type": "string", "maxLength": 128 },
+        "billNumber": { "type": "string", "maxLength": 40 },
+        "amount": { "type": "number" },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "creatorName": { "type": "string", "maxLength": 120 },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "title", "message", "type", "isRead", "createdAt"]
+    },
+    "MessageLog": {
+      "title": "MessageLog",
+      "description": "WhatsApp and SMS delivery history.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "channel": { "type": "string", "enum": ["whatsapp", "sms"] },
+        "recipientMobile": { "type": "string", "maxLength": 30 },
+        "billId": { "type": "string", "maxLength": 128 },
+        "billNumber": { "type": "string", "maxLength": 40 },
+        "messageBody": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["sent", "opened_share_screen", "queued", "failed"] },
+        "providerMessageId": { "type": "string", "maxLength": 160 },
+        "errorMessage": { "type": "string", "maxLength": 400 },
+        "sentByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "channel", "recipientMobile", "billNumber", "status", "sentByUid", "createdAt"]
+    },
+    "BusinessSettings": {
+      "title": "BusinessSettings",
+      "description": "Thermal receipt, messaging, and invoice display preferences.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "paperWidth": { "type": "string", "enum": ["58mm", "80mm"] },
+        "fontSize": { "type": "string", "enum": ["sm", "md", "lg"] },
+        "showLogo": { "type": "boolean" },
+        "showThermalLogo": { "type": "boolean" },
+        "showQrCode": { "type": "boolean" },
+        "footerMessage": { "type": "string", "maxLength": 240 },
+        "invoiceNotes": { "type": "string", "maxLength": 400 },
+        "whatsappEnabled": { "type": "boolean" },
+        "smsEnabled": { "type": "boolean" },
+        "smsSenderId": { "type": "string", "maxLength": 12 },
+        "smsDltTemplateId": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "paperWidth", "fontSize", "showLogo", "showQrCode", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable financial and security audit trail.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "action": { "type": "string", "maxLength": 80 },
+        "entityType": { "type": "string", "maxLength": 60 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "maxLength": 400 },
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorEmail": { "type": "string", "maxLength": 160 },
+        "actorName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "action", "entityType", "entityId", "summary", "actorUid", "createdAt"]
+    },
+    "LabourWork": {
+      "title": "LabourWork",
+      "description": "Daily labour work log with worker name, work done, date, wage, and optional note.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "authorizedEmails": { "type": "array" },
+        "workerName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "workDone": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "workDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "wageAmount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "UPI", "Bank Transfer", "Unpaid"] },
+        "note": { "type": "string", "maxLength": 500 },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "recordedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "workerName", "workDone", "workDate", "wageAmount", "paymentMethod", "recordedByUid", "createdAt", "updatedAt"]
+    },
+    "ShopEntry": {
+      "title": "ShopEntry",
+      "description": "Daily shop income or expense cashbook entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "authorizedEmails": { "type": "array" },
+        "entryDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "amount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "UPI", "Bank Transfer", "Other"] },
+        "note": { "type": "string", "maxLength": 500 },
+        "recordedByUid": { "type": "string", "maxLength": 128 },
+        "recordedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "entryDate", "type", "title", "amount", "paymentMethod", "recordedByUid", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/businesses/{businessId}": {
+      "schema": { "$ref": "#/entities/Business" },
+      "description": "Central business configuration and numbering counter."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Authorized admin and cashier roles and permissions."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted admin role lookup collection."
+    },
+    "/devices/{deviceId}": {
+      "schema": { "$ref": "#/entities/DeviceSession" },
+      "description": "Active and revoked authorized devices."
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Product categories."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Central product catalog and live stock levels."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Customer directory and pending balance ledger."
+    },
+    "/bills/{billId}": {
+      "schema": { "$ref": "#/entities/Bill" },
+      "description": "Real-time sales bills."
+    },
+    "/billItems/{itemId}": {
+      "schema": { "$ref": "#/entities/BillItem" },
+      "description": "Normalized bill line items."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Immutable payment and refund records."
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Internal tax invoice records."
+    },
+    "/publicInvoices/{token}": {
+      "schema": { "$ref": "#/entities/PublicInvoice" },
+      "description": "Token-gated customer online invoice portal view."
+    },
+    "/inventoryTransactions/{txId}": {
+      "schema": { "$ref": "#/entities/InventoryTransaction" },
+      "description": "Immutable stock movement history."
+    },
+    "/upiSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/UpiSetting" },
+      "description": "UPI ID and QR configuration."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Live multi-device admin notifications."
+    },
+    "/messageLogs/{logId}": {
+      "schema": { "$ref": "#/entities/MessageLog" },
+      "description": "WhatsApp and SMS delivery logs."
+    },
+    "/businessSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/BusinessSettings" },
+      "description": "Thermal printing and messaging settings."
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable financial and administrative audit trail."
+    },
+    "/invites/{inviteId}": {
+      "schema": { "$ref": "#/entities/Invite" },
+      "description": "Staff invitations for authorized cashier or co-admin access."
+    },
+    "/labourWorks/{workId}": {
+      "schema": { "$ref": "#/entities/LabourWork" },
+      "description": "Daily labour work logs and worker wages."
+    },
+    "/shopEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/ShopEntry" },
+      "description": "Daily shop income and expense ledger entries."
+    }
+  }
+}

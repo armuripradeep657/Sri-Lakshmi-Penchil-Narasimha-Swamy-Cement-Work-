@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="slpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1F44"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#slpGrad)"/>
+  <rect x="40" y="40" width="432" height="432" rx="84" fill="none" stroke="#38BDF8" stroke-opacity="0.35" stroke-width="8"/>
+  <path d="M132 162h248v44H132zm0 78h188v44H132zm0 78h132v44H132z" fill="#FFFFFF" opacity="0.95"/>
+  <circle cx="352" cy="336" r="46" fill="#06B6D4"/>
+  <path d="M332 336l14 14 28-30" fill="none" stroke="#0B1F44" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

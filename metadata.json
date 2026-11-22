@@ -1,0 +1,6 @@
+{
+  "name": "Sri Lakshmi Penchil Narasimha Swamy Cement Work",
+  "description": "Cloud-synchronized commercial billing, POS, tax invoicing, thermal receipt printing, and business management platform.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

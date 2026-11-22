@@ -1,0 +1,769 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Check,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Image as ImageIcon,
+  MessageSquare,
+  Send,
+  Smartphone,
+  X,
+} from 'lucide-react';
+import { Bill, BillItem, Business, BusinessSettings, Product, UpiSetting } from '../types/billing';
+import {
+  buildPhonePeUri,
+  buildUpiUri,
+  formatCurrency,
+  generateAndVerifyUpiQr,
+} from '../lib/upiAndExport';
+import {
+  generateCode128SvgDataUrl,
+  generateShareableBillImage,
+  getBillVerificationBarcode,
+} from '../lib/barcodeAndBillImage';
+import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
+import { formatTimestamp } from '../lib/firebase';
+import { useBillingData } from '../context/BillingDataContext';
+
+interface PostBillActionsModalProps {
+  bill: Bill | null;
+  items: BillItem[];
+  onClose: () => void;
+}
+
+export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill, items, onClose }) => {
+  const { business, businessSettings, upiSetting, products, logMessageDispatch } = useBillingData();
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'a4' | 'thermal'>('a4');
+  const [thermalWidth, setThermalWidth] = useState<'58mm' | '80mm'>(businessSettings?.paperWidth || '80mm');
+  const [statusBanner, setStatusBanner] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [sendingSms, setSendingSms] = useState(false);
+  const [sharingImage, setSharingImage] = useState(false);
+
+  const productImagesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    products.forEach((p) => {
+      if (p.imageUrl) map.set(p.id, p.imageUrl);
+    });
+    return map;
+  }, [products]);
+
+  useEffect(() => {
+    if (!bill || bill.pendingBalance <= 0 || !upiSetting?.upiId) {
+      setQrDataUrl('');
+      return;
+    }
+    if (upiSetting.activeMode === 'uploaded' && upiSetting.uploadedQrDataUrl) {
+      setQrDataUrl(upiSetting.uploadedQrDataUrl);
+      return;
+    }
+    const uri = buildUpiUri({
+      upiId: upiSetting.upiId,
+      payeeName: upiSetting.accountHolderName || business?.name || 'Sri Lakshmi Penchil Narasimha Swamy Cement Work',
+      amount: bill.pendingBalance,
+      billNumber: bill.billNumber,
+    });
+    generateAndVerifyUpiQr(uri).then((res) => setQrDataUrl(res.dataUrl));
+  }, [bill, upiSetting, business]);
+
+  if (!bill || !business) return null;
+
+  const publicUrl = `${window.location.origin}/?invoice=${bill.publicToken}`;
+  const isDue = bill.pendingBalance > 0 && bill.billStatus === 'active';
+  const upiPayUri =
+    isDue && upiSetting?.upiId
+      ? buildUpiUri({
+          upiId: upiSetting.upiId,
+          payeeName: upiSetting.accountHolderName || business.name,
+          amount: bill.pendingBalance,
+          billNumber: bill.billNumber,
+        })
+      : '';
+  const phonePeUri =
+    isDue && upiSetting?.upiId
+      ? buildPhonePeUri({
+          upiId: upiSetting.upiId,
+          payeeName: upiSetting.accountHolderName || business.name,
+          amount: bill.pendingBalance,
+          billNumber: bill.billNumber,
+        })
+      : '';
+
+  const handleShareBillImageWhatsApp = async () => {
+    setSharingImage(true);
+    setStatusBanner(null);
+    try {
+      const { dataUrl, file } = await generateShareableBillImage({
+        bill,
+        items,
+        business,
+        upi: upiSetting,
+        productImagesMap,
+      });
+
+      const statusNote = isDue
+        ? `Due Balance: ₹${bill.pendingBalance.toFixed(2)}\nPay using PhonePe / GPay / Any UPI on your bill link:`
+        : `Status: AMOUNT PAID (₹${bill.amountPaid.toFixed(2)} via ${bill.paymentMethod})`;
+
+      const shareText = `${business.name}\nBill #${bill.billNumber} for ${bill.customerName}\nTotal: ₹${bill.grandTotal.toFixed(2)}\n${statusNote}\n${publicUrl}`;
+
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (nav.share && nav.canShare?.({ files: [file] })) {
+        await nav.share({
+          title: `Bill ${bill.billNumber} - ${business.name}`,
+          text: shareText,
+          files: [file],
+        });
+        if (bill.customerMobile) {
+          await logMessageDispatch({
+            channel: 'whatsapp',
+            recipientMobile: bill.customerMobile,
+            billId: bill.id,
+            billNumber: bill.billNumber,
+            messageBody: shareText,
+            status: 'opened_share_screen',
+          });
+        }
+        setStatusBanner({ type: 'success', text: 'Shared bill image via device share sheet (select WhatsApp).' });
+        return;
+      }
+
+      // Desktop fallback: download PNG bill image + open WhatsApp Web/App with bill & PhonePe payment link
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `${bill.billNumber}_Bill.png`;
+      a.click();
+
+      const cleanPhone = (bill.customerMobile || '').replace(/[^0-9]/g, '');
+      const waTarget = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+      const waUrl = waTarget
+        ? `https://wa.me/${waTarget}?text=${encodeURIComponent(shareText)}`
+        : `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      if (bill.customerMobile) {
+        await logMessageDispatch({
+          channel: 'whatsapp',
+          recipientMobile: bill.customerMobile,
+          billId: bill.id,
+          billNumber: bill.billNumber,
+          messageBody: shareText,
+          status: 'opened_share_screen',
+        });
+      }
+      setStatusBanner({
+        type: 'info',
+        text: `Saved ${bill.billNumber}_Bill.png and opened WhatsApp. Attach the downloaded bill image in WhatsApp!`,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      setStatusBanner({ type: 'error', text: err instanceof Error ? err.message : 'Unable to share bill image.' });
+    } finally {
+      setSharingImage(false);
+    }
+  };
+
+  const handleSharePaymentLink = async () => {
+    const paymentMsg = `${business.name} - Payment Link for Bill #${bill.billNumber}\nCustomer: ${bill.customerName}\nTotal: ₹${bill.grandTotal.toFixed(2)} | Due Balance: ₹${bill.pendingBalance.toFixed(2)}\nPay via PhonePe / GPay / Any UPI & View Live Status:\n${publicUrl}`;
+    const cleanPhone = (bill.customerMobile || '').replace(/[^0-9]/g, '');
+    const waTarget = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Pay Due ${formatCurrency(bill.pendingBalance)} · ${bill.billNumber}`,
+          text: paymentMsg,
+          url: publicUrl,
+        });
+        setStatusBanner({ type: 'success', text: 'Shared customer payment link.' });
+        return;
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return;
+      }
+    }
+
+    await navigator.clipboard.writeText(paymentMsg);
+    const waUrl = waTarget
+      ? `https://wa.me/${waTarget}?text=${encodeURIComponent(paymentMsg)}`
+      : `https://wa.me/?text=${encodeURIComponent(paymentMsg)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    setStatusBanner({ type: 'success', text: 'Copied PhonePe/UPI payment link & opened WhatsApp.' });
+  };
+
+  const handleSmsSend = async () => {
+    if (!bill.customerMobile) {
+      setStatusBanner({ type: 'error', text: 'Customer mobile number is required to send SMS.' });
+      return;
+    }
+    setSendingSms(true);
+    setStatusBanner(null);
+    try {
+      const res = await fetch('/api/messages/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mobile: bill.customerMobile,
+          billNumber: bill.billNumber,
+          grandTotal: bill.grandTotal,
+          invoiceUrl: publicUrl,
+          businessName: business.name,
+          senderId: businessSettings?.smsSenderId,
+          templateId: businessSettings?.smsDltTemplateId,
+        }),
+      });
+      const data = await res.json();
+      if (data.sent) {
+        await logMessageDispatch({
+          channel: 'sms',
+          recipientMobile: bill.customerMobile,
+          billId: bill.id,
+          billNumber: bill.billNumber,
+          messageBody: data.messagePreview,
+          status: 'sent',
+          providerMessageId: data.providerMessageId || '',
+        });
+        setStatusBanner({ type: 'success', text: 'SMS delivered via MSG91 gateway.' });
+      } else {
+        await logMessageDispatch({
+          channel: 'sms',
+          recipientMobile: bill.customerMobile,
+          billId: bill.id,
+          billNumber: bill.billNumber,
+          messageBody: data.messagePreview || '',
+          status: 'failed',
+          errorMessage: data.error || 'Gateway not configured',
+        });
+        setStatusBanner({
+          type: 'info',
+          text: data.error || 'MSG91 SMS gateway is not configured in server secrets.',
+        });
+      }
+    } catch (err) {
+      setStatusBanner({ type: 'error', text: err instanceof Error ? err.message : 'SMS request failed.' });
+    } finally {
+      setSendingSms(false);
+    }
+  };
+
+  const handleCopyPublicLink = async () => {
+    await navigator.clipboard.writeText(publicUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-5 overflow-y-auto">
+      <div className="w-full max-w-4xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-auto">
+        {/* Header */}
+        <div className="no-print flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-[#0B1F44] text-white">
+          <div>
+            <h3 className="text-sm sm:text-base font-semibold">Invoice &amp; Receipt · {bill.billNumber}</h3>
+            <p className="text-xs text-slate-300 mt-0.5">
+              {bill.customerName} · {formatCurrency(bill.grandTotal)} ·{' '}
+              {isDue ? `DUE ${formatCurrency(bill.pendingBalance)}` : 'AMOUNT PAID'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Action Toolbar */}
+        <div className="no-print p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleShareBillImageWhatsApp}
+            disabled={sharingImage}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            {sharingImage ? 'Rendering PNG...' : 'Share Bill Image (WhatsApp)'}
+          </button>
+
+          {isDue && (
+            <button
+              onClick={handleSharePaymentLink}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              Share PhonePe / UPI Pay Link
+            </button>
+          )}
+
+          <button
+            onClick={handleSmsSend}
+            disabled={sendingSms}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF] disabled:opacity-50"
+          >
+            <Send className="w-3.5 h-3.5" />
+            SMS
+          </button>
+        </div>
+
+        {/* Public Invoice URL + Mode Switch */}
+        <div className="no-print px-4 sm:px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-slate-500">Customer Bill Link:</span>
+            <code className="font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded max-w-[210px] sm:max-w-[260px] truncate">
+              {publicUrl}
+            </code>
+            <button
+              onClick={handleCopyPublicLink}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedLink ? 'Copied' : 'Copy'}
+            </button>
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[#1D4ED8] dark:text-sky-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open
+            </a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+              <button
+                onClick={() => setViewMode('a4')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'a4' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
+                }`}
+              >
+                A4 Invoice
+              </button>
+              <button
+                onClick={() => setViewMode('thermal')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'thermal' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
+                }`}
+              >
+                Thermal Slip
+              </button>
+            </div>
+
+            {viewMode === 'thermal' && (
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <button
+                  onClick={() => setThermalWidth('58mm')}
+                  className={`px-2.5 py-1 text-xs font-mono rounded-md ${
+                    thermalWidth === '58mm' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
+                  }`}
+                >
+                  58mm
+                </button>
+                <button
+                  onClick={() => setThermalWidth('80mm')}
+                  className={`px-2.5 py-1 text-xs font-mono rounded-md ${
+                    thermalWidth === '80mm' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
+                  }`}
+                >
+                  80mm
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {statusBanner && (
+          <div
+            className={`no-print mx-4 sm:mx-5 mt-3 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 ${
+              statusBanner.type === 'success'
+                ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                : statusBanner.type === 'error'
+                ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                : 'bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4 shrink-0" />
+            <span>{statusBanner.text}</span>
+          </div>
+        )}
+
+        {/* Preview Area */}
+        <div className="p-3 sm:p-5 max-h-[60vh] overflow-y-auto bg-slate-100 dark:bg-slate-950 flex justify-center">
+          {viewMode === 'a4' ? (
+            <A4InvoicePreview
+              bill={bill}
+              items={items}
+              business={business}
+              settings={businessSettings}
+              products={products}
+              qrDataUrl={qrDataUrl}
+              upiId={upiSetting?.upiId}
+              upiPayUri={upiPayUri}
+              phonePeUri={phonePeUri}
+            />
+          ) : (
+            <ThermalReceiptPreview
+              bill={bill}
+              items={items}
+              business={business}
+              settings={businessSettings}
+              paperWidth={thermalWidth}
+              qrDataUrl={qrDataUrl}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const A4InvoicePreview: React.FC<{
+  bill: Bill;
+  items: BillItem[];
+  business: Business;
+  settings?: BusinessSettings | null;
+  products?: Product[];
+  qrDataUrl?: string;
+  upiId?: string;
+  upiPayUri?: string;
+  phonePeUri?: string;
+}> = ({ bill, items, business, settings, products = [], qrDataUrl, upiId, upiPayUri, phonePeUri }) => {
+  const isDue = bill.pendingBalance > 0 && bill.billStatus === 'active';
+  const verificationCode = useMemo(() => getBillVerificationBarcode(bill), [bill]);
+  const barcodeDataUrl = useMemo(() => generateCode128SvgDataUrl(verificationCode), [verificationCode]);
+
+  return (
+    <div className="print-only-container w-full max-w-[780px] bg-white text-slate-900 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-[#0B1F44] text-white px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          {business.logoUrl && settings?.showLogo !== false && (
+            <img
+              src={business.logoUrl}
+              alt={business.name}
+              referrerPolicy="no-referrer"
+              className="w-14 h-14 rounded-full object-cover bg-white p-0.5 shrink-0"
+            />
+          )}
+          <div>
+            <h2 className="text-lg font-bold tracking-tight">{business.name}</h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              {[
+                business.proprietor ? `Prop: ${business.proprietor}` : '',
+                business.phone ? `Ph: ${business.phone}` : '',
+                business.gstin ? `GSTIN: ${business.gstin}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+            {business.address && <p className="text-xs text-slate-300 mt-0.5">{business.address}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-bold tracking-wider uppercase text-sky-300">
+            {bill.totalTax > 0 ? 'Tax Invoice' : 'Invoice'}
+          </div>
+          <div className="font-mono text-base font-bold mt-0.5">{bill.billNumber}</div>
+          <div className="text-xs text-slate-300 mt-0.5">
+            {formatTimestamp(bill.createdAt).toLocaleString('en-IN')}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-6 space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pb-4 border-b border-slate-200">
+          <div>
+            <div className="text-xs font-semibold text-slate-500">Billed To</div>
+            <div className="text-sm font-bold text-slate-900 mt-1">{bill.customerName}</div>
+            {bill.customerMobile && <div className="text-xs text-slate-600 mt-0.5">Mobile: {bill.customerMobile}</div>}
+            {bill.customerAddress && <div className="text-xs text-slate-600 mt-0.5">{bill.customerAddress}</div>}
+          </div>
+          <div className="sm:text-right">
+            <div className="text-xs font-semibold text-slate-500">Payment Summary</div>
+            <div className={`text-sm font-bold mt-1 ${isDue ? 'text-amber-700' : 'text-emerald-700'}`}>
+              {isDue ? `DUE ${formatCurrency(bill.pendingBalance)}` : 'AMOUNT PAID'} · {bill.paymentMethod}
+            </div>
+            <div className="text-xs text-slate-600 mt-0.5">Billed by: {bill.createdByName}</div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs text-slate-500">
+                <th className="py-2.5 text-left font-semibold">#</th>
+                <th className="py-2.5 text-left font-semibold">Item &amp; Photo</th>
+                <th className="py-2.5 text-right font-semibold">Qty</th>
+                <th className="py-2.5 text-right font-semibold">Rate</th>
+                <th className="py-2.5 text-right font-semibold">Disc</th>
+                <th className="py-2.5 text-right font-semibold">Tax</th>
+                <th className="py-2.5 text-right font-semibold">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-mono text-xs">
+              {items.map((item, idx) => {
+                const matchedProd = products.find((p) => p.id === item.productId);
+                const imgSrc = item.imageUrl || resolveProductImage(matchedProd, item.productName);
+                return (
+                  <tr key={item.id || idx}>
+                    <td className="py-2.5 text-slate-500">{idx + 1}</td>
+                    <td className="py-2.5 font-sans font-medium text-slate-900">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={imgSrc}
+                          alt={item.productName}
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            const fallback = getDefaultProductImage(item.productName);
+                            if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                          }}
+                          className="w-10 h-10 rounded-lg object-cover border border-slate-200 bg-slate-50 shrink-0"
+                        />
+                        <div>
+                          <div>
+                            {item.productName}
+                            {item.variantLabel ? <span className="text-slate-500"> ({item.variantLabel})</span> : null}
+                          </div>
+                          {item.productCode && (
+                            <div className="text-[10px] font-mono text-slate-400">{item.productCode}</div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2.5 text-right tabular-nums">{item.quantity}</td>
+                    <td className="py-2.5 text-right tabular-nums">{item.unitPrice.toFixed(2)}</td>
+                    <td className="py-2.5 text-right tabular-nums">{item.discount.toFixed(2)}</td>
+                    <td className="py-2.5 text-right tabular-nums">
+                      {item.taxRate > 0 ? `${item.taxRate}% (${item.taxAmount.toFixed(2)})` : '0.00'}
+                    </td>
+                    <td className="py-2.5 text-right font-semibold tabular-nums">{item.lineTotal.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Conditional Payment QR Scanner if Due > 0, else AMOUNT PAID */}
+        <div className="flex flex-wrap items-start justify-between gap-6 pt-4 border-t border-slate-200">
+          <div className="flex-1 min-w-[240px]">
+            {isDue ? (
+              <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50 space-y-3">
+                <div className="flex items-center gap-3">
+                  {qrDataUrl && settings?.showQrCode !== false && (
+                    <img src={qrDataUrl} alt="UPI Payment QR" className="w-24 h-24 object-contain bg-white rounded-lg p-1 border border-amber-200" />
+                  )}
+                  <div className="text-xs">
+                    <div className="font-bold text-amber-900">Due Balance: {formatCurrency(bill.pendingBalance)}</div>
+                    <div className="text-amber-800 mt-0.5">Scan QR with PhonePe / GPay / Any UPI</div>
+                    {upiId && <div className="font-mono text-slate-700 mt-1">{upiId}</div>}
+                  </div>
+                </div>
+                {upiPayUri && (
+                  <div className="no-print flex flex-wrap gap-2">
+                    <a
+                      href={phonePeUri || upiPayUri}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5F259F] text-white text-xs font-semibold hover:opacity-90"
+                    >
+                      Pay via PhonePe
+                    </a>
+                    <a
+                      href={upiPayUri}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
+                    >
+                      Pay Any UPI App
+                    </a>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
+                <div>
+                  <div className="text-sm font-bold text-emerald-800">AMOUNT PAID</div>
+                  <div className="text-xs text-emerald-700 font-mono">
+                    {formatCurrency(bill.amountPaid)} · {bill.paymentMethod}
+                  </div>
+                  <div className="text-[11px] text-emerald-600 mt-0.5">Settled in full · No due remaining</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="w-full sm:w-64 space-y-2 text-xs font-mono">
+            <div className="flex justify-between text-slate-600">
+              <span className="font-sans">Subtotal</span>
+              <span className="tabular-nums">{formatCurrency(bill.subtotal)}</span>
+            </div>
+            {bill.discountAmount > 0 && (
+              <div className="flex justify-between text-emerald-700">
+                <span className="font-sans">Discount</span>
+                <span className="tabular-nums">-{formatCurrency(bill.discountAmount)}</span>
+              </div>
+            )}
+            {bill.totalTax > 0 && (
+              <>
+                <div className="flex justify-between text-slate-600">
+                  <span className="font-sans">Taxable Amount</span>
+                  <span className="tabular-nums">{formatCurrency(bill.taxableAmount)}</span>
+                </div>
+                {bill.gstType === 'CGST_SGST' ? (
+                  <>
+                    <div className="flex justify-between text-slate-600">
+                      <span className="font-sans">CGST</span>
+                      <span className="tabular-nums">{formatCurrency(bill.cgstAmount || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span className="font-sans">SGST</span>
+                      <span className="tabular-nums">{formatCurrency(bill.sgstAmount || 0)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-slate-600">
+                    <span className="font-sans">IGST</span>
+                    <span className="tabular-nums">{formatCurrency(bill.igstAmount || 0)}</span>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="flex justify-between text-base font-bold text-[#0B1F44] pt-2 border-t border-slate-200">
+              <span className="font-sans">Grand Total</span>
+              <span className="tabular-nums">{formatCurrency(bill.grandTotal)}</span>
+            </div>
+            <div className="flex justify-between text-emerald-700 font-semibold">
+              <span className="font-sans">Amount Paid</span>
+              <span className="tabular-nums">{formatCurrency(bill.amountPaid)}</span>
+            </div>
+            <div className={`flex justify-between font-semibold ${isDue ? 'text-rose-700' : 'text-slate-500'}`}>
+              <span className="font-sans">Balance Due</span>
+              <span className="tabular-nums">{formatCurrency(bill.pendingBalance)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Scannable Code128 Bill Verification Barcode */}
+        <div className="pt-4 border-t border-slate-200 flex flex-col items-center gap-1.5">
+          <img src={barcodeDataUrl} alt={`Verification Barcode ${verificationCode}`} className="h-14 w-auto object-contain" />
+          <div className="text-[11px] text-slate-500">
+            Verify Code: <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> ·{' '}
+            {settings?.footerMessage || 'Thank you for your business!'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const ThermalReceiptPreview: React.FC<{
+  bill: Bill;
+  items: BillItem[];
+  business: Business;
+  settings?: BusinessSettings | null;
+  paperWidth: '58mm' | '80mm';
+  qrDataUrl?: string;
+}> = ({ bill, items, business, settings, paperWidth, qrDataUrl }) => {
+  const widthClass = paperWidth === '58mm' ? 'w-[240px]' : 'w-[320px]';
+  const fontSizeClass =
+    settings?.fontSize === 'sm' ? 'text-[10px]' : settings?.fontSize === 'lg' ? 'text-[13px]' : 'text-[11px]';
+  const isDue = bill.pendingBalance > 0 && bill.billStatus === 'active';
+  const verificationCode = useMemo(() => getBillVerificationBarcode(bill), [bill]);
+  const barcodeDataUrl = useMemo(() => generateCode128SvgDataUrl(verificationCode), [verificationCode]);
+
+  return (
+    <div
+      className={`print-only-container ${widthClass} bg-white text-black font-mono ${fontSizeClass} p-4 rounded border border-slate-300 shadow-sm leading-snug`}
+    >
+      <div className="text-center space-y-1 pb-2 border-b border-dashed border-slate-400">
+        {business.logoUrl && (settings?.showThermalLogo ?? settings?.showLogo) !== false && (
+          <img
+            src={business.logoUrl}
+            alt={business.name}
+            referrerPolicy="no-referrer"
+            className="w-12 h-12 rounded-full mx-auto object-cover grayscale"
+          />
+        )}
+        <div className="font-bold text-xs uppercase">{business.name}</div>
+        {business.address && <div className="text-[10px]">{business.address}</div>}
+        {business.phone && <div>Ph: {business.phone}</div>}
+        {business.gstin && <div>GSTIN: {business.gstin}</div>}
+      </div>
+
+      <div className="py-2 space-y-0.5 border-b border-dashed border-slate-400">
+        <div className="flex justify-between">
+          <span>Bill:</span>
+          <span className="font-bold">{bill.billNumber}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Date:</span>
+          <span>{formatTimestamp(bill.createdAt).toLocaleString('en-IN')}</span>
+        </div>
+        <div>Cust: {bill.customerName}</div>
+        {bill.customerMobile && <div>Mob : {bill.customerMobile}</div>}
+      </div>
+
+      <div className="py-2 space-y-1.5 border-b border-dashed border-slate-400">
+        {items.map((item, idx) => (
+          <div key={item.id || idx}>
+            <div className="font-semibold break-words">
+              {item.productName}
+              {item.variantLabel ? ` (${item.variantLabel})` : ''}
+            </div>
+            <div className="flex justify-between tabular-nums">
+              <span>
+                {item.quantity} x {item.unitPrice.toFixed(2)}
+              </span>
+              <span>{item.lineTotal.toFixed(2)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="py-2 space-y-0.5 border-b border-dashed border-slate-400 tabular-nums">
+        <div className="flex justify-between">
+          <span>Subtotal</span>
+          <span>{bill.subtotal.toFixed(2)}</span>
+        </div>
+        {bill.discountAmount > 0 && (
+          <div className="flex justify-between">
+            <span>Discount</span>
+            <span>-{bill.discountAmount.toFixed(2)}</span>
+          </div>
+        )}
+        {bill.totalTax > 0 && (
+          <div className="flex justify-between">
+            <span>Tax ({bill.gstType})</span>
+            <span>{bill.totalTax.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex justify-between font-bold text-sm pt-1 border-t border-dotted border-slate-400">
+          <span>GRAND TOTAL</span>
+          <span>₹{bill.grandTotal.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between pt-1">
+          <span>Paid ({bill.paymentMethod})</span>
+          <span>₹{bill.amountPaid.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between font-semibold">
+          <span>Balance</span>
+          <span>₹{bill.pendingBalance.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {isDue && qrDataUrl && settings?.showQrCode !== false ? (
+        <div className="py-3 text-center border-b border-dashed border-slate-400">
+          <img src={qrDataUrl} alt="UPI QR" className="w-28 h-28 mx-auto object-contain" />
+          <div className="text-[10px] font-bold mt-1">Scan to Pay Due: ₹{bill.pendingBalance.toFixed(2)}</div>
+        </div>
+      ) : (
+        <div className="py-2.5 text-center border-b border-dashed border-slate-400 font-bold text-xs">
+          *** AMOUNT PAID ***
+        </div>
+      )}
+
+      <div className="py-2 text-center border-b border-dashed border-slate-400">
+        <img src={barcodeDataUrl} alt={`Verification Barcode ${verificationCode}`} className="h-11 mx-auto object-contain" />
+      </div>
+
+      <div className="pt-2 text-center text-[10px]">
+        {settings?.footerMessage || 'Thank you for shopping with us!'}
+      </div>
+    </div>
+  );
+};
+
