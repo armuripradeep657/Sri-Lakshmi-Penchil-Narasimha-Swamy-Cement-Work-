@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AtSign,
   Camera,
   CheckCircle2,
+  ExternalLink,
+  Eye,
+  EyeOff,
   KeyRound,
   Lock,
   Mail,
@@ -11,14 +15,23 @@ import {
   User,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { compressProfilePhoto, isValidSixDigitMpin } from '../lib/mpinCrypto';
+import { firebaseProjectId } from '../lib/firebase';
+import {
+  compressProfilePhoto,
+  isValidFourDigitMpin,
+  isValidSecretPassword,
+  isValidUsername,
+  normalizeUsername,
+} from '../lib/mpinCrypto';
 
 export const ProfilePage: React.FC = () => {
   const {
     userAccount,
     isAdmin,
+    emailPasswordDisabled,
     updateMyProfile,
     changeMyEmail,
+    setupMyUsernamePassword,
     setupMyMpin,
     disableMyMpin,
     lockWithMpin,
@@ -31,6 +44,15 @@ export const ProfilePage: React.FC = () => {
   const [photoDataUrl, setPhotoDataUrl] = useState(userAccount?.photoDataUrl || '');
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileNotice, setProfileNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  const [username, setUsername] = useState(
+    userAccount?.username || (isAdmin ? 'pradeep' : '')
+  );
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [savingCreds, setSavingCreds] = useState(false);
+  const [credsNotice, setCredsNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   const [newEmail, setNewEmail] = useState(userAccount?.email || '');
   const [savingEmail, setSavingEmail] = useState(false);
@@ -47,7 +69,12 @@ export const ProfilePage: React.FC = () => {
     setPhoneNumber(userAccount.phoneNumber || '');
     setPhotoDataUrl(userAccount.photoDataUrl || '');
     setNewEmail(userAccount.email || '');
-  }, [userAccount]);
+    if (userAccount.username) {
+      setUsername(userAccount.username);
+    } else if (isAdmin) {
+      setUsername((prev) => prev || 'pradeep');
+    }
+  }, [userAccount, isAdmin]);
 
   const handlePhotoPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -76,7 +103,7 @@ export const ProfilePage: React.FC = () => {
         phoneNumber,
         photoDataUrl,
       });
-      setProfileNotice({ type: 'ok', text: 'Staff profile & photo saved to database.' });
+      setProfileNotice({ type: 'ok', text: 'Profile & photo saved to database.' });
     } catch (err) {
       setProfileNotice({
         type: 'err',
@@ -84,6 +111,44 @@ export const ProfilePage: React.FC = () => {
       });
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const handleSaveUsernamePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCredsNotice(null);
+    const cleanU = normalizeUsername(username);
+    if (!isValidUsername(cleanU)) {
+      setCredsNotice({
+        type: 'err',
+        text: 'Username must be 3-40 characters using lowercase letters, numbers, dot (.), underscore (_), or hyphen (-).',
+      });
+      return;
+    }
+    if (!isValidSecretPassword(newPassword)) {
+      setCredsNotice({ type: 'err', text: 'Password must be at least 4 characters.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setCredsNotice({ type: 'err', text: 'Password and Confirm Password do not match.' });
+      return;
+    }
+    setSavingCreds(true);
+    try {
+      await setupMyUsernamePassword(cleanU, newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+      setCredsNotice({
+        type: 'ok',
+        text: `Username "@${cleanU}" and password saved! You can now sign in from any device (and offline once synced) without losing any data.`,
+      });
+    } catch (err) {
+      setCredsNotice({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to save username & password.',
+      });
+    } finally {
+      setSavingCreds(false);
     }
   };
 
@@ -110,8 +175,8 @@ export const ProfilePage: React.FC = () => {
   const handleSetupMpin = async (e: React.FormEvent) => {
     e.preventDefault();
     setMpinNotice(null);
-    if (!isValidSixDigitMpin(mpin)) {
-      setMpinNotice({ type: 'err', text: 'Enter exactly 6 numeric digits (0-9).' });
+    if (!isValidFourDigitMpin(mpin)) {
+      setMpinNotice({ type: 'err', text: 'Enter exactly 4 numeric digits (0-9).' });
       return;
     }
     if (mpin !== confirmMpin) {
@@ -125,12 +190,12 @@ export const ProfilePage: React.FC = () => {
       setConfirmMpin('');
       setMpinNotice({
         type: 'ok',
-        text: '6-digit fast MPIN saved! You can now log in with your 6-digit MPIN or Google.',
+        text: '4-digit fast MPIN saved! You can now unlock offline or online using your 4-digit MPIN.',
       });
     } catch (err) {
       setMpinNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to create 6-digit MPIN.',
+        text: err instanceof Error ? err.message : 'Failed to create 4-digit MPIN.',
       });
     } finally {
       setSavingMpin(false);
@@ -142,7 +207,7 @@ export const ProfilePage: React.FC = () => {
     setMpinNotice(null);
     try {
       await disableMyMpin();
-      setMpinNotice({ type: 'ok', text: '6-digit MPIN disabled for your account.' });
+      setMpinNotice({ type: 'ok', text: '4-digit MPIN disabled for your account.' });
     } catch (err) {
       setMpinNotice({
         type: 'err',
@@ -175,8 +240,13 @@ export const ProfilePage: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold truncate">{userAccount.displayName}</h2>
               <span className="px-2 py-0.5 rounded-md bg-white/15 text-[10px] font-bold uppercase tracking-wide">
-                {isAdmin ? 'Admin' : 'Staff'}
+                {isAdmin ? 'Owner / Admin' : 'Staff'}
               </span>
+              {userAccount.username && (
+                <span className="px-2 py-0.5 rounded-md bg-cyan-400/20 border border-cyan-300/40 text-cyan-100 text-[10px] font-mono font-bold">
+                  @{userAccount.username}
+                </span>
+              )}
             </div>
             <div className="text-xs text-blue-100 mt-1 flex items-center gap-1.5 truncate">
               <Mail className="w-3.5 h-3.5 shrink-0" />
@@ -197,13 +267,125 @@ export const ProfilePage: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-[#0B1F44] text-xs font-bold shadow hover:bg-blue-50 transition"
             >
               <Lock className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              Lock &amp; Use MPIN
+              Lock App
             </button>
           )}
         </div>
       </div>
 
-      {/* Staff Photo, Name & Phone Number */}
+      {/* Username & Password Login Anywhere */}
+      <form
+        onSubmit={handleSaveUsernamePassword}
+        className="bg-white border border-blue-100 rounded-2xl p-5 space-y-4 shadow-sm"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
+              <AtSign className="w-4 h-4 text-[#1D4ED8]" /> Username &amp; Password Login (Any Device &amp; Offline)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Set a unique username and password to sign into this same account from any phone or computer without losing any bills, products, or data.
+            </p>
+          </div>
+          <span
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0 ${
+              userAccount.passwordEnabled && userAccount.username
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : 'bg-amber-50 text-amber-700 border border-amber-200'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            {userAccount.username ? `@${userAccount.username}` : 'Not Set'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Username *</label>
+            <input
+              type="text"
+              required
+              value={username}
+              onChange={(e) => setUsername(normalizeUsername(e.target.value))}
+              placeholder={isAdmin ? 'pradeep' : 'staff.ravi'}
+              className="w-full px-3 py-2.5 font-mono rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {userAccount.passwordEnabled ? 'New Password *' : 'Create Password *'}
+            </label>
+            <div className="relative">
+              <input
+                type={showPwd ? 'text' : 'password'}
+                required
+                minLength={4}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Min 4 characters"
+                className="w-full pl-3 pr-9 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+              >
+                {showPwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Confirm Password *</label>
+            <input
+              type={showPwd ? 'text' : 'password'}
+              required
+              minLength={4}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter password"
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+            />
+          </div>
+        </div>
+
+        {credsNotice && (
+          <div
+            className={`p-3 rounded-xl text-xs font-medium space-y-2 ${
+              credsNotice.type === 'ok'
+                ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                : 'bg-rose-50 border border-rose-200 text-rose-700'
+            }`}
+          >
+            <div>{credsNotice.text}</div>
+            {emailPasswordDisabled && credsNotice.type === 'err' && (
+              <a
+                href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/providers`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-semibold"
+              >
+                Enable Email/Password in Firebase Console <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={savingCreds}
+            className="px-4 py-2.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-bold transition disabled:opacity-50"
+          >
+            {savingCreds
+              ? 'Securing Credentials...'
+              : userAccount.passwordEnabled
+              ? 'Update Username & Password'
+              : 'Save Username & Password'}
+          </button>
+        </div>
+      </form>
+
+      {/* Photo, Name & Phone Number */}
       <form
         onSubmit={handleSaveProfile}
         className="bg-white border border-blue-100 rounded-2xl p-5 space-y-4 shadow-sm"
@@ -211,10 +393,10 @@ export const ProfilePage: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-              <Camera className="w-4 h-4 text-[#1D4ED8]" /> Staff Photo, Name &amp; Phone Number
+              <Camera className="w-4 h-4 text-[#1D4ED8]" /> Profile Photo, Name &amp; Phone Number
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Visible on your staff portal, billing records, and MPIN quick login screen.
+              Visible on your portal, billing records, and quick login screen.
             </p>
           </div>
         </div>
@@ -224,7 +406,7 @@ export const ProfilePage: React.FC = () => {
             {photoDataUrl ? (
               <img
                 src={photoDataUrl}
-                alt="Staff Preview"
+                alt="Profile Preview"
                 className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-200 shadow-sm"
               />
             ) : (
@@ -249,7 +431,7 @@ export const ProfilePage: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF] transition"
               >
                 <Camera className="w-3.5 h-3.5" />
-                {photoDataUrl ? 'Change Staff Photo' : 'Upload Staff Photo'}
+                {photoDataUrl ? 'Change Photo' : 'Upload Photo'}
               </button>
               {photoDataUrl && (
                 <button
@@ -270,7 +452,7 @@ export const ProfilePage: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Staff Full Name *</label>
+            <label className="block font-semibold text-slate-700 mb-1">Full Name *</label>
             <input
               required
               type="text"
@@ -323,10 +505,10 @@ export const ProfilePage: React.FC = () => {
       >
         <div>
           <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-            <Mail className="w-4 h-4 text-[#1D4ED8]" /> Change Email Address
+            <Mail className="w-4 h-4 text-[#1D4ED8]" /> Change Google / Recovery Email Address
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Updates your profile email and authorizes the new Google email to carry over your photo, phone, and MPIN.
+            Updates your profile email and authorizes the new Google email to carry over your photo, phone, username, and MPIN.
           </p>
         </div>
 
@@ -361,7 +543,7 @@ export const ProfilePage: React.FC = () => {
         )}
       </form>
 
-      {/* 6-Digit MPIN Fast Login Setup */}
+      {/* 4-Digit MPIN Fast Login Setup */}
       <form
         onSubmit={handleSetupMpin}
         className="bg-white border border-blue-100 rounded-2xl p-5 space-y-4 shadow-sm"
@@ -369,10 +551,10 @@ export const ProfilePage: React.FC = () => {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#1D4ED8]" /> 6-Digit Fast Login MPIN
+              <KeyRound className="w-4 h-4 text-[#1D4ED8]" /> 4-Digit Fast Login MPIN
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Create a 6-digit numeric MPIN so you can unlock and sign in fast using your MPIN or Google anytime.
+              Create a 4-digit numeric MPIN so you can unlock and sign in fast (even offline) using your MPIN.
             </p>
           </div>
           <span
@@ -390,28 +572,28 @@ export const ProfilePage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              {userAccount.mpinEnabled ? 'New 6-Digit MPIN *' : 'Create 6-Digit MPIN *'}
+              {userAccount.mpinEnabled ? 'New 4-Digit MPIN *' : 'Create 4-Digit MPIN *'}
             </label>
             <input
               type="password"
               inputMode="numeric"
-              maxLength={6}
+              maxLength={4}
               value={mpin}
-              onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="••••••"
-              className="w-full px-3 py-2.5 font-mono tracking-[0.4em] text-center text-base rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+              onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              className="w-full px-3 py-2.5 font-mono tracking-[0.5em] text-center text-base rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Confirm 6-Digit MPIN *</label>
+            <label className="block font-semibold text-slate-700 mb-1">Confirm 4-Digit MPIN *</label>
             <input
               type="password"
               inputMode="numeric"
-              maxLength={6}
+              maxLength={4}
               value={confirmMpin}
-              onChange={(e) => setConfirmMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="••••••"
-              className="w-full px-3 py-2.5 font-mono tracking-[0.4em] text-center text-base rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+              onChange={(e) => setConfirmMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              className="w-full px-3 py-2.5 font-mono tracking-[0.5em] text-center text-base rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
         </div>
@@ -443,14 +625,14 @@ export const ProfilePage: React.FC = () => {
           )}
           <button
             type="submit"
-            disabled={savingMpin || mpin.length !== 6 || confirmMpin.length !== 6}
+            disabled={savingMpin || mpin.length !== 4 || confirmMpin.length !== 4}
             className="px-4 py-2.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-bold transition disabled:opacity-50"
           >
             {savingMpin
               ? 'Encrypting MPIN...'
               : userAccount.mpinEnabled
-              ? 'Update 6-Digit MPIN'
-              : 'Create 6-Digit MPIN'}
+              ? 'Update 4-Digit MPIN'
+              : 'Create 4-Digit MPIN'}
           </button>
         </div>
       </form>

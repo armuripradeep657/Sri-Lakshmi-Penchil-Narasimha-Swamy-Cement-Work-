@@ -1,15 +1,24 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import {
+  EmailAuthProvider,
   User,
+  getRedirectResult,
+  linkWithCredential,
   onAuthStateChanged,
+  reauthenticateWithPopup,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
+  updatePassword,
   browserLocalPersistence,
   browserSessionPersistence,
   setPersistence,
 } from 'firebase/auth';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocFromCache,
@@ -33,17 +42,33 @@ import {
   testConnection,
 } from '../lib/firebase';
 import {
+  findSavedPasswordProfileByIdentifier,
   generateMpinSalt,
+  getCachedUserAccount,
   getMpinLockUid,
+  getOfflineUnlockedUid,
   hashMpin,
-  isValidSixDigitMpin,
+  hashSecretPassword,
+  isValidSecretPassword,
+  isValidFourDigitMpin,
+  isValidUsername,
   loadSavedMpinProfiles,
+  loadSavedPasswordProfiles,
+  normalizeUsername,
   recordMpinAttempt,
+  removeCachedUserAccount,
   removeSavedMpinProfileByUid,
   SavedMpinProfile,
+  SavedPasswordProfile,
+  setCachedUserAccount,
   setMpinLockUid,
+  setOfflineUnlockedUid,
+  toFirebaseAuthPassword,
   upsertSavedMpinProfile,
+  upsertSavedPasswordProfile,
+  usernameToSyntheticEmail,
   verifyMpinHash,
+  verifySecretPassword,
 } from '../lib/mpinCrypto';
 import { BOOT_ADMIN_EMAIL, DEFAULT_BUSINESS_ID, ensureBusinessSeeded } from '../lib/seedData';
 import { DeviceSession, Language, ThemeMode, UserAccount, UserRole } from '../types/billing';
@@ -51,10 +76,13 @@ import { DeviceSession, Language, ThemeMode, UserAccount, UserRole } from '../ty
 interface AuthContextValue {
   firebaseUser: User | null;
   userAccount: UserAccount | null;
+  activeUid: string;
   currentDevice: DeviceSession | null;
   deviceRevoked: boolean;
   authReady: boolean;
   authError: string | null;
+  unauthorizedDomainHost: string | null;
+  emailPasswordDisabled: boolean;
   accessDeniedReason: string | null;
   role: UserRole | null;
   isAdmin: boolean;
@@ -64,7 +92,16 @@ interface AuthContextValue {
   toggleLanguage: () => void;
   mpinLocked: boolean;
   savedMpinProfiles: SavedMpinProfile[];
+  savedPasswordProfiles: SavedPasswordProfile[];
   signInWithGoogle: (rememberMe?: boolean, loginHint?: string) => Promise<void>;
+  signInWithGoogleRedirect: (rememberMe?: boolean, loginHint?: string) => Promise<void>;
+  signInWithUsernamePassword: (
+    usernameOrEmail: string,
+    password: string,
+    rememberMe?: boolean
+  ) => Promise<void>;
+  setupMyUsernamePassword: (username: string, password: string) => Promise<void>;
+  resetPasswordByUsernameOrEmail: (usernameOrEmail: string) => Promise<string>;
   signInWithMpin: (uid: string, pin: string) => Promise<void>;
   lockWithMpin: () => void;
   logout: () => Promise<void>;
@@ -81,6 +118,9 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const DEVICE_PING_TS_KEY = 'slp_dev_ping_ts';
+const DEVICE_PING_INTERVAL_MS = 30 * 60 * 1000;
 
 function detectDeviceMeta(): {
   deviceId: string;
@@ -112,17 +152,35 @@ function detectDeviceMeta(): {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [userAccount, setUserAccount] = useState<UserAccount | null>(null);
+  const [offlineUnlockedUidState, setOfflineUnlockedUidState] = useState<string | null>(() =>
+    getOfflineUnlockedUid()
+  );
+  const [userAccount, setUserAccount] = useState<UserAccount | null>(() => {
+    const offlineUid = getOfflineUnlockedUid();
+    if (offlineUid && !getMpinLockUid()) {
+      return getCachedUserAccount(offlineUid);
+    }
+    return null;
+  });
   const [currentDevice, setCurrentDevice] = useState<DeviceSession | null>(null);
   const [deviceRevoked, setDeviceRevoked] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
+  const [authReady, setAuthReady] = useState<boolean>(() => {
+    const offlineUid = getOfflineUnlockedUid();
+    return Boolean(offlineUid && !getMpinLockUid() && getCachedUserAccount(offlineUid));
+  });
   const [authError, setAuthError] = useState<string | null>(null);
+  const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
+  const [emailPasswordDisabled, setEmailPasswordDisabled] = useState(false);
   const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null);
   const [mpinLocked, setMpinLocked] = useState<boolean>(() => Boolean(getMpinLockUid()));
   const [savedMpinProfiles, setSavedMpinProfiles] = useState<SavedMpinProfile[]>(() =>
     loadSavedMpinProfiles()
   );
+  const [savedPasswordProfiles, setSavedPasswordProfiles] = useState<SavedPasswordProfile[]>(() =>
+    loadSavedPasswordProfiles()
+  );
 
+  const activeAuthUidRef = useRef<string | null>(null);
   const [theme] = useState<ThemeMode>('light');
 
   const [language, setLanguage] = useState<Language>(() => {
@@ -146,61 +204,153 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLanguage((prev) => (prev === 'en' ? 'te' : 'en'));
   }, []);
 
+  const formatGoogleAuthError = useCallback(
+    (err: unknown): { code: string; message: string; unauthorizedHost: string | null } => {
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err
+          ? String((err as { code?: unknown }).code || '')
+          : '';
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+
+      switch (code) {
+        case 'auth/unauthorized-domain':
+          return {
+            code,
+            unauthorizedHost: host || null,
+            message: host
+              ? `Domain "${host}" is not authorized in Firebase Authentication yet. Add it to Firebase Console → Authentication → Settings → Authorized domains.`
+              : 'This domain is not authorized in Firebase Authentication yet. Add it to Authorized domains in Firebase Console.',
+          };
+        case 'auth/popup-blocked':
+          return {
+            code,
+            unauthorizedHost: null,
+            message: 'Sign-in popup was blocked by your browser. Switching to Google Redirect Sign-In...',
+          };
+        case 'auth/popup-closed-by-user':
+        case 'auth/cancelled-popup-request':
+          return {
+            code,
+            unauthorizedHost: null,
+            message: 'Google sign-in popup was closed before finishing login. Please try again or use Username & Password.',
+          };
+        case 'auth/operation-not-allowed':
+          return {
+            code,
+            unauthorizedHost: null,
+            message: 'Sign-In provider is not enabled in Firebase Authentication providers.',
+          };
+        case 'auth/network-request-failed':
+          return {
+            code,
+            unauthorizedHost: null,
+            message: 'Network error during Google Sign-In. Check your internet connection or unlock offline with Username & Password / MPIN.',
+          };
+        default:
+          return {
+            code,
+            unauthorizedHost: null,
+            message: err instanceof Error ? err.message : 'Sign-In failed.',
+          };
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     setPersistence(auth, browserLocalPersistence).catch(() => {});
     if (navigator.onLine) {
       testConnection();
     }
-  }, []);
 
-  const syncSavedMpinFromAccount = useCallback((account: UserAccount | null, resetAttempts = false) => {
-    if (!account) return;
-    if (account.mpinEnabled && account.mpinHash && account.mpinSalt && account.status === 'active') {
-      const next = upsertSavedMpinProfile({
-        uid: account.uid,
-        email: account.email,
-        displayName: account.displayName,
-        phoneNumber: account.phoneNumber,
-        photoDataUrl: account.photoDataUrl,
-        role: account.role,
-        mpinHash: account.mpinHash,
-        mpinSalt: account.mpinSalt,
-        resetAttempts,
-      });
-      setSavedMpinProfiles(next);
-    } else if (account.mpinEnabled === false) {
-      const next = removeSavedMpinProfileByUid(account.uid);
-      setSavedMpinProfiles(next);
-      if (getMpinLockUid() === account.uid) {
+    let active = true;
+    getRedirectResult(auth)
+      .then((cred) => {
+        if (!active || !cred?.user) return;
+        setAuthError(null);
+        setUnauthorizedDomainHost(null);
         setMpinLockUid(null);
         setMpinLocked(false);
+        setOfflineUnlockedUid(null);
+        setOfflineUnlockedUidState(null);
+        const next = recordMpinAttempt(cred.user.uid, true);
+        setSavedMpinProfiles(next.profiles);
+      })
+      .catch((err) => {
+        if (!active) return;
+        const formatted = formatGoogleAuthError(err);
+        setUnauthorizedDomainHost(formatted.unauthorizedHost);
+        setAuthError(formatted.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [formatGoogleAuthError]);
+
+  const syncSavedCredentialsFromAccount = useCallback(
+    (account: UserAccount | null, resetAttempts = false) => {
+      if (!account) return;
+      if (account.mpinEnabled && account.mpinHash && account.mpinSalt && account.status === 'active') {
+        const next = upsertSavedMpinProfile({
+          uid: account.uid,
+          email: account.email,
+          username: account.username,
+          displayName: account.displayName,
+          phoneNumber: account.phoneNumber,
+          photoDataUrl: account.photoDataUrl,
+          role: account.role,
+          mpinHash: account.mpinHash,
+          mpinSalt: account.mpinSalt,
+          resetAttempts,
+        });
+        setSavedMpinProfiles(next);
+      } else if (account.mpinEnabled === false) {
+        const next = removeSavedMpinProfileByUid(account.uid);
+        setSavedMpinProfiles(next);
+        if (getMpinLockUid() === account.uid) {
+          setMpinLockUid(null);
+          setMpinLocked(false);
+        }
       }
-    }
-  }, []);
+
+      if (
+        account.passwordEnabled &&
+        account.username &&
+        account.passwordHash &&
+        account.passwordSalt &&
+        account.status === 'active'
+      ) {
+        const nextPw = upsertSavedPasswordProfile({
+          uid: account.uid,
+          username: account.username,
+          email: account.email,
+          authEmail: account.authEmail || account.email,
+          displayName: account.displayName,
+          phoneNumber: account.phoneNumber,
+          photoDataUrl: account.photoDataUrl,
+          role: account.role,
+          passwordHash: account.passwordHash,
+          passwordSalt: account.passwordSalt,
+        });
+        setSavedPasswordProfiles(nextPw);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let deviceUnsub: (() => void) | null = null;
     let userUnsub: (() => void) | null = null;
     let onlineHandler: (() => void) | null = null;
 
-    const getCachedUserAccount = (uid: string): UserAccount | null => {
-      try {
-        const raw = localStorage.getItem(`slp_cached_user_${uid}`);
-        return raw ? (JSON.parse(raw) as UserAccount) : null;
-      } catch {
-        return null;
-      }
-    };
-
-    const setCachedUserAccount = (uid: string, account: UserAccount) => {
-      try {
-        localStorage.setItem(`slp_cached_user_${uid}`, JSON.stringify(account));
-      } catch {
-        // Ignore quota errors
-      }
-    };
-
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // Avoid tearing down live listeners when Firebase refreshes the ID token for the same UID
+      if (user && activeAuthUidRef.current === user.uid && userUnsub) {
+        setFirebaseUser(user);
+        return;
+      }
+
       if (deviceUnsub) {
         deviceUnsub();
         deviceUnsub = null;
@@ -214,12 +364,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         onlineHandler = null;
       }
 
+      activeAuthUidRef.current = user?.uid || null;
       setFirebaseUser(user);
       setAuthError(null);
       setAccessDeniedReason(null);
       setDeviceRevoked(false);
 
       if (!user) {
+        const offlineUid = getOfflineUnlockedUid();
+        const cachedOffline = offlineUid ? getCachedUserAccount(offlineUid) : null;
+        if (cachedOffline && cachedOffline.status === 'active' && getMpinLockUid() !== offlineUid) {
+          setUserAccount(cachedOffline);
+          setOfflineUnlockedUidState(offlineUid);
+          setMpinLocked(false);
+          setAuthReady(true);
+          return;
+        }
         setUserAccount(null);
         setCurrentDevice(null);
         setMpinLocked(false);
@@ -227,25 +387,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      if (!user.email || !user.emailVerified) {
-        setAccessDeniedReason('Please sign in with a verified Google account.');
+      setOfflineUnlockedUid(null);
+      setOfflineUnlockedUidState(null);
+
+      const isPasswordProvider = user.providerData.some((p) => p.providerId === 'password');
+      if (!user.email || (!user.emailVerified && !isPasswordProvider)) {
+        setAccessDeniedReason('Please sign in with a verified Google account or authorized Username & Password.');
         setUserAccount(null);
         setAuthReady(true);
         return;
       }
 
       const emailLower = user.email.toLowerCase();
-      const isBoot = emailLower === BOOT_ADMIN_EMAIL;
+      const isBoot = Boolean(user.emailVerified && emailLower === BOOT_ADMIN_EMAIL);
       const userRef = doc(db, 'users', user.uid);
 
-      const syncDeviceInBackground = async (accountData: UserAccount) => {
+      const syncDeviceInBackground = async (accountData: UserAccount, force = false) => {
         if (!navigator.onLine) return;
         try {
-          if (isBoot) {
+          const lastPing = Number(localStorage.getItem(DEVICE_PING_TS_KEY) || '0');
+          const shouldThrottle = !force && Date.now() - lastPing < DEVICE_PING_INTERVAL_MS;
+
+          if (isBoot && !shouldThrottle) {
             await ensureBusinessSeeded(user.uid, emailLower, user.displayName || 'A. Prasad');
           }
+
           const { deviceId, deviceName, browser, deviceType } = detectDeviceMeta();
           const deviceRef = doc(db, 'devices', deviceId);
+
+          if (shouldThrottle) {
+            const cachedDev = await getDocFromCache(deviceRef).catch(() => null);
+            if (cachedDev && cachedDev.exists()) {
+              const devData = cachedDev.data() as DeviceSession;
+              if (devData.status === 'revoked') {
+                setDeviceRevoked(true);
+                setCurrentDevice(devData);
+              }
+              return;
+            }
+          }
+
           const existingDev = await getDoc(deviceRef);
           if (existingDev.exists()) {
             const devData = existingDev.data() as DeviceSession;
@@ -254,11 +435,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setCurrentDevice(devData);
               return;
             }
-            await updateDoc(deviceRef, {
-              deviceName,
-              browser,
-              lastActiveAt: serverTimestamp(),
-            });
+            if (!shouldThrottle) {
+              await updateDoc(deviceRef, {
+                deviceName,
+                browser,
+                lastActiveAt: serverTimestamp(),
+              });
+              localStorage.setItem(DEVICE_PING_TS_KEY, String(Date.now()));
+            }
           } else {
             const bizSnap = await getDoc(doc(db, 'businesses', accountData.businessId || DEFAULT_BUSINESS_ID));
             const bizData = bizSnap.exists() ? bizSnap.data() : null;
@@ -278,19 +462,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               lastActiveAt: serverTimestamp(),
               createdAt: serverTimestamp(),
             });
+            localStorage.setItem(DEVICE_PING_TS_KEY, String(Date.now()));
           }
         } catch (bgErr) {
-          console.warn('Background device sync skipped while offline:', bgErr);
+          console.warn('Background device sync skipped:', bgErr);
         }
       };
 
       try {
-        // Fast-path: restore cached account immediately if offline or already verified before
+        // Fast-path: restore cached account immediately so offline & repeat opens have zero spinner lag
         let accountData: UserAccount | null = getCachedUserAccount(user.uid);
         if (accountData && accountData.status === 'active') {
           setUserAccount(accountData);
-          syncSavedMpinFromAccount(accountData);
-          setMpinLocked(getMpinLockUid() === user.uid && Boolean(accountData.mpinEnabled));
+          syncSavedCredentialsFromAccount(accountData);
+          const lockedNow = getMpinLockUid() === user.uid;
+          setMpinLocked(lockedNow);
           setAuthReady(true);
         }
 
@@ -301,12 +487,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           let userSnap;
           try {
-            userSnap = await getDoc(userRef);
+            userSnap = await getDocFromCache(userRef);
+            if (!userSnap.exists() && navigator.onLine) {
+              userSnap = await getDoc(userRef);
+            }
           } catch {
-            userSnap = await getDocFromCache(userRef).catch(() => null);
+            userSnap = navigator.onLine ? await getDoc(userRef).catch(() => null) : null;
           }
 
-          if ((!userSnap || !userSnap.exists()) && !isBoot && navigator.onLine) {
+          if ((!userSnap || !userSnap.exists()) && navigator.onLine && !accountData) {
+            userSnap = await getDoc(userRef).catch(() => null);
+          }
+
+          if ((!userSnap || !userSnap.exists()) && !isBoot && user.emailVerified && navigator.onLine) {
             const invQ = query(
               collection(db, 'invites'),
               where('email', '==', emailLower),
@@ -351,7 +544,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             accountData = userSnap.data() as UserAccount;
             setCachedUserAccount(user.uid, accountData);
           } else if (!accountData && isBoot) {
-            // Boot admin offline safety fallback
             accountData = {
               uid: user.uid,
               email: emailLower,
@@ -371,7 +563,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!accountData) {
           setAccessDeniedReason(
-            `Account "${emailLower}" is not yet authorized for Sri Lakshmi Penchil Narasimha Swamy Cement Work. Ask the business administrator (${BOOT_ADMIN_EMAIL}) to invite your email under User Management.`
+            `Account "${emailLower}" is not yet authorized for Sri Lakshmi Penchil Narasimha Swamy Cement Work. Ask the business administrator (${BOOT_ADMIN_EMAIL}) to create your Username & Password or invite your email under User Management.`
           );
           setUserAccount(null);
           setAuthReady(true);
@@ -388,8 +580,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         setUserAccount(accountData);
-        syncSavedMpinFromAccount(accountData);
-        setMpinLocked(getMpinLockUid() === user.uid && Boolean(accountData.mpinEnabled));
+        syncSavedCredentialsFromAccount(accountData);
+        setMpinLocked(getMpinLockUid() === user.uid);
         setAuthReady(true);
 
         // Live listener on user account so disabling/revoking or profile updates take effect in real time
@@ -403,12 +595,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             const next = snap.data() as UserAccount;
             setCachedUserAccount(user.uid, next);
-            syncSavedMpinFromAccount(next);
+            syncSavedCredentialsFromAccount(next);
             setUserAccount((prev) => {
               if (
                 prev &&
                 prev.uid === next.uid &&
                 prev.email === next.email &&
+                prev.authEmail === next.authEmail &&
+                prev.username === next.username &&
                 prev.role === next.role &&
                 prev.status === next.status &&
                 prev.businessId === next.businessId &&
@@ -417,6 +611,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 prev.photoDataUrl === next.photoDataUrl &&
                 prev.mpinEnabled === next.mpinEnabled &&
                 prev.mpinHash === next.mpinHash &&
+                prev.passwordEnabled === next.passwordEnabled &&
+                prev.passwordHash === next.passwordHash &&
                 prev.canEditBills === next.canEditBills &&
                 prev.canCancelBills === next.canCancelBills &&
                 prev.canViewReports === next.canViewReports &&
@@ -438,8 +634,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         );
 
-        // Sync device session silently in background (never blocks offline app open)
-        void syncDeviceInBackground(accountData);
+        // Sync device session silently in background (throttled every 30 mins)
+        void syncDeviceInBackground(accountData, false);
 
         const { deviceId } = detectDeviceMeta();
         deviceUnsub = onSnapshot(
@@ -459,7 +655,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         onlineHandler = () => {
           if (accountData) {
-            void syncDeviceInBackground(accountData);
+            void syncDeviceInBackground(accountData, false);
           }
         };
         window.addEventListener('online', onlineHandler);
@@ -467,8 +663,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const cached = getCachedUserAccount(user.uid);
         if (cached && cached.status === 'active') {
           setUserAccount(cached);
-          syncSavedMpinFromAccount(cached);
-          setMpinLocked(getMpinLockUid() === user.uid && Boolean(cached.mpinEnabled));
+          syncSavedCredentialsFromAccount(cached);
+          setMpinLocked(getMpinLockUid() === user.uid);
           setAuthReady(true);
         } else {
           setAuthError(err instanceof Error ? err.message : 'Failed to initialize user session.');
@@ -483,56 +679,392 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (userUnsub) userUnsub();
       if (onlineHandler) window.removeEventListener('online', onlineHandler);
     };
-  }, [syncSavedMpinFromAccount]);
+  }, [syncSavedCredentialsFromAccount]);
 
-  const signInWithGoogle = useCallback(async (rememberMe = true, loginHint?: string) => {
-    setAuthError(null);
-    try {
+  const signInWithGoogleRedirect = useCallback(
+    async (rememberMe = true, loginHint?: string) => {
+      setAuthError(null);
+      setUnauthorizedDomainHost(null);
+      setEmailPasswordDisabled(false);
+      try {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+        if (loginHint) {
+          googleProvider.setCustomParameters({ prompt: 'select_account', login_hint: loginHint });
+        } else {
+          googleProvider.setCustomParameters({ prompt: 'select_account' });
+        }
+        await signInWithRedirect(auth, googleProvider);
+      } catch (err) {
+        const formatted = formatGoogleAuthError(err);
+        setUnauthorizedDomainHost(formatted.unauthorizedHost);
+        setAuthError(formatted.message);
+        throw err;
+      }
+    },
+    [formatGoogleAuthError]
+  );
+
+  const signInWithGoogle = useCallback(
+    async (rememberMe = true, loginHint?: string) => {
+      setAuthError(null);
+      setUnauthorizedDomainHost(null);
+      setEmailPasswordDisabled(false);
+      if (!navigator.onLine) {
+        const offlineMsg =
+          'No internet connection for Google Sign-In. Use Username & Password or 4-Digit MPIN to unlock offline.';
+        setAuthError(offlineMsg);
+        throw new Error(offlineMsg);
+      }
+      try {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+        if (loginHint) {
+          googleProvider.setCustomParameters({ prompt: 'select_account', login_hint: loginHint });
+        } else {
+          googleProvider.setCustomParameters({ prompt: 'select_account' });
+        }
+        const cred = await signInWithPopup(auth, googleProvider);
+        setMpinLockUid(null);
+        setMpinLocked(false);
+        setOfflineUnlockedUid(null);
+        setOfflineUnlockedUidState(null);
+        if (cred.user?.uid) {
+          const next = recordMpinAttempt(cred.user.uid, true);
+          setSavedMpinProfiles(next.profiles);
+        }
+      } catch (err) {
+        const formatted = formatGoogleAuthError(err);
+        if (
+          formatted.code === 'auth/popup-blocked' ||
+          formatted.code === 'auth/operation-not-supported-in-this-environment'
+        ) {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        }
+        setUnauthorizedDomainHost(formatted.unauthorizedHost);
+        setAuthError(formatted.message);
+        throw err;
+      }
+    },
+    [formatGoogleAuthError]
+  );
+
+  const signInWithUsernamePassword = useCallback(
+    async (usernameOrEmail: string, password: string, rememberMe = true) => {
+      setAuthError(null);
+      setUnauthorizedDomainHost(null);
+      setEmailPasswordDisabled(false);
+
+      const identifier = normalizeUsername(usernameOrEmail);
+      if (!identifier) {
+        throw new Error('Enter your username or email.');
+      }
+      if (!isValidSecretPassword(password)) {
+        throw new Error('Password must be at least 4 characters.');
+      }
+
+      // Offline authentication path using locally verified PBKDF2-SHA256 credential profiles
+      if (!navigator.onLine) {
+        const savedProfile = findSavedPasswordProfileByIdentifier(identifier);
+        if (!savedProfile) {
+          throw new Error(
+            'This username has not been synced to this device yet. Connect to the internet once to sign in, then offline login works automatically.'
+          );
+        }
+        const ok = await verifySecretPassword(password, savedProfile.passwordSalt, savedProfile.passwordHash);
+        if (!ok) {
+          throw new Error('Incorrect username or password.');
+        }
+        const cachedAccount = getCachedUserAccount(savedProfile.uid);
+        if (!cachedAccount || cachedAccount.status !== 'active') {
+          throw new Error('Cached business account unavailable or inactive on this device.');
+        }
+
+        // If Firebase already holds this user's session in IndexedDB, just unlock immediately
+        if (firebaseUser?.uid === savedProfile.uid) {
+          setMpinLockUid(null);
+          setMpinLocked(false);
+          setOfflineUnlockedUid(null);
+          setOfflineUnlockedUidState(null);
+          return;
+        }
+
+        setMpinLockUid(null);
+        setMpinLocked(false);
+        setOfflineUnlockedUid(savedProfile.uid);
+        setOfflineUnlockedUidState(savedProfile.uid);
+        setUserAccount(cachedAccount);
+        setAuthReady(true);
+        return;
+      }
+
+      // Online Firebase Authentication path (works anywhere with zero data loss)
       await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
-      if (loginHint) {
-        googleProvider.setCustomParameters({ prompt: 'select_account', login_hint: loginHint });
-      } else {
-        googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+      let resolvedAuthEmail = '';
+      const savedLocal = findSavedPasswordProfileByIdentifier(identifier);
+
+      if (isValidUsername(identifier)) {
+        const idxSnap = await getDoc(doc(db, 'usernameIndex', identifier)).catch(() => null);
+        if (idxSnap && idxSnap.exists()) {
+          const idxData = idxSnap.data() as { authEmail?: string; active?: boolean };
+          if (idxData.active === false) {
+            throw new Error('This username has been disabled by the administrator.');
+          }
+          resolvedAuthEmail = (idxData.authEmail || '').toLowerCase();
+        }
       }
-      const cred = await signInWithPopup(auth, googleProvider);
-      setMpinLockUid(null);
-      setMpinLocked(false);
-      if (cred.user?.uid) {
-        const next = recordMpinAttempt(cred.user.uid, true);
-        setSavedMpinProfiles(next.profiles);
+
+      if (!resolvedAuthEmail) {
+        if (identifier.includes('@')) {
+          resolvedAuthEmail = identifier;
+        } else if (savedLocal?.authEmail) {
+          resolvedAuthEmail = savedLocal.authEmail.toLowerCase();
+        } else {
+          throw new Error(
+            `Username "${identifier}" not found. Check spelling or ask the business owner to set up your username.`
+          );
+        }
       }
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Google Sign-In failed.');
-      throw err;
+
+      try {
+        // Fast unlock if locked on the exact same Firebase user and password matches
+        if (firebaseUser && userAccount && savedLocal?.uid === firebaseUser.uid) {
+          const matchesLocal = await verifySecretPassword(
+            password,
+            savedLocal.passwordSalt,
+            savedLocal.passwordHash
+          );
+          if (matchesLocal) {
+            setMpinLockUid(null);
+            setMpinLocked(false);
+            setOfflineUnlockedUid(null);
+            setOfflineUnlockedUidState(null);
+            return;
+          }
+        }
+
+        const firebasePwd = toFirebaseAuthPassword(password);
+        const cred = await signInWithEmailAndPassword(auth, resolvedAuthEmail, firebasePwd);
+        setMpinLockUid(null);
+        setMpinLocked(false);
+        setOfflineUnlockedUid(null);
+        setOfflineUnlockedUidState(null);
+        if (cred.user?.uid) {
+          const next = recordMpinAttempt(cred.user.uid, true);
+          setSavedMpinProfiles(next.profiles);
+        }
+      } catch (err) {
+        const code =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code || '')
+            : '';
+        if (code === 'auth/operation-not-allowed') {
+          setEmailPasswordDisabled(true);
+          const msg =
+            'Email/Password sign-in needs to be enabled once in Firebase Console → Authentication → Sign-in method → Email/Password.';
+          setAuthError(msg);
+          throw new Error(msg);
+        }
+        if (
+          code === 'auth/wrong-password' ||
+          code === 'auth/invalid-credential' ||
+          code === 'auth/user-not-found' ||
+          code === 'auth/invalid-email'
+        ) {
+          const msg = 'Incorrect username or password.';
+          setAuthError(msg);
+          throw new Error(msg);
+        }
+        if (code === 'auth/too-many-requests') {
+          const msg = 'Too many failed sign-in attempts. Please wait a minute and retry.';
+          setAuthError(msg);
+          throw new Error(msg);
+        }
+        const msg = err instanceof Error ? err.message : 'Sign-in failed.';
+        setAuthError(msg);
+        throw new Error(msg);
+      }
+    },
+    [firebaseUser, userAccount]
+  );
+
+  const setupMyUsernamePassword = useCallback(
+    async (usernameRaw: string, passwordInput: string) => {
+      if (!firebaseUser || !userAccount) {
+        throw new Error('Please connect to the internet and sign in to set Username & Password.');
+      }
+      if (!navigator.onLine) {
+        throw new Error('Internet connection required to create or update Username & Password.');
+      }
+      const username = normalizeUsername(usernameRaw);
+      if (!isValidUsername(username)) {
+        throw new Error('Username must be 3-40 characters (letters, numbers, dot, underscore, or hyphen).');
+      }
+      if (!isValidSecretPassword(passwordInput)) {
+        throw new Error('Password must be at least 4 characters long.');
+      }
+
+      const existingIdx = await getDoc(doc(db, 'usernameIndex', username));
+      if (existingIdx.exists()) {
+        const idxData = existingIdx.data() as { uid?: string; active?: boolean };
+        if (idxData.uid !== firebaseUser.uid && idxData.active !== false) {
+          throw new Error(`Username "@${username}" is already taken by another account.`);
+        }
+      }
+
+      const authEmail = (
+        userAccount.authEmail ||
+        firebaseUser.email ||
+        usernameToSyntheticEmail(username)
+      ).toLowerCase();
+
+      const firebasePwd = toFirebaseAuthPassword(passwordInput);
+      const hasPasswordProvider = firebaseUser.providerData.some((p) => p.providerId === 'password');
+
+      const applyFirebasePassword = async () => {
+        if (hasPasswordProvider) {
+          await updatePassword(firebaseUser, firebasePwd);
+        } else {
+          try {
+            await linkWithCredential(firebaseUser, EmailAuthProvider.credential(authEmail, firebasePwd));
+          } catch (linkErr) {
+            const linkCode =
+              typeof linkErr === 'object' && linkErr !== null && 'code' in linkErr
+                ? String((linkErr as { code?: unknown }).code || '')
+                : '';
+            if (linkCode === 'auth/provider-already-linked') {
+              await updatePassword(firebaseUser, firebasePwd);
+            } else {
+              throw linkErr;
+            }
+          }
+        }
+      };
+
+      try {
+        await applyFirebasePassword();
+      } catch (err) {
+        const code =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code || '')
+            : '';
+        if (code === 'auth/requires-recent-login') {
+          if (firebaseUser.providerData.some((p) => p.providerId === 'google.com')) {
+            await reauthenticateWithPopup(firebaseUser, googleProvider);
+            await applyFirebasePassword();
+          } else {
+            throw new Error('For security, please sign out and sign back in, then update your password.');
+          }
+        } else if (code === 'auth/operation-not-allowed') {
+          setEmailPasswordDisabled(true);
+          throw new Error(
+            'Enable Email/Password in Firebase Console → Authentication → Sign-in method so you can log in with Username & Password from any device.'
+          );
+        } else {
+          throw err;
+        }
+      }
+
+      const salt = generateMpinSalt();
+      const hash = await hashSecretPassword(passwordInput, salt);
+
+      if (userAccount.username && userAccount.username !== username) {
+        await deleteDoc(doc(db, 'usernameIndex', userAccount.username)).catch(() => {});
+      }
+
+      await setDoc(doc(db, 'usernameIndex', username), {
+        username,
+        authEmail,
+        uid: firebaseUser.uid,
+        businessId: userAccount.businessId || DEFAULT_BUSINESS_ID,
+        active: true,
+        createdAt: existingIdx.exists() ? existingIdx.data().createdAt || serverTimestamp() : serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      await updateDoc(doc(db, 'users', firebaseUser.uid), {
+        username,
+        authEmail,
+        passwordHash: hash,
+        passwordSalt: salt,
+        passwordEnabled: true,
+        passwordUpdatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      const nextAccount: UserAccount = {
+        ...userAccount,
+        username,
+        authEmail,
+        passwordHash: hash,
+        passwordSalt: salt,
+        passwordEnabled: true,
+      };
+      setUserAccount(nextAccount);
+      setCachedUserAccount(firebaseUser.uid, nextAccount);
+      syncSavedCredentialsFromAccount(nextAccount);
+    },
+    [firebaseUser, userAccount, syncSavedCredentialsFromAccount]
+  );
+
+  const resetPasswordByUsernameOrEmail = useCallback(async (usernameOrEmail: string): Promise<string> => {
+    if (!navigator.onLine) {
+      throw new Error('Connect to the internet to send a password reset email.');
     }
+    const clean = normalizeUsername(usernameOrEmail);
+    if (!clean) throw new Error('Enter your username or email address first.');
+
+    let targetEmail = '';
+    if (isValidUsername(clean)) {
+      const idxSnap = await getDoc(doc(db, 'usernameIndex', clean)).catch(() => null);
+      if (idxSnap && idxSnap.exists()) {
+        targetEmail = String(idxSnap.data().authEmail || '').toLowerCase();
+      }
+    }
+    if (!targetEmail && clean.includes('@')) {
+      targetEmail = clean;
+    }
+    if (!targetEmail) {
+      throw new Error('Username or email not found.');
+    }
+    if (targetEmail.endsWith('@slpstaff.local')) {
+      throw new Error(
+        'This staff login uses a store username without a personal email. Ask the business owner in User Management to set a new password.'
+      );
+    }
+    await sendPasswordResetEmail(auth, targetEmail);
+    return targetEmail;
   }, []);
 
   const signInWithMpin = useCallback(
     async (uid: string, pin: string) => {
       setAuthError(null);
-      if (!isValidSixDigitMpin(pin)) {
-        throw new Error('Please enter all 6 numeric digits.');
+      if (!isValidFourDigitMpin(pin)) {
+        throw new Error('Please enter all 4 numeric digits.');
       }
 
       const profiles = loadSavedMpinProfiles();
       const target = profiles.find((p) => p.uid === uid);
 
-      // Prefer live Firestore userAccount hash if same uid is active in session
       const expectedHash =
-        firebaseUser?.uid === uid && userAccount?.mpinHash ? userAccount.mpinHash : target?.mpinHash;
+        (firebaseUser?.uid === uid || offlineUnlockedUidState === uid) && userAccount?.mpinHash
+          ? userAccount.mpinHash
+          : target?.mpinHash;
       const expectedSalt =
-        firebaseUser?.uid === uid && userAccount?.mpinSalt ? userAccount.mpinSalt : target?.mpinSalt;
+        (firebaseUser?.uid === uid || offlineUnlockedUidState === uid) && userAccount?.mpinSalt
+          ? userAccount.mpinSalt
+          : target?.mpinSalt;
 
-      if (!target && !(firebaseUser?.uid === uid && userAccount?.mpinEnabled)) {
-        throw new Error('MPIN is not configured for this device yet. Sign in with Google first.');
+      if (!target && !((firebaseUser?.uid === uid || offlineUnlockedUidState === uid) && userAccount?.mpinEnabled)) {
+        throw new Error('MPIN is not configured for this device yet. Sign in first.');
       }
 
       if (target?.lockedUntilGoogle) {
-        throw new Error('MPIN temporarily locked after 5 failed attempts. Sign in with Google to unlock.');
+        throw new Error('MPIN temporarily locked after 5 failed attempts. Sign in with Username & Password or Google to unlock.');
       }
 
       if (!expectedHash || !expectedSalt) {
-        throw new Error('MPIN credentials missing. Please sign in with Google.');
+        throw new Error('MPIN credentials missing. Sign in with Username & Password or Google.');
       }
 
       const ok = await verifyMpinHash(pin, expectedSalt, expectedHash);
@@ -540,64 +1072,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const attemptResult = recordMpinAttempt(uid, false);
         setSavedMpinProfiles(attemptResult.profiles);
         if (attemptResult.locked) {
-          throw new Error('Too many wrong attempts. Please sign in with Google to unlock MPIN.');
+          throw new Error('Too many wrong attempts. Use Username & Password or Google to unlock.');
         }
-        throw new Error(`Incorrect 6-digit MPIN. ${attemptResult.remainingAttempts} attempt(s) left.`);
+        throw new Error(`Incorrect 4-digit MPIN. ${attemptResult.remainingAttempts} attempt(s) left.`);
       }
 
       const attemptResult = recordMpinAttempt(uid, true);
       setSavedMpinProfiles(attemptResult.profiles);
 
-      // Fast local/offline unlock when the Firebase session matches this staff/admin user
+      // Fast local/offline unlock when Firebase session matches OR cached user exists offline
       if (firebaseUser?.uid === uid && userAccount?.status === 'active') {
         setMpinLockUid(null);
         setMpinLocked(false);
         return;
       }
 
-      // If no active Firebase session or switching to a different staff user on this shared device:
-      // verify Google identity cleanly with login_hint
+      const cached = getCachedUserAccount(uid);
+      if (cached && cached.status === 'active' && (!navigator.onLine || target?.email?.endsWith('@slpstaff.local'))) {
+        setMpinLockUid(null);
+        setMpinLocked(false);
+        setOfflineUnlockedUid(uid);
+        setOfflineUnlockedUidState(uid);
+        setUserAccount(cached);
+        setAuthReady(true);
+        return;
+      }
+
       if (!navigator.onLine) {
         throw new Error(
-          'Please connect to the internet once to complete Google verification for this account.'
+          'Please connect to the internet once to complete account verification on this device.'
         );
       }
-      await signInWithGoogle(true, target?.email);
+
+      if (target?.email && !target.email.endsWith('@slpstaff.local')) {
+        await signInWithGoogle(true, target.email);
+        return;
+      }
+
+      throw new Error('Please sign in once with your Username & Password to activate MPIN on this device.');
     },
-    [firebaseUser?.uid, userAccount, signInWithGoogle]
+    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, signInWithGoogle]
   );
 
   const lockWithMpin = useCallback(() => {
-    if (!firebaseUser?.uid || !userAccount?.mpinEnabled) return;
-    setMpinLockUid(firebaseUser.uid);
+    const uid = firebaseUser?.uid || offlineUnlockedUidState;
+    if (!uid) return;
+    setMpinLockUid(uid);
     setMpinLocked(true);
-  }, [firebaseUser?.uid, userAccount?.mpinEnabled]);
+  }, [firebaseUser?.uid, offlineUnlockedUidState]);
 
   const fullSignOut = useCallback(async () => {
-    if (firebaseUser?.uid) {
-      try {
-        localStorage.removeItem(`slp_cached_user_${firebaseUser.uid}`);
-      } catch {
-        // ignore
-      }
+    const uid = firebaseUser?.uid || offlineUnlockedUidState;
+    if (uid) {
+      removeCachedUserAccount(uid);
     }
     setMpinLockUid(null);
     setMpinLocked(false);
+    setOfflineUnlockedUid(null);
+    setOfflineUnlockedUidState(null);
+    activeAuthUidRef.current = null;
     await signOut(auth);
-  }, [firebaseUser?.uid]);
+  }, [firebaseUser?.uid, offlineUnlockedUidState]);
 
   const logout = useCallback(async () => {
-    if (firebaseUser?.uid && userAccount?.mpinEnabled) {
-      setMpinLockUid(firebaseUser.uid);
+    const uid = firebaseUser?.uid || offlineUnlockedUidState;
+    if (uid && (userAccount?.mpinEnabled || userAccount?.passwordEnabled || !navigator.onLine)) {
+      setMpinLockUid(uid);
       setMpinLocked(true);
       return;
     }
     await fullSignOut();
-  }, [firebaseUser?.uid, userAccount?.mpinEnabled, fullSignOut]);
+  }, [firebaseUser?.uid, offlineUnlockedUidState, userAccount?.mpinEnabled, userAccount?.passwordEnabled, fullSignOut]);
 
   const updateMyProfile = useCallback(
     async (updates: { displayName: string; phoneNumber?: string; photoDataUrl?: string }) => {
-      if (!firebaseUser || !userAccount) {
+      const uid = firebaseUser?.uid || offlineUnlockedUidState;
+      if (!uid || !userAccount) {
         throw new Error('Sign in required to update profile.');
       }
       const cleanName = updates.displayName.trim().slice(0, 120);
@@ -606,7 +1156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cleanPhoto = (updates.photoDataUrl || '').slice(0, 120000);
 
       await commitWithOfflineSupport(
-        updateDoc(doc(db, 'users', firebaseUser.uid), {
+        updateDoc(doc(db, 'users', uid), {
           displayName: cleanName,
           phoneNumber: cleanPhone,
           photoDataUrl: cleanPhoto,
@@ -621,20 +1171,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         photoDataUrl: cleanPhoto,
       };
       setUserAccount(nextAccount);
-      try {
-        localStorage.setItem(`slp_cached_user_${firebaseUser.uid}`, JSON.stringify(nextAccount));
-      } catch {
-        // ignore
-      }
-      syncSavedMpinFromAccount(nextAccount);
+      setCachedUserAccount(uid, nextAccount);
+      syncSavedCredentialsFromAccount(nextAccount);
     },
-    [firebaseUser, userAccount, syncSavedMpinFromAccount]
+    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount]
   );
 
   const changeMyEmail = useCallback(
     async (newEmailRaw: string) => {
-      if (!firebaseUser || !userAccount) {
-        throw new Error('Sign in required to change email.');
+      const uid = firebaseUser?.uid;
+      if (!uid || !userAccount) {
+        throw new Error('Online sign-in required to change authorized email.');
       }
       if (!navigator.onLine) {
         throw new Error('Please connect to the internet to update your authorized email.');
@@ -680,12 +1227,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(userAccount.mpinHash ? { mpinHash: userAccount.mpinHash } : {}),
         ...(userAccount.mpinSalt ? { mpinSalt: userAccount.mpinSalt } : {}),
         ...(userAccount.mpinEnabled !== undefined ? { mpinEnabled: Boolean(userAccount.mpinEnabled) } : {}),
-        previousUid: firebaseUser.uid,
+        previousUid: uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
-      await updateDoc(doc(db, 'users', firebaseUser.uid), {
+      await updateDoc(doc(db, 'users', uid), {
         email: cleanEmail,
         updatedAt: serverTimestamp(),
       });
@@ -695,29 +1242,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
       };
       setUserAccount(nextAccount);
-      try {
-        localStorage.setItem(`slp_cached_user_${firebaseUser.uid}`, JSON.stringify(nextAccount));
-      } catch {
-        // ignore
-      }
-      syncSavedMpinFromAccount(nextAccount);
+      setCachedUserAccount(uid, nextAccount);
+      syncSavedCredentialsFromAccount(nextAccount);
     },
-    [firebaseUser, userAccount, syncSavedMpinFromAccount]
+    [firebaseUser?.uid, userAccount, syncSavedCredentialsFromAccount]
   );
 
   const setupMyMpin = useCallback(
     async (pin: string) => {
-      if (!firebaseUser || !userAccount) {
+      const uid = firebaseUser?.uid || offlineUnlockedUidState;
+      if (!uid || !userAccount) {
         throw new Error('Sign in required to create MPIN.');
       }
-      if (!isValidSixDigitMpin(pin)) {
-        throw new Error('MPIN must be exactly 6 numeric digits.');
+      if (!isValidFourDigitMpin(pin)) {
+        throw new Error('MPIN must be exactly 4 numeric digits.');
       }
       const salt = generateMpinSalt();
       const hash = await hashMpin(pin, salt);
 
       await commitWithOfflineSupport(
-        updateDoc(doc(db, 'users', firebaseUser.uid), {
+        updateDoc(doc(db, 'users', uid), {
           mpinHash: hash,
           mpinSalt: salt,
           mpinEnabled: true,
@@ -733,20 +1277,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mpinEnabled: true,
       };
       setUserAccount(nextAccount);
-      try {
-        localStorage.setItem(`slp_cached_user_${firebaseUser.uid}`, JSON.stringify(nextAccount));
-      } catch {
-        // ignore
-      }
-      syncSavedMpinFromAccount(nextAccount, true);
+      setCachedUserAccount(uid, nextAccount);
+      syncSavedCredentialsFromAccount(nextAccount, true);
     },
-    [firebaseUser, userAccount, syncSavedMpinFromAccount]
+    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount]
   );
 
   const disableMyMpin = useCallback(async () => {
-    if (!firebaseUser || !userAccount) return;
+    const uid = firebaseUser?.uid || offlineUnlockedUidState;
+    if (!uid || !userAccount) return;
     await commitWithOfflineSupport(
-      updateDoc(doc(db, 'users', firebaseUser.uid), {
+      updateDoc(doc(db, 'users', uid), {
         mpinHash: '',
         mpinSalt: '',
         mpinEnabled: false,
@@ -760,31 +1301,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mpinEnabled: false,
     };
     setUserAccount(nextAccount);
-    try {
-      localStorage.setItem(`slp_cached_user_${firebaseUser.uid}`, JSON.stringify(nextAccount));
-    } catch {
-      // ignore
-    }
-    syncSavedMpinFromAccount(nextAccount);
-  }, [firebaseUser, userAccount, syncSavedMpinFromAccount]);
+    setCachedUserAccount(uid, nextAccount);
+    syncSavedCredentialsFromAccount(nextAccount);
+  }, [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount]);
 
   const removeSavedMpinProfile = useCallback((uid: string) => {
     const next = removeSavedMpinProfileByUid(uid);
     setSavedMpinProfiles(next);
   }, []);
 
+  const activeUid = firebaseUser?.uid || offlineUnlockedUidState || userAccount?.uid || '';
   const role = userAccount?.role || null;
-  const isAdmin = role === 'admin' || firebaseUser?.email?.toLowerCase() === BOOT_ADMIN_EMAIL;
+  const isAdmin =
+    role === 'admin' ||
+    firebaseUser?.email?.toLowerCase() === BOOT_ADMIN_EMAIL ||
+    userAccount?.email?.toLowerCase() === BOOT_ADMIN_EMAIL;
 
   return (
     <AuthContext.Provider
       value={{
         firebaseUser,
         userAccount,
+        activeUid,
         currentDevice,
         deviceRevoked,
         authReady,
         authError,
+        unauthorizedDomainHost,
+        emailPasswordDisabled,
         accessDeniedReason,
         role,
         isAdmin,
@@ -794,7 +1338,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toggleLanguage,
         mpinLocked,
         savedMpinProfiles,
+        savedPasswordProfiles,
         signInWithGoogle,
+        signInWithGoogleRedirect,
+        signInWithUsernamePassword,
+        setupMyUsernamePassword,
+        resetPasswordByUsernameOrEmail,
         signInWithMpin,
         lockWithMpin,
         logout,

@@ -14,14 +14,11 @@ import {
   Globe,
   HardHat,
   History,
-  KeyRound,
   Laptop,
   Lock,
   LogOut,
-  Mail,
   Menu,
   Package,
-  Phone,
   Printer,
   QrCode,
   ReceiptText,
@@ -80,14 +77,14 @@ const NAV_ITEMS: NavItemConfig[] = [
   { id: 'new-billing', label: 'New Billing', labelTe: 'కొత్త బిల్లింగ్', icon: FilePlus2 },
   { id: 'bill-history', label: 'Bill History', labelTe: 'బిల్లుల చరిత్ర', icon: History },
   { id: 'scanner', label: 'Verify Scanner', labelTe: 'బిల్ స్కానర్', icon: ScanBarcode },
-  { id: 'profile', label: 'My Profile & MPIN', labelTe: 'ప్రొఫైల్ & MPIN', icon: User },
+  { id: 'profile', label: 'My Profile & Login', labelTe: 'ప్రొఫైల్ & లాగిన్', icon: User },
   { id: 'invoices', label: 'Invoices', labelTe: 'ఇన్‌వాయిస్‌లు', icon: FileText },
   { id: 'thermal-receipts', label: 'Thermal Receipts', labelTe: 'థర్మల్ రసీదులు', icon: Printer },
   { id: 'products', label: 'Products', labelTe: 'ఉత్పత్తులు', icon: Package },
   { id: 'inventory', label: 'Inventory', labelTe: 'స్టాక్ నిల్వలు', icon: Boxes },
   { id: 'customers', label: 'Customers', labelTe: 'కస్టమర్లు', icon: Users },
   { id: 'labour-cashbook', label: 'Labour Work', labelTe: 'లేబర్ పని', icon: HardHat },
-  { id: 'shop-cashbook', label: 'Shop Income & Expenses', labelTe: 'షాప్ ఆదాయం & ఖర్చులు', icon: Wallet },
+  { id: 'shop-cashbook', label: 'Income & Expenses', labelTe: 'ఆదాయం & ఖర్చులు', icon: Wallet },
   { id: 'payments', label: 'Payments', labelTe: 'చెల్లింపులు', icon: CreditCard },
   { id: 'upi-qr', label: 'UPI QR Management', labelTe: 'UPI QR సెట్టింగ్స్', icon: QrCode, adminOnly: true },
   { id: 'reports', label: 'Reports', labelTe: 'నివేదికలు', icon: BarChart3, requiresReportsPerm: true },
@@ -114,7 +111,7 @@ function extractInitialPage(): NavPageId {
 }
 
 const AuthenticatedShell: React.FC = () => {
-  const { firebaseUser, userAccount, isAdmin, role, language, toggleLanguage, logout, lockWithMpin } =
+  const { activeUid, userAccount, isAdmin, role, language, toggleLanguage, logout, lockWithMpin } =
     useAuth();
   const { business, bills, billItems, products, notifications, loadingData } = useBillingData();
 
@@ -145,7 +142,7 @@ const AuthenticatedShell: React.FC = () => {
       knownBillIdsRef.current = new Set(bills.map((b) => b.id));
       return;
     }
-    const myUid = firebaseUser?.uid || '';
+    const myUid = activeUid || '';
     const newBills = bills.filter(
       (b) => !knownBillIdsRef.current!.has(b.id) && (isAdmin || b.createdByUid === myUid)
     );
@@ -156,7 +153,7 @@ const AuthenticatedShell: React.FC = () => {
       setLiveBillToast(latest);
       billToastTimerRef.current = window.setTimeout(() => setLiveBillToast(null), 8000);
     }
-  }, [bills, loadingData, isAdmin, firebaseUser?.uid]);
+  }, [bills, loadingData, isAdmin, activeUid]);
 
   const handleAddToCart = (product: Product, variantLabel?: string, variantPrice?: number) => {
     const price = variantPrice ?? product.sellingPrice;
@@ -298,6 +295,8 @@ const AuthenticatedShell: React.FC = () => {
       case 'labour-cashbook':
         return <LabourAndCashbookPage sectionMode="labour" />;
       case 'shop-cashbook':
+      case 'shop-income':
+      case 'shop-expenses':
         return <LabourAndCashbookPage sectionMode="cashbook" />;
       case 'payments':
         return <PaymentsPage />;
@@ -361,28 +360,36 @@ const AuthenticatedShell: React.FC = () => {
             const Icon = item.icon;
             const isActive = activePage === item.id;
             return (
-              <button
+              <motion.button
                 key={item.id}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => handleNavigate(item.id)}
                 title={sidebarCollapsed ? item.label : undefined}
-                className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${
+                className={`relative w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
                   isActive
-                    ? 'bg-white text-[#0B1F44] shadow-sm'
+                    ? 'text-[#0B1F44]'
                     : 'text-blue-100 hover:bg-white/15 hover:text-white'
                 }`}
               >
-                <span className="flex items-center gap-2.5 min-w-0">
+                {isActive && (
+                  <motion.span
+                    layoutId="slp-sidebar-pill"
+                    transition={{ type: 'spring', stiffness: 460, damping: 32 }}
+                    className="absolute inset-0 rounded-xl bg-white shadow-sm"
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2.5 min-w-0">
                   <Icon className="w-4 h-4 shrink-0" />
                   {!sidebarCollapsed && (
                     <span className="truncate">{language === 'te' ? item.labelTe : item.label}</span>
                   )}
                 </span>
                 {!sidebarCollapsed && item.id === 'notifications' && unreadNotifications > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold">
+                  <span className="relative z-10 px-1.5 py-0.5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold">
                     {unreadNotifications}
                   </span>
                 )}
-              </button>
+              </motion.button>
             );
           })}
         </nav>
@@ -462,7 +469,7 @@ const AuthenticatedShell: React.FC = () => {
           src={logoSrc}
           alt=""
           referrerPolicy="no-referrer"
-          className="w-56 h-56 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.055] mix-blend-multiply select-none"
+          className="w-56 h-56 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.055] mix-blend-multiply select-none animate-slp-breathe"
         />
       </div>
 
@@ -493,63 +500,48 @@ const AuthenticatedShell: React.FC = () => {
 
         {/* Page Container */}
         <main className="flex-1 p-3 sm:p-4 lg:p-6 max-w-[1440px] w-full mx-auto space-y-4">
-          {/* Staff Portal Identity Strip (Visible Name, Phone, Email, Photo, MPIN) */}
+          {/* Compact Staff Identity Bar */}
           {!isAdmin && userAccount && (
-            <div className="bg-white/95 backdrop-blur border border-blue-100 rounded-2xl p-3 sm:p-3.5 shadow-sm flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="bg-white/95 backdrop-blur border border-blue-100 rounded-2xl px-3.5 py-2.5 shadow-sm flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
                 {userAccount.photoDataUrl ? (
                   <img
                     src={userAccount.photoDataUrl}
                     alt={userAccount.displayName}
-                    className="w-11 h-11 rounded-full object-cover border-2 border-[#1D4ED8]/30 shrink-0"
+                    className="w-9 h-9 rounded-full object-cover border border-[#1D4ED8]/30 shrink-0"
                   />
                 ) : (
-                  <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white font-bold text-sm flex items-center justify-center shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white font-bold text-xs flex items-center justify-center shrink-0">
                     {(userAccount.displayName || 'S').slice(0, 1).toUpperCase()}
                   </div>
                 )}
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-sm font-bold text-[#0B1F44] truncate">
-                      {userAccount.displayName}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold uppercase">
-                      Staff Portal
-                    </span>
-                    {userAccount.mpinEnabled && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                        <KeyRound className="w-2.5 h-2.5" /> 6-Digit MPIN
-                      </span>
-                    )}
+                  <div className="text-xs sm:text-sm font-bold text-[#0B1F44] truncate">
+                    {userAccount.displayName}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600">
-                    <span className="inline-flex items-center gap-1 font-mono font-semibold text-[#0B1F44]">
-                      <Phone className="w-3 h-3 text-[#1D4ED8]" />
-                      {userAccount.phoneNumber || 'Add Phone in Profile'}
-                    </span>
-                    <span className="inline-flex items-center gap-1 truncate max-w-[230px]">
-                      <Mail className="w-3 h-3 text-[#1D4ED8] shrink-0" />
-                      <span className="truncate">{userAccount.email}</span>
-                    </span>
+                  <div className="text-[11px] text-slate-500 font-mono truncate">
+                    {userAccount.phoneNumber || userAccount.email}
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
-                <button
+              <div className="flex items-center gap-1.5 shrink-0">
+                <motion.button
                   type="button"
+                  whileTap={{ scale: 0.94 }}
                   onClick={() => handleNavigate('profile')}
-                  className="px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0B1F44] text-xs font-semibold transition"
+                  className="px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0B1F44] text-xs font-semibold transition"
                 >
-                  Profile / Change Email
-                </button>
+                  Profile
+                </motion.button>
                 {userAccount.mpinEnabled && (
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.94 }}
                     onClick={lockWithMpin}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold transition"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold transition"
                   >
                     <Lock className="w-3 h-3" /> Lock
-                  </button>
+                  </motion.button>
                 )}
               </div>
             </div>
@@ -558,10 +550,10 @@ const AuthenticatedShell: React.FC = () => {
           <AnimatePresence mode="wait">
             <motion.div
               key={activePage}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.16 }}
+              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.99 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             >
               {renderPage()}
             </motion.div>
@@ -569,10 +561,10 @@ const AuthenticatedShell: React.FC = () => {
         </main>
       </div>
 
-      {/* Fixed Mobile Bottom Navigation (Staff: 4 Tabs, Admin: 5 Tabs) */}
+      {/* Fixed Mobile Bottom Navigation (Staff: 4 Tabs, Admin: 6 Tabs with combined Income/Exp) */}
       <nav
         className={`lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-blue-100 grid ${
-          isAdmin ? 'grid-cols-5' : 'grid-cols-4'
+          isAdmin ? 'grid-cols-6' : 'grid-cols-4'
         } min-h-[64px] pb-safe px-0.5 shadow-[0_-4px_18px_rgba(29,78,216,0.08)]`}
       >
         {(
@@ -581,6 +573,7 @@ const AuthenticatedShell: React.FC = () => {
                 { id: 'new-billing', label: 'Bill', icon: FilePlus2 },
                 { id: 'products', label: 'Products', icon: Package },
                 { id: 'labour-cashbook', label: 'Labour', icon: HardHat },
+                { id: 'shop-cashbook', label: 'Income/Exp', icon: Wallet },
                 { id: 'bill-history', label: 'History', icon: History },
                 { id: 'settings', label: 'Settings', icon: Settings },
               ]
@@ -598,19 +591,30 @@ const AuthenticatedShell: React.FC = () => {
           const Icon = item.icon;
           const active = activePage === item.id;
           return (
-            <button
+            <motion.button
               key={item.id}
+              whileTap={{ scale: 0.88 }}
               onClick={() => handleNavigate(item.id)}
-              className={`relative flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold transition ${
+              className={`relative flex flex-col items-center justify-center gap-0.5 py-2 px-0 text-[10px] tracking-tight font-semibold transition-colors ${
                 active ? 'text-[#1D4ED8]' : 'text-slate-500'
               }`}
             >
               {active && (
-                <span className="absolute top-0 w-7 h-0.5 rounded-full bg-[#1D4ED8]" />
+                <motion.span
+                  layoutId="slp-bottom-nav-indicator"
+                  transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                  className="absolute top-0 w-7 h-0.5 rounded-full bg-[#1D4ED8]"
+                />
               )}
-              <Icon className={`w-4 h-4 ${active ? 'scale-110 transition-transform' : ''}`} />
-              <span className="truncate max-w-full px-0.5">{item.label}</span>
-            </button>
+              <motion.span
+                animate={active ? { scale: 1.14, y: -1 } : { scale: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 450, damping: 24 }}
+                className="inline-flex"
+              >
+                <Icon className="w-4 h-4" />
+              </motion.span>
+              <span className="leading-none whitespace-nowrap">{item.label}</span>
+            </motion.button>
           );
         })}
       </nav>
@@ -628,7 +632,7 @@ const AuthenticatedShell: React.FC = () => {
               initial={{ x: -280 }}
               animate={{ x: 0 }}
               exit={{ x: -280 }}
-              transition={{ duration: 0.2 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 32 }}
               className="w-72 bg-gradient-to-b from-[#0B1F44] via-[#102B66] to-[#1D4ED8] text-white h-full flex flex-col p-4 overflow-y-auto"
             >
               <div className="flex items-center justify-between pb-4 border-b border-white/15">
@@ -838,36 +842,47 @@ const AuthenticatedShell: React.FC = () => {
 };
 
 const RootRouter: React.FC = () => {
-  const { authReady, firebaseUser, userAccount, accessDeniedReason, deviceRevoked, mpinLocked } = useAuth();
+  const { authReady, activeUid, userAccount, accessDeniedReason, deviceRevoked, mpinLocked } = useAuth();
 
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-[#0B1F44] text-white flex flex-col items-center justify-center p-6">
+      <div className="min-h-screen bg-gradient-to-b from-[#0B1F44] via-[#102B66] to-[#1D4ED8] text-white flex flex-col items-center justify-center p-6">
         <motion.div
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3 }}
+          initial={{ opacity: 0, scale: 0.88, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           className="flex flex-col items-center text-center space-y-4"
         >
-          <img
-            src={DEFAULT_BUSINESS_LOGO}
-            alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
-            referrerPolicy="no-referrer"
-            className="w-20 h-20 rounded-full object-cover border-2 border-cyan-400/50 shadow-lg"
-          />
-          <div>
+          <div className="relative">
+            <motion.div
+              animate={{ scale: [1, 1.18, 1], opacity: [0.45, 0.12, 0.45] }}
+              transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+              className="absolute -inset-2 rounded-full bg-cyan-400/35 blur-sm"
+            />
+            <img
+              src={DEFAULT_BUSINESS_LOGO}
+              alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+              referrerPolicy="no-referrer"
+              className="relative w-20 h-20 rounded-full object-cover border-2 border-cyan-300/70 shadow-xl"
+            />
+          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12, duration: 0.32 }}
+          >
             <h1 className="font-display font-bold text-lg sm:text-xl tracking-tight text-balance max-w-md">
               Sri Lakshmi Penchil Narasimha Swamy Cement Work
             </h1>
-            <p className="text-xs text-cyan-200 mt-1">Loading app &amp; database...</p>
-          </div>
-          <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-cyan-200 mt-1">Opening SLP Billing...</p>
+          </motion.div>
+          <div className="w-7 h-7 border-2 border-cyan-300 border-t-transparent rounded-full animate-spin" />
         </motion.div>
       </div>
     );
   }
 
-  if (mpinLocked || !firebaseUser || !userAccount || accessDeniedReason || deviceRevoked) {
+  if (mpinLocked || !activeUid || !userAccount || accessDeniedReason || deviceRevoked) {
     return <LoginPage />;
   }
 

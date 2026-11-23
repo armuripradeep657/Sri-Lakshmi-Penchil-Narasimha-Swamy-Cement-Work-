@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, getDocFromCache, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { ProductVariant } from '../types/billing';
 
@@ -289,10 +289,33 @@ export function parseVariants(variantsSummary?: string): ProductVariant[] {
 }
 
 export async function ensureBusinessSeeded(adminUid: string, adminEmail: string, adminName: string): Promise<void> {
+  try {
+    if (localStorage.getItem('slp_seeded_biz_ok') === '1') {
+      return;
+    }
+  } catch {
+    // ignore storage errors
+  }
   const bizRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID);
   try {
+    const cachedSnap = await getDocFromCache(bizRef).catch(() => null);
+    if (cachedSnap && cachedSnap.exists()) {
+      try {
+        localStorage.setItem('slp_seeded_biz_ok', '1');
+      } catch {
+        // ignore
+      }
+      return;
+    }
     const snap = await getDoc(bizRef);
-    if (snap.exists()) return;
+    if (snap.exists()) {
+      try {
+        localStorage.setItem('slp_seeded_biz_ok', '1');
+      } catch {
+        // ignore
+      }
+      return;
+    }
 
     const batch = writeBatch(db);
     const authorizedUids = [adminUid];

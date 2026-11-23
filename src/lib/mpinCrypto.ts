@@ -1,8 +1,9 @@
-import { UserRole } from '../types/billing';
+import { UserAccount, UserRole } from '../types/billing';
 
 export interface SavedMpinProfile {
   uid: string;
   email: string;
+  username?: string;
   displayName: string;
   phoneNumber?: string;
   photoDataUrl?: string;
@@ -14,8 +15,24 @@ export interface SavedMpinProfile {
   updatedAt: number;
 }
 
+export interface SavedPasswordProfile {
+  uid: string;
+  username: string;
+  email: string;
+  authEmail: string;
+  displayName: string;
+  phoneNumber?: string;
+  photoDataUrl?: string;
+  role: UserRole;
+  passwordHash: string;
+  passwordSalt: string;
+  updatedAt: number;
+}
+
 const MPIN_PROFILES_KEY = 'slp_mpin_profiles_v1';
 const MPIN_LOCK_UID_KEY = 'slp_mpin_locked_uid';
+const PASSWORD_PROFILES_KEY = 'slp_password_profiles_v1';
+const OFFLINE_UNLOCKED_UID_KEY = 'slp_offline_unlocked_uid';
 const MAX_MPIN_ATTEMPTS = 5;
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -32,24 +49,11 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-export function isValidSixDigitMpin(pin: string): boolean {
-  return /^\d{6}$/.test(pin);
-}
-
-export function generateMpinSalt(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return bytesToHex(bytes);
-}
-
-export async function hashMpin(pin: string, saltHex: string): Promise<string> {
-  if (!isValidSixDigitMpin(pin)) {
-    throw new Error('MPIN must be exactly 6 numeric digits.');
-  }
+async function derivePbkdf2Hex(secret: string, saltHex: string): Promise<string> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(pin),
+    encoder.encode(secret),
     'PBKDF2',
     false,
     ['deriveBits']
@@ -72,19 +76,83 @@ export async function hashMpin(pin: string, saltHex: string): Promise<string> {
   return bytesToHex(new Uint8Array(derivedBits));
 }
 
+function constantTimeEqual(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+export function isValidFourDigitMpin(pin: string): boolean {
+  return /^\d{4}$/.test(pin);
+}
+
+export function normalizeUsername(raw: string): string {
+  return raw.trim().replace(/^@+/, '').toLowerCase();
+}
+
+export function isValidUsername(username: string): boolean {
+  return /^[a-z0-9._-]{3,40}$/.test(username);
+}
+
+export function isValidSecretPassword(password: string): boolean {
+  return password.length >= 4 && password.length <= 128;
+}
+
+/**
+ * Firebase Auth requires >= 6 characters. For short 4-5 char PIN-style passwords
+ * entered by shop owners/staff, wrap deterministically for Firebase Auth while
+ * salted PBKDF2-SHA256 still hashes & verifies the exact user-entered password.
+ */
+export function toFirebaseAuthPassword(password: string): string {
+  if (password.length >= 6) return password;
+  return `SlpAuth#v1#${password}#key`;
+}
+
+export function usernameToSyntheticEmail(username: string): string {
+  return `${normalizeUsername(username)}@slpstaff.local`;
+}
+
+export function generateMpinSalt(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+
+export async function hashMpin(pin: string, saltHex: string): Promise<string> {
+  if (!isValidFourDigitMpin(pin)) {
+    throw new Error('MPIN must be exactly 4 numeric digits.');
+  }
+  return derivePbkdf2Hex(pin, saltHex);
+}
+
 export async function verifyMpinHash(
   pin: string,
   saltHex: string,
   expectedHash: string
 ): Promise<boolean> {
-  if (!isValidSixDigitMpin(pin) || !saltHex || !expectedHash) return false;
+  if (!isValidFourDigitMpin(pin) || !saltHex || !expectedHash) return false;
   const computed = await hashMpin(pin, saltHex);
-  if (computed.length !== expectedHash.length) return false;
-  let diff = 0;
-  for (let i = 0; i < computed.length; i++) {
-    diff |= computed.charCodeAt(i) ^ expectedHash.charCodeAt(i);
+  return constantTimeEqual(computed, expectedHash);
+}
+
+export async function hashSecretPassword(password: string, saltHex: string): Promise<string> {
+  if (!isValidSecretPassword(password)) {
+    throw new Error('Password must be at least 4 characters long.');
   }
-  return diff === 0;
+  return derivePbkdf2Hex(password, saltHex);
+}
+
+export async function verifySecretPassword(
+  password: string,
+  saltHex: string,
+  expectedHash: string
+): Promise<boolean> {
+  if (!isValidSecretPassword(password) || !saltHex || !expectedHash) return false;
+  const computed = await derivePbkdf2Hex(password, saltHex);
+  return constantTimeEqual(computed, expectedHash);
 }
 
 export function loadSavedMpinProfiles(): SavedMpinProfile[] {
@@ -120,6 +188,7 @@ export function upsertSavedMpinProfile(
   const nextItem: SavedMpinProfile = {
     uid: profile.uid,
     email: profile.email,
+    username: profile.username || prev?.username || '',
     displayName: profile.displayName,
     phoneNumber: profile.phoneNumber || '',
     photoDataUrl: profile.photoDataUrl || '',
@@ -130,7 +199,7 @@ export function upsertSavedMpinProfile(
     lockedUntilGoogle: profile.resetAttempts ? false : prev?.lockedUntilGoogle ?? false,
     updatedAt: Date.now(),
   };
-  const next = [nextItem, ...existing.filter((p) => p.uid !== profile.uid)].slice(0, 10);
+  const next = [nextItem, ...existing.filter((p) => p.uid !== profile.uid)].slice(0, 12);
   saveMpinProfiles(next);
   return next;
 }
@@ -174,6 +243,74 @@ export function removeSavedMpinProfileByUid(uid: string): SavedMpinProfile[] {
   return next;
 }
 
+export function loadSavedPasswordProfiles(): SavedPasswordProfile[] {
+  try {
+    const raw = localStorage.getItem(PASSWORD_PROFILES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (p): p is SavedPasswordProfile =>
+        Boolean(
+          p &&
+            typeof p.uid === 'string' &&
+            typeof p.username === 'string' &&
+            typeof p.passwordHash === 'string' &&
+            typeof p.passwordSalt === 'string'
+        )
+    );
+  } catch {
+    return [];
+  }
+}
+
+function savePasswordProfiles(profiles: SavedPasswordProfile[]) {
+  try {
+    localStorage.setItem(PASSWORD_PROFILES_KEY, JSON.stringify(profiles));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function upsertSavedPasswordProfile(
+  profile: Omit<SavedPasswordProfile, 'updatedAt'>
+): SavedPasswordProfile[] {
+  const existing = loadSavedPasswordProfiles();
+  const nextItem: SavedPasswordProfile = {
+    uid: profile.uid,
+    username: normalizeUsername(profile.username),
+    email: profile.email.toLowerCase(),
+    authEmail: profile.authEmail.toLowerCase(),
+    displayName: profile.displayName,
+    phoneNumber: profile.phoneNumber || '',
+    photoDataUrl: profile.photoDataUrl || '',
+    role: profile.role,
+    passwordHash: profile.passwordHash,
+    passwordSalt: profile.passwordSalt,
+    updatedAt: Date.now(),
+  };
+  const next = [nextItem, ...existing.filter((p) => p.uid !== profile.uid)].slice(0, 12);
+  savePasswordProfiles(next);
+  return next;
+}
+
+export function findSavedPasswordProfileByIdentifier(identifier: string): SavedPasswordProfile | null {
+  const clean = normalizeUsername(identifier);
+  if (!clean) return null;
+  const profiles = loadSavedPasswordProfiles();
+  return (
+    profiles.find(
+      (p) => p.username === clean || p.email === clean || p.authEmail === clean
+    ) || null
+  );
+}
+
+export function removeSavedPasswordProfileByUid(uid: string): SavedPasswordProfile[] {
+  const next = loadSavedPasswordProfiles().filter((p) => p.uid !== uid);
+  savePasswordProfiles(next);
+  return next;
+}
+
 export function getMpinLockUid(): string | null {
   try {
     return localStorage.getItem(MPIN_LOCK_UID_KEY);
@@ -191,6 +328,51 @@ export function setMpinLockUid(uid: string | null) {
     }
   } catch {
     // ignore storage errors
+  }
+}
+
+export function getOfflineUnlockedUid(): string | null {
+  try {
+    return localStorage.getItem(OFFLINE_UNLOCKED_UID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setOfflineUnlockedUid(uid: string | null) {
+  try {
+    if (uid) {
+      localStorage.setItem(OFFLINE_UNLOCKED_UID_KEY, uid);
+    } else {
+      localStorage.removeItem(OFFLINE_UNLOCKED_UID_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function getCachedUserAccount(uid: string): UserAccount | null {
+  try {
+    const raw = localStorage.getItem(`slp_cached_user_${uid}`);
+    return raw ? (JSON.parse(raw) as UserAccount) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedUserAccount(uid: string, account: UserAccount) {
+  try {
+    localStorage.setItem(`slp_cached_user_${uid}`, JSON.stringify(account));
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+export function removeCachedUserAccount(uid: string) {
+  try {
+    localStorage.removeItem(`slp_cached_user_${uid}`);
+  } catch {
+    // ignore
   }
 }
 

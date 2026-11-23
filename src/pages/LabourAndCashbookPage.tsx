@@ -1,12 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Download,
   Edit3,
   HardHat,
   IndianRupee,
@@ -22,7 +18,8 @@ import {
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
-import { exportRowsToExcel, formatCurrency } from '../lib/upiAndExport';
+import { formatCurrency } from '../lib/upiAndExport';
+import { AnimatedNumber, MotionCard } from '../components/MotionPrimitives';
 import { LabourWork, ShopEntry } from '../types/billing';
 
 function toLocalDateStr(date: Date): string {
@@ -32,52 +29,10 @@ function toLocalDateStr(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function shiftDateStr(dateStr: string, deltaDays: number): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  if (!y || !m || !d) return toLocalDateStr(new Date());
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + deltaDays);
-  return toLocalDateStr(dt);
-}
-
-function formatReadableDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  if (!y || !m || !d) return dateStr;
-  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-const WORK_PRESETS = [
-  'Darwaja Casting',
-  'Window Frame Work',
-  'Slab Casting',
-  'Cement Mixing',
-  'Loading & Unloading',
-  'Curing & Finishing',
-];
-
-const EXPENSE_CATEGORIES = [
-  'Raw Material',
-  'Transport',
-  'Snacks / Tea',
-  'Tools & Repair',
-  'Electricity / Rent',
-  'Misc Expense',
-];
-
-const INCOME_CATEGORIES = [
-  'Extra Sales',
-  'Delivery Charge',
-  'Scrap / Mould',
-  'Advance / Other',
-];
+type SectionTab = 'labour' | 'cashbook';
 
 interface LabourAndCashbookPageProps {
-  sectionMode?: 'labour' | 'cashbook';
+  sectionMode?: SectionTab;
 }
 
 export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ sectionMode }) => {
@@ -91,22 +46,25 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     saveShopEntry,
     deleteShopEntry,
   } = useBillingData();
-  const { firebaseUser, isAdmin, language } = useAuth();
+  const { activeUid, isAdmin, language } = useAuth();
 
   const todayStr = useMemo(() => toLocalDateStr(new Date()), []);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
-  const [dateScope, setDateScope] = useState<'day' | 'all'>('day');
-  const [activeTab, setActiveTab] = useState<'labour' | 'cashbook'>(sectionMode || 'labour');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [activeTab, setActiveTab] = useState<SectionTab>(sectionMode || 'labour');
   const [search, setSearch] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (sectionMode) {
       setActiveTab(sectionMode);
+      setCategoryFilter('ALL');
     }
   }, [sectionMode]);
 
-  // Labour form state
+  // Labour form state (Work Done + Money Taken)
   const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
   const [workerName, setWorkerName] = useState('');
   const [workDone, setWorkDone] = useState('');
@@ -116,41 +74,71 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
   const [workNote, setWorkNote] = useState('');
   const [savingWork, setSavingWork] = useState(false);
 
-  // Shop income/expense form state
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-  const [entryType, setEntryType] = useState<'income' | 'expense'>('expense');
-  const [entryTitle, setEntryTitle] = useState('');
-  const [entryCategory, setEntryCategory] = useState('Raw Material');
-  const [entryAmount, setEntryAmount] = useState('');
-  const [entryDate, setEntryDate] = useState(todayStr);
-  const [entryPayMethod, setEntryPayMethod] = useState<'Cash' | 'UPI' | 'Bank Transfer' | 'Other'>('Cash');
-  const [entryNote, setEntryNote] = useState('');
-  const [savingEntry, setSavingEntry] = useState(false);
+  // Separate Shop Income form state
+  const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null);
+  const [incomeTitle, setIncomeTitle] = useState('');
+  const [incomeAmount, setIncomeAmount] = useState('');
+  const [incomeDate, setIncomeDate] = useState(todayStr);
+  const [incomePayMethod, setIncomePayMethod] = useState<'Cash' | 'UPI' | 'Bank Transfer' | 'Other'>('Cash');
+  const [incomeNote, setIncomeNote] = useState('');
+  const [savingIncome, setSavingIncome] = useState(false);
 
-  const handleDateChange = (nextDate: string) => {
-    setSelectedDate(nextDate);
-    if (!editingWorkId) setWorkDate(nextDate);
-    if (!editingEntryId) setEntryDate(nextDate);
-  };
+  // Separate Shop Expense form state
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [expenseTitle, setExpenseTitle] = useState('');
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseDate, setExpenseDate] = useState(todayStr);
+  const [expensePayMethod, setExpensePayMethod] = useState<'Cash' | 'UPI' | 'Bank Transfer' | 'Other'>('Cash');
+  const [expenseNote, setExpenseNote] = useState('');
+  const [savingExpense, setSavingExpense] = useState(false);
 
-  // Unique recent worker names for 1-tap selection
+  // Worker name autocomplete suggestions (native datalist, no pill buttons)
   const recentWorkers = useMemo(() => {
     const names = new Set<string>();
     labourWorks.forEach((w) => {
       if (w.workerName?.trim()) names.add(w.workerName.trim());
     });
-    return Array.from(names).slice(0, 8);
+    return Array.from(names).slice(0, 15);
   }, [labourWorks]);
 
-  // Day-level real-time summary (always reflects selectedDate)
+  const hasDateRange = Boolean(fromDate || toDate);
+
+  const inSelectedRange = (dateStr: string) => {
+    if (fromDate && dateStr < fromDate) return false;
+    if (toDate && dateStr > toDate) return false;
+    return true;
+  };
+
+  const rangeLabel = useMemo(() => {
+    if (fromDate && toDate) return `${fromDate} → ${toDate}`;
+    if (fromDate) return `From ${fromDate}`;
+    if (toDate) return `Up to ${toDate}`;
+    return selectedDate;
+  }, [fromDate, toDate, selectedDate]);
+
+  const customShopCategories = useMemo(() => {
+    const set = new Set<string>();
+    shopEntries.forEach((e) => {
+      const cat = (e.category || '').trim();
+      if (cat && cat !== 'Shop Income' && cat !== 'Shop Expense') {
+        set.add(cat);
+      }
+    });
+    return Array.from(set).sort();
+  }, [shopEntries]);
+
+  // Day-level or selected Date Range real-time summary
   const daySummary = useMemo(() => {
+    const matchesSummaryDate = (dateStr: string) =>
+      hasDateRange ? inSelectedRange(dateStr) : dateStr === selectedDate;
+
     const dayBills = bills.filter(
-      (b) => b.billStatus === 'active' && toLocalDateStr(formatTimestamp(b.createdAt)) === selectedDate
+      (b) => b.billStatus === 'active' && matchesSummaryDate(toLocalDateStr(formatTimestamp(b.createdAt)))
     );
     const dayBilledTotal = dayBills.reduce((sum, b) => sum + Number(b.grandTotal || 0), 0);
 
-    const dayPayments = payments.filter(
-      (p) => toLocalDateStr(formatTimestamp(p.createdAt)) === selectedDate
+    const dayPayments = payments.filter((p) =>
+      matchesSummaryDate(toLocalDateStr(formatTimestamp(p.createdAt)))
     );
     const salesCollected = dayPayments.reduce((sum, p) => {
       if (p.type === 'refund') return sum - Number(p.amount || 0);
@@ -158,7 +146,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       return sum;
     }, 0);
 
-    const dayEntries = shopEntries.filter((e) => e.entryDate === selectedDate);
+    const dayEntries = shopEntries.filter((e) => matchesSummaryDate(e.entryDate));
     const otherIncome = dayEntries
       .filter((e) => e.type === 'income')
       .reduce((sum, e) => sum + Number(e.amount || 0), 0);
@@ -166,10 +154,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       .filter((e) => e.type === 'expense')
       .reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
-    const dayLabour = labourWorks.filter((w) => w.workDate === selectedDate);
+    const dayLabour = labourWorks.filter((w) => matchesSummaryDate(w.workDate));
     const labourTotal = dayLabour.reduce((sum, w) => sum + Number(w.wageAmount || 0), 0);
     const labourPaid = dayLabour
-      .filter((w) => w.paymentMethod !== 'Unpaid')
+      .filter((w) => w.paymentMethod !== 'Unpaid' && Number(w.wageAmount || 0) > 0)
       .reduce((sum, w) => sum + Number(w.wageAmount || 0), 0);
     const labourUnpaid = Math.max(0, labourTotal - labourPaid);
 
@@ -186,6 +174,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       shopExpenses,
       expensesCount: dayEntries.filter((e) => e.type === 'expense').length,
       labourCount: dayLabour.length,
+      labourPaidCount: dayLabour.filter((w) => w.paymentMethod !== 'Unpaid' && Number(w.wageAmount || 0) > 0).length,
       labourTotal,
       labourPaid,
       labourUnpaid,
@@ -193,13 +182,21 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       totalDayOutflow,
       netDayBalance,
     };
-  }, [bills, payments, shopEntries, labourWorks, selectedDate]);
+  }, [bills, payments, shopEntries, labourWorks, selectedDate, hasDateRange, fromDate, toDate]);
 
   const filteredLabour = useMemo(() => {
     const q = search.trim().toLowerCase();
     return labourWorks
       .filter((w) => {
-        if (dateScope === 'day' && w.workDate !== selectedDate) return false;
+        if (!inSelectedRange(w.workDate)) return false;
+        if (categoryFilter === 'PAID' && w.paymentMethod === 'Unpaid') return false;
+        if (
+          categoryFilter !== 'ALL' &&
+          categoryFilter !== 'PAID' &&
+          w.paymentMethod !== categoryFilter
+        ) {
+          return false;
+        }
         if (!q) return true;
         return (
           w.workerName.toLowerCase().includes(q) ||
@@ -212,13 +209,27 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
         if (a.workDate !== b.workDate) return b.workDate.localeCompare(a.workDate);
         return formatTimestamp(b.createdAt).getTime() - formatTimestamp(a.createdAt).getTime();
       });
-  }, [labourWorks, dateScope, selectedDate, search]);
+  }, [labourWorks, search, fromDate, toDate, categoryFilter]);
 
-  const filteredEntries = useMemo(() => {
+  const filteredIncomeEntries = useMemo(() => {
+    if (categoryFilter === 'EXPENSE' || categoryFilter === 'LABOUR_MONEY') {
+      return [];
+    }
     const q = search.trim().toLowerCase();
     return shopEntries
+      .filter((e) => e.type === 'income')
       .filter((e) => {
-        if (dateScope === 'day' && e.entryDate !== selectedDate) return false;
+        if (!inSelectedRange(e.entryDate)) return false;
+        if (
+          categoryFilter !== 'ALL' &&
+          categoryFilter !== 'INCOME'
+        ) {
+          if (['Cash', 'UPI', 'Bank Transfer', 'Other'].includes(categoryFilter)) {
+            if (e.paymentMethod !== categoryFilter) return false;
+          } else if ((e.category || '').trim() !== categoryFilter) {
+            return false;
+          }
+        }
         if (!q) return true;
         return (
           e.title.toLowerCase().includes(q) ||
@@ -231,7 +242,93 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
         if (a.entryDate !== b.entryDate) return b.entryDate.localeCompare(a.entryDate);
         return formatTimestamp(b.createdAt).getTime() - formatTimestamp(a.createdAt).getTime();
       });
-  }, [shopEntries, dateScope, selectedDate, search]);
+  }, [shopEntries, search, fromDate, toDate, categoryFilter]);
+
+  type CombinedExpenseRow =
+    | { kind: 'shop'; date: string; createdAt: unknown; amount: number; entry: ShopEntry }
+    | { kind: 'labour'; date: string; createdAt: unknown; amount: number; work: LabourWork };
+
+  // Expenses list automatically includes both Manual Shop Expenses AND Labour Money Taken on that day
+  const combinedExpenses = useMemo<CombinedExpenseRow[]>(() => {
+    if (categoryFilter === 'INCOME') return [];
+    const q = search.trim().toLowerCase();
+
+    const includeManual = categoryFilter !== 'LABOUR_MONEY';
+    const includeLabour =
+      categoryFilter === 'ALL' ||
+      categoryFilter === 'LABOUR_MONEY' ||
+      ['Cash', 'UPI', 'Bank Transfer'].includes(categoryFilter);
+
+    const manualRows: CombinedExpenseRow[] = includeManual
+      ? shopEntries
+          .filter((e) => e.type === 'expense')
+          .filter((e) => {
+            if (!inSelectedRange(e.entryDate)) return false;
+            if (categoryFilter !== 'ALL' && categoryFilter !== 'EXPENSE') {
+              if (['Cash', 'UPI', 'Bank Transfer', 'Other'].includes(categoryFilter)) {
+                if (e.paymentMethod !== categoryFilter) return false;
+              } else if ((e.category || '').trim() !== categoryFilter) {
+                return false;
+              }
+            }
+            if (!q) return true;
+            return (
+              e.title.toLowerCase().includes(q) ||
+              (e.category && e.category.toLowerCase().includes(q)) ||
+              (e.note && e.note.toLowerCase().includes(q)) ||
+              e.entryDate.includes(q)
+            );
+          })
+          .map((entry) => ({
+            kind: 'shop',
+            date: entry.entryDate,
+            createdAt: entry.createdAt,
+            amount: Number(entry.amount || 0),
+            entry,
+          }))
+      : [];
+
+    const labourMoneyTakenRows: CombinedExpenseRow[] = includeLabour
+      ? labourWorks
+          .filter((w) => Number(w.wageAmount || 0) > 0 && w.paymentMethod !== 'Unpaid')
+          .filter((w) => {
+            if (!inSelectedRange(w.workDate)) return false;
+            if (['Cash', 'UPI', 'Bank Transfer'].includes(categoryFilter)) {
+              if (w.paymentMethod !== categoryFilter) return false;
+            }
+            if (!q) return true;
+            return (
+              w.workerName.toLowerCase().includes(q) ||
+              w.workDone.toLowerCase().includes(q) ||
+              (w.note && w.note.toLowerCase().includes(q)) ||
+              w.workDate.includes(q) ||
+              'labour'.includes(q)
+            );
+          })
+          .map((work) => ({
+            kind: 'labour',
+            date: work.workDate,
+            createdAt: work.createdAt,
+            amount: Number(work.wageAmount || 0),
+            work,
+          }))
+      : [];
+
+    return [...manualRows, ...labourMoneyTakenRows].sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return formatTimestamp(b.createdAt).getTime() - formatTimestamp(a.createdAt).getTime();
+    });
+  }, [shopEntries, labourWorks, search, fromDate, toDate, categoryFilter]);
+
+  const combinedExpensesTotal = useMemo(
+    () => combinedExpenses.reduce((sum, row) => sum + row.amount, 0),
+    [combinedExpenses]
+  );
+
+  const manualIncomeTotal = useMemo(
+    () => filteredIncomeEntries.reduce((sum, e) => sum + Number(e.amount || 0), 0),
+    [filteredIncomeEntries]
+  );
 
   const resetLabourForm = () => {
     setEditingWorkId(null);
@@ -243,15 +340,22 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     setWorkNote('');
   };
 
-  const resetEntryForm = (nextType: 'income' | 'expense' = entryType) => {
-    setEditingEntryId(null);
-    setEntryType(nextType);
-    setEntryTitle('');
-    setEntryCategory(nextType === 'expense' ? 'Raw Material' : 'Extra Sales');
-    setEntryAmount('');
-    setEntryDate(selectedDate);
-    setEntryPayMethod('Cash');
-    setEntryNote('');
+  const resetIncomeForm = () => {
+    setEditingIncomeId(null);
+    setIncomeTitle('');
+    setIncomeAmount('');
+    setIncomeDate(selectedDate);
+    setIncomePayMethod('Cash');
+    setIncomeNote('');
+  };
+
+  const resetExpenseForm = () => {
+    setEditingExpenseId(null);
+    setExpenseTitle('');
+    setExpenseAmount('');
+    setExpenseDate(selectedDate);
+    setExpensePayMethod('Cash');
+    setExpenseNote('');
   };
 
   const handleSubmitLabour = async (e: React.FormEvent) => {
@@ -274,7 +378,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       });
       setFeedback({
         type: 'success',
-        text: editingWorkId ? 'Labour work record updated.' : 'Labour work saved to cloud.',
+        text: editingWorkId ? 'Labour record updated.' : 'Labour work & money taken saved.',
       });
       setSelectedDate(workDate);
       resetLabourForm();
@@ -314,53 +418,96 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     }
   };
 
-  const handleSubmitEntry = async (e: React.FormEvent) => {
+  const handleSubmitIncome = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedback(null);
-    const amt = Number(entryAmount);
-    if (!entryTitle.trim() || !Number.isFinite(amt) || amt <= 0) {
-      setFeedback({ type: 'error', text: 'Enter description and a valid amount greater than ₹0.' });
+    const amt = Number(incomeAmount);
+    if (!incomeTitle.trim() || !Number.isFinite(amt) || amt <= 0) {
+      setFeedback({ type: 'error', text: 'Enter income title and a valid amount greater than ₹0.' });
       return;
     }
-    setSavingEntry(true);
+    setSavingIncome(true);
     try {
       await saveShopEntry({
-        id: editingEntryId || undefined,
-        entryDate,
-        type: entryType,
-        title: entryTitle.trim(),
-        category: entryCategory.trim(),
+        id: editingIncomeId || undefined,
+        entryDate: incomeDate,
+        type: 'income',
+        title: incomeTitle.trim(),
+        category: 'Shop Income',
         amount: amt,
-        paymentMethod: entryPayMethod,
-        note: entryNote.trim(),
+        paymentMethod: incomePayMethod,
+        note: incomeNote.trim(),
       });
       setFeedback({
         type: 'success',
-        text: editingEntryId
-          ? 'Shop entry updated.'
-          : `Saved ${entryType === 'income' ? 'Shop Income' : 'Shop Expense'} to cloud.`,
+        text: editingIncomeId ? 'Shop income updated.' : 'Shop income saved.',
       });
-      setSelectedDate(entryDate);
-      resetEntryForm(entryType);
+      setSelectedDate(incomeDate);
+      resetIncomeForm();
     } catch (err) {
       setFeedback({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to save shop entry.',
+        text: err instanceof Error ? err.message : 'Failed to save shop income.',
       });
     } finally {
-      setSavingEntry(false);
+      setSavingIncome(false);
     }
   };
 
-  const handleEditEntry = (entry: ShopEntry) => {
-    setEditingEntryId(entry.id);
-    setEntryType(entry.type);
-    setEntryTitle(entry.title);
-    setEntryCategory(entry.category || '');
-    setEntryAmount(String(entry.amount));
-    setEntryDate(entry.entryDate);
-    setEntryPayMethod(entry.paymentMethod);
-    setEntryNote(entry.note || '');
+  const handleEditIncome = (entry: ShopEntry) => {
+    setEditingIncomeId(entry.id);
+    setIncomeTitle(entry.title);
+    setIncomeAmount(String(entry.amount));
+    setIncomeDate(entry.entryDate);
+    setIncomePayMethod(entry.paymentMethod);
+    setIncomeNote(entry.note || '');
+    setActiveTab('cashbook');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSubmitExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFeedback(null);
+    const amt = Number(expenseAmount);
+    if (!expenseTitle.trim() || !Number.isFinite(amt) || amt <= 0) {
+      setFeedback({ type: 'error', text: 'Enter expense description and a valid amount greater than ₹0.' });
+      return;
+    }
+    setSavingExpense(true);
+    try {
+      await saveShopEntry({
+        id: editingExpenseId || undefined,
+        entryDate: expenseDate,
+        type: 'expense',
+        title: expenseTitle.trim(),
+        category: 'Shop Expense',
+        amount: amt,
+        paymentMethod: expensePayMethod,
+        note: expenseNote.trim(),
+      });
+      setFeedback({
+        type: 'success',
+        text: editingExpenseId ? 'Shop expense updated.' : 'Shop expense saved.',
+      });
+      setSelectedDate(expenseDate);
+      resetExpenseForm();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to save shop expense.',
+      });
+    } finally {
+      setSavingExpense(false);
+    }
+  };
+
+  const handleEditExpense = (entry: ShopEntry) => {
+    setEditingExpenseId(entry.id);
+    setExpenseTitle(entry.title);
+    setExpenseAmount(String(entry.amount));
+    setExpenseDate(entry.entryDate);
+    setExpensePayMethod(entry.paymentMethod);
+    setExpenseNote(entry.note || '');
     setActiveTab('cashbook');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -369,7 +516,8 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     setFeedback(null);
     try {
       await deleteShopEntry(entry.id);
-      if (editingEntryId === entry.id) resetEntryForm();
+      if (editingIncomeId === entry.id) resetIncomeForm();
+      if (editingExpenseId === entry.id) resetExpenseForm();
       setFeedback({ type: 'success', text: `Deleted "${entry.title}".` });
     } catch (err) {
       setFeedback({
@@ -379,253 +527,217 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     }
   };
 
-  const handleExportExcel = () => {
-    if (activeTab === 'labour') {
-      exportRowsToExcel(
-        filteredLabour.map((w) => ({
-          Date: w.workDate,
-          WorkerName: w.workerName,
-          WorkDone: w.workDone,
-          WageAmount: w.wageAmount,
-          PaymentMode: w.paymentMethod,
-          Note: w.note || '',
-          RecordedBy: w.recordedByName || '',
-        })),
-        `SLP_Labour_Work_${dateScope === 'day' ? selectedDate : 'All'}`,
-        'LabourWork'
-      );
-    } else {
-      exportRowsToExcel(
-        filteredEntries.map((e) => ({
-          Date: e.entryDate,
-          Type: e.type.toUpperCase(),
-          Title: e.title,
-          Category: e.category || '',
-          Amount: e.amount,
-          PaymentMode: e.paymentMethod,
-          Note: e.note || '',
-          RecordedBy: e.recordedByName || '',
-        })),
-        `SLP_Shop_Cashbook_${dateScope === 'day' ? selectedDate : 'All'}`,
-        'ShopCashbook'
-      );
-    }
-  };
-
   const canModifyRecord = (recordedByUid: string) =>
-    isAdmin || (firebaseUser?.uid && recordedByUid === firebaseUser.uid);
+    isAdmin || Boolean(activeUid && recordedByUid === activeUid);
 
   return (
-    <div className="space-y-4 animate-slp-in">
-      {/* Header + Date Controls */}
-      <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
-              <HardHat className="w-5 h-5 text-[#1D4ED8]" />
-              {language === 'te' ? 'లేబర్ పని & రోజువారీ ఖాతా' : 'Labour Work & Daily Shop Ledger'}
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {formatReadableDate(selectedDate)} · Track worker tasks, wages, shop income, and daily expenses
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-blue-200 dark:border-slate-700 bg-blue-50/70 dark:bg-slate-800 text-xs font-semibold text-[#0B1F44] dark:text-slate-100 hover:bg-blue-100 dark:hover:bg-slate-700 transition"
+    <div className="space-y-4">
+      {/* Page-Specific Summary Strip with Animated Counters */}
+      {activeTab === 'labour' ? (
+        <div className="grid grid-cols-2 gap-3">
+          <MotionCard
+            delay={0}
+            className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5 slp-card-lift"
           >
-            <Download className="w-3.5 h-3.5 text-[#1D4ED8]" />
-            Export Excel
-          </button>
-        </div>
-
-        {/* Date Picker + Step Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center rounded-xl border border-blue-200 dark:border-slate-700 bg-[#F4F8FF] dark:bg-slate-950 p-1">
-            <button
-              type="button"
-              onClick={() => handleDateChange(shiftDateStr(selectedDate, -1))}
-              className="p-2 rounded-lg text-[#0B1F44] dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800"
-              aria-label="Previous day"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <div className="flex items-center gap-1.5 px-2">
-              <Calendar className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => e.target.value && handleDateChange(e.target.value)}
-                className="bg-transparent text-xs font-bold text-[#0B1F44] dark:text-white focus:outline-none font-mono"
+            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              <span>Work Entries ({rangeLabel})</span>
+              <HardHat className="w-4 h-4 text-[#1D4ED8]" />
+            </div>
+            <div className="mt-1 text-lg font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
+              <AnimatedNumber
+                value={daySummary.labourCount}
+                format={(n) => `${Math.round(n)} ${Math.round(n) === 1 ? 'Work' : 'Works'}`}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => handleDateChange(shiftDateStr(selectedDate, 1))}
-              className="p-2 rounded-lg text-[#0B1F44] dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800"
-              aria-label="Next day"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {selectedDate !== todayStr && (
-            <button
-              type="button"
-              onClick={() => handleDateChange(todayStr)}
-              className="px-3 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
-            >
-              Today
-            </button>
-          )}
-
-          <div className="inline-flex rounded-xl border border-blue-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-0.5 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => setDateScope('day')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                dateScope === 'day'
-                  ? 'bg-[#0B1F44] text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-300'
+          </MotionCard>
+          <MotionCard
+            delay={0.05}
+            className="bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white rounded-2xl p-3.5 shadow-sm shadow-blue-900/15 slp-card-lift"
+          >
+            <div className="flex items-center justify-between text-[11px] font-semibold text-blue-100">
+              <span>Money Taken ({rangeLabel})</span>
+              <Wallet className="w-4 h-4 text-cyan-300" />
+            </div>
+            <div className="mt-1 text-lg font-bold font-mono tabular-nums text-white">
+              <AnimatedNumber value={daySummary.labourPaid} format={(n) => formatCurrency(n)} />
+            </div>
+            {daySummary.labourUnpaid > 0 && (
+              <div className="mt-0.5 text-[11px] text-amber-200 font-mono">
+                Unpaid Due: {formatCurrency(daySummary.labourUnpaid)}
+              </div>
+            )}
+          </MotionCard>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <MotionCard
+            delay={0}
+            className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5 slp-card-lift"
+          >
+            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              <span>{hasDateRange ? 'Range Income' : 'Day Shop Income'}</span>
+              <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="mt-1 text-lg font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+              <AnimatedNumber value={daySummary.totalDayIncome} format={(n) => formatCurrency(n)} />
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              Bills: {formatCurrency(daySummary.salesCollected)} · Other: {formatCurrency(daySummary.otherIncome)}
+            </div>
+          </MotionCard>
+          <MotionCard
+            delay={0.05}
+            className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5 slp-card-lift"
+          >
+            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              <span>{hasDateRange ? 'Range Expenses' : 'Total Day Expenses'}</span>
+              <ArrowUpRight className="w-4 h-4 text-rose-600" />
+            </div>
+            <div className="mt-1 text-lg font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400">
+              <AnimatedNumber value={daySummary.totalDayOutflow} format={(n) => formatCurrency(n)} />
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              Shop: {formatCurrency(daySummary.shopExpenses)} · Labour: {formatCurrency(daySummary.labourPaid)}
+            </div>
+          </MotionCard>
+          <MotionCard
+            delay={0.1}
+            className="bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white rounded-2xl p-3.5 shadow-sm shadow-blue-900/15 slp-card-lift"
+          >
+            <div className="flex items-center justify-between text-[11px] font-semibold text-blue-100">
+              <span>{hasDateRange ? 'Net Range Balance' : 'Net Day Balance'}</span>
+              <Wallet className="w-4 h-4 text-cyan-300" />
+            </div>
+            <div
+              className={`mt-1 text-lg font-bold font-mono tabular-nums ${
+                daySummary.netDayBalance >= 0 ? 'text-white' : 'text-amber-200'
               }`}
             >
-              Selected Day
-            </button>
-            <button
-              type="button"
-              onClick={() => setDateScope('all')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                dateScope === 'all'
-                  ? 'bg-[#0B1F44] text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              All Dates
-            </button>
-          </div>
+              <AnimatedNumber value={daySummary.netDayBalance} format={(n) => formatCurrency(n)} />
+            </div>
+            <div className="mt-1 text-[11px] text-blue-100 truncate">{rangeLabel}</div>
+          </MotionCard>
+        </div>
+      )}
 
-          <div className="relative flex-1 min-w-[190px]">
+      {/* Search, Date Range Selector & Category Filter */}
+      <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3 shadow-sm space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+          <div className="relative md:col-span-5">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search worker, work, expense or note..."
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+              placeholder={
+                activeTab === 'labour'
+                  ? 'Search worker, work done, or date...'
+                  : 'Search income, expense, labour, or date...'
+              }
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-2 md:col-span-4">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950">
+              <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">From</span>
+              <input
+                type="date"
+                aria-label="From date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-full min-w-0 bg-transparent text-xs font-mono font-semibold text-[#0B1F44] dark:text-white focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950">
+              <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">To</span>
+              <input
+                type="date"
+                aria-label="To date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-full min-w-0 bg-transparent text-xs font-mono font-semibold text-[#0B1F44] dark:text-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 md:col-span-3">
+            <select
+              aria-label="Category filter"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full px-2.5 py-2 text-xs font-semibold rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-[#0B1F44] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+            >
+              {activeTab === 'labour' ? (
+                <>
+                  <option value="ALL">All Payment Modes</option>
+                  <option value="PAID">Paid Only</option>
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Unpaid">Unpaid / Credit</option>
+                </>
+              ) : (
+                <>
+                  <option value="ALL">All Categories</option>
+                  <option value="INCOME">Shop Income Only</option>
+                  <option value="EXPENSE">Shop Expenses Only</option>
+                  <option value="LABOUR_MONEY">Labour Money Taken</option>
+                  <option value="Cash">Mode: Cash</option>
+                  <option value="UPI">Mode: UPI</option>
+                  <option value="Bank Transfer">Mode: Bank Transfer</option>
+                  <option value="Other">Mode: Other</option>
+                  {customShopCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
+            {(hasDateRange || categoryFilter !== 'ALL' || search.trim() !== '') && (
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.92 }}
+                onClick={() => {
+                  setFromDate('');
+                  setToDate('');
+                  setCategoryFilter('ALL');
+                  setSearch('');
+                }}
+                className="px-2.5 py-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-[11px] font-bold shrink-0 hover:bg-rose-100 transition"
+              >
+                Clear
+              </motion.button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Day Summary KPI Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-            <span>Day Shop Income</span>
-            <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="mt-1 text-lg font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
-            {formatCurrency(daySummary.totalDayIncome)}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-            Bills: {formatCurrency(daySummary.salesCollected)} · Other: {formatCurrency(daySummary.otherIncome)}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-            <span>Shop Expenses</span>
-            <ArrowUpRight className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="mt-1 text-lg font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400">
-            {formatCurrency(daySummary.shopExpenses)}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            {daySummary.expensesCount} {daySummary.expensesCount === 1 ? 'expense' : 'expenses'} on {selectedDate}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-            <span>Labour Work</span>
-            <HardHat className="w-4 h-4 text-[#1D4ED8]" />
-          </div>
-          <div className="mt-1 text-lg font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
-            {formatCurrency(daySummary.labourTotal)}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-            {daySummary.labourCount} logs · Paid {formatCurrency(daySummary.labourPaid)}
-            {daySummary.labourUnpaid > 0 ? ` · Due ${formatCurrency(daySummary.labourUnpaid)}` : ''}
-          </div>
-        </div>
-
-        <div className="bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white rounded-2xl p-3.5 shadow-sm shadow-blue-900/15">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-blue-100">
-            <span>Net Day Balance</span>
-            <Wallet className="w-4 h-4 text-cyan-300" />
-          </div>
-          <div
-            className={`mt-1 text-lg font-bold font-mono tabular-nums ${
-              daySummary.netDayBalance >= 0 ? 'text-white' : 'text-amber-200'
+      <AnimatePresence>
+        {feedback && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.2 }}
+            className={`px-4 py-2.5 rounded-xl border text-xs font-semibold flex items-center justify-between gap-2 ${
+              feedback.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
             }`}
           >
-            {formatCurrency(daySummary.netDayBalance)}
-          </div>
-          <div className="mt-1 text-[11px] text-blue-100">
-            Income − (Expenses + Paid Labour)
-          </div>
-        </div>
-      </div>
+            <span>{feedback.text}</span>
+            <button type="button" onClick={() => setFeedback(null)} className="p-1">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Section Tabs */}
-      <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-blue-100/70 dark:bg-slate-900 border border-blue-200/70 dark:border-slate-800">
-        <button
-          type="button"
-          onClick={() => setActiveTab('labour')}
-          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition ${
-            activeTab === 'labour'
-              ? 'bg-[#1D4ED8] text-white shadow-sm'
-              : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800'
-          }`}
-        >
-          <HardHat className="w-4 h-4" />
-          <span>{language === 'te' ? 'లేబర్ పని వివరాలు' : 'Labour Work'} ({filteredLabour.length})</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('cashbook')}
-          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition ${
-            activeTab === 'cashbook'
-              ? 'bg-[#1D4ED8] text-white shadow-sm'
-              : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800'
-          }`}
-        >
-          <IndianRupee className="w-4 h-4" />
-          <span>
-            {language === 'te' ? 'షాప్ ఆదాయం & ఖర్చులు' : 'Shop Income & Expenses'} ({filteredEntries.length})
-          </span>
-        </button>
-      </div>
-
-      {feedback && (
-        <div
-          className={`px-4 py-2.5 rounded-xl border text-xs font-semibold flex items-center justify-between gap-2 ${
-            feedback.type === 'success'
-              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
-              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
-          }`}
-        >
-          <span>{feedback.text}</span>
-          <button type="button" onClick={() => setFeedback(null)} className="p-1">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'labour' ? (
+      {/* TAB 1: LABOUR WORK (ONLY Work Done & Money Taken on That Day) */}
+      {activeTab === 'labour' && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-          {/* Add / Edit Labour Work Form */}
           <form
             onSubmit={handleSubmitLabour}
             className="xl:col-span-5 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3"
@@ -633,7 +745,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
                 <Plus className="w-4 h-4 text-[#1D4ED8]" />
-                {editingWorkId ? 'Edit Labour Work' : 'Add Labour Work'}
+                {editingWorkId ? 'Edit Labour Entry' : 'Add Labour Work & Money Taken'}
               </h3>
               {editingWorkId && (
                 <button
@@ -653,25 +765,19 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               <input
                 required
                 type="text"
+                list="slp-worker-datalist"
                 value={workerName}
                 onChange={(e) => setWorkerName(e.target.value)}
-                placeholder="e.g. Raju, Venkat, Suresh..."
+                placeholder="Enter worker name"
                 maxLength={160}
                 className="w-full px-3 py-2.5 text-sm rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
               {recentWorkers.length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                <datalist id="slp-worker-datalist">
                   {recentWorkers.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => setWorkerName(name)}
-                      className="px-2 py-1 rounded-lg bg-blue-50 dark:bg-slate-800 border border-blue-200/80 dark:border-slate-700 text-[11px] font-semibold text-[#1D4ED8] dark:text-sky-300 hover:bg-blue-100"
-                    >
-                      {name}
-                    </button>
+                    <option key={name} value={name} />
                   ))}
-                </div>
+                </datalist>
               )}
             </div>
 
@@ -684,22 +790,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 type="text"
                 value={workDone}
                 onChange={(e) => setWorkDone(e.target.value)}
-                placeholder="e.g. Cast 12 Darwaja frames, loading..."
+                placeholder="Enter work done on this day"
                 maxLength={300}
                 className="w-full px-3 py-2.5 text-sm rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {WORK_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setWorkDone(preset)}
-                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:border-[#1D4ED8]"
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -717,7 +811,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Wage / Pay (₹)
+                  Money Taken (₹)
                 </label>
                 <input
                   type="number"
@@ -731,7 +825,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Payment Status
+                  Payment Mode
                 </label>
                 <select
                   value={workPayMethod}
@@ -750,13 +844,13 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Note (If Any)
+                Note (Optional)
               </label>
               <textarea
                 rows={2}
                 value={workNote}
                 onChange={(e) => setWorkNote(e.target.value)}
-                placeholder="Optional note (hours, advance, overtime, remarks)..."
+                placeholder="Optional note..."
                 maxLength={500}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
               />
@@ -770,107 +864,121 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             >
               {savingWork ? <Loader2 className="w-4 h-4 animate-spin" /> : <HardHat className="w-4 h-4" />}
               {savingWork
-                ? 'Saving to Cloud...'
+                ? 'Saving...'
                 : editingWorkId
-                ? 'Update Labour Work'
+                ? 'Update Labour Entry'
                 : 'Save Labour Work'}
             </motion.button>
           </form>
 
-          {/* Labour Work Records List */}
+          {/* Labour Work Done & Money Taken List */}
           <div className="xl:col-span-7 space-y-2.5">
             {filteredLabour.length === 0 ? (
               <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-8 text-center text-xs text-slate-400">
-                No labour work records found for {dateScope === 'day' ? selectedDate : 'this filter'}.
+                No labour work records found.
               </div>
             ) : (
-              filteredLabour.map((work) => (
-                <div
-                  key={work.id}
-                  className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 flex items-start justify-between gap-3"
-                >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                      <span className="text-sm font-bold text-[#0B1F44] dark:text-white">
-                        {work.workerName}
-                      </span>
-                      <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                        {work.workDate}
-                      </span>
-                      <span
-                        className={`text-[11px] font-semibold ${
-                          work.paymentMethod === 'Unpaid'
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-emerald-600 dark:text-emerald-400'
-                        }`}
-                      >
-                        {work.paymentMethod === 'Unpaid' ? 'Unpaid / Credit' : `Paid (${work.paymentMethod})`}
-                      </span>
-                    </div>
-
-                    <div className="text-xs font-medium text-[#1D4ED8] dark:text-sky-400">
-                      {work.workDone}
-                    </div>
-
-                    {work.note && (
-                      <div className="flex items-start gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-[#F4F8FF] dark:bg-slate-800/70 rounded-xl px-2.5 py-1.5 mt-1">
-                        <NotebookPen className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                        <span>{work.note}</span>
-                      </div>
-                    )}
-
-                    <div className="text-[10px] text-slate-400 pt-0.5">
-                      Recorded by {work.recordedByName || 'Staff'}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-end gap-2 shrink-0">
-                    <div className="text-sm font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
-                      {work.wageAmount > 0 ? formatCurrency(work.wageAmount) : 'Work Log'}
-                    </div>
-
-                    {canModifyRecord(work.recordedByUid) && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleEditLabour(work)}
-                          className="p-2 rounded-xl border border-blue-200 dark:border-slate-700 text-[#0B1F44] dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-800"
-                          aria-label="Edit labour work"
+              <AnimatePresence initial={false}>
+                {filteredLabour.map((work, index) => (
+                  <motion.div
+                    key={work.id}
+                    layout="position"
+                    initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    transition={{ duration: 0.22, delay: Math.min(index * 0.03, 0.18) }}
+                    className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 slp-card-lift flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <span className="text-sm font-bold text-[#0B1F44] dark:text-white">
+                          {work.workerName}
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                          {work.workDate}
+                        </span>
+                        <span
+                          className={`text-[11px] font-semibold ${
+                            work.paymentMethod === 'Unpaid'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          }`}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteLabour(work)}
-                          className="p-2 rounded-xl border border-rose-200 dark:border-rose-900 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
-                          aria-label="Delete labour work"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          {work.paymentMethod === 'Unpaid' ? 'Unpaid / Credit' : `Paid (${work.paymentMethod})`}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))
+
+                      <div className="text-xs font-medium text-[#1D4ED8] dark:text-sky-400">
+                        Work Done: {work.workDone}
+                      </div>
+
+                      {work.note && (
+                        <div className="flex items-start gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-[#F4F8FF] dark:bg-slate-800/70 rounded-xl px-2.5 py-1.5 mt-1">
+                          <NotebookPen className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <span>{work.note}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      <div className="text-right">
+                        <div className="text-[10px] font-semibold uppercase text-slate-400">
+                          Money Taken
+                        </div>
+                        <div className="text-sm font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
+                          {work.wageAmount > 0 ? formatCurrency(work.wageAmount) : '₹0.00'}
+                        </div>
+                      </div>
+
+                      {canModifyRecord(work.recordedByUid) && (
+                        <div className="flex items-center gap-1">
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => handleEditLabour(work)}
+                            className="p-2 rounded-xl border border-blue-200 dark:border-slate-700 text-[#0B1F44] dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-800"
+                            aria-label="Edit labour work"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </motion.button>
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => handleDeleteLabour(work)}
+                            className="p-2 rounded-xl border border-rose-200 dark:border-rose-900 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
+                            aria-label="Delete labour work"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </motion.button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             )}
           </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-          {/* Add / Edit Shop Income or Expense Form */}
-          <form
-            onSubmit={handleSubmitEntry}
-            className="xl:col-span-5 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3"
-          >
+      )}
+
+      {/* SHOP INCOME & SHOP EXPENSES (One Page Portion with Separate Income & Expenses Under It) */}
+      {activeTab === 'cashbook' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          {/* SECTION 1: SHOP INCOME (Form + List Separate) */}
+          <div className="space-y-4">
+            <form
+              onSubmit={handleSubmitIncome}
+              className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3"
+            >
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-[#1D4ED8]" />
-                {editingEntryId ? 'Edit Shop Entry' : 'Add Shop Income / Expense'}
+                <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
+                {editingIncomeId ? 'Edit Shop Income' : 'Add Shop Income'}
               </h3>
-              {editingEntryId && (
+              {editingIncomeId && (
                 <button
                   type="button"
-                  onClick={() => resetEntryForm()}
+                  onClick={resetIncomeForm}
                   className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 >
                   Cancel Edit
@@ -878,85 +986,19 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               )}
             </div>
 
-            {/* Income / Expense Toggle */}
-            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setEntryType('income');
-                  if (!editingEntryId) setEntryCategory('Extra Sales');
-                }}
-                className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
-                  entryType === 'income'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-300'
-                }`}
-              >
-                <ArrowDownLeft className="w-3.5 h-3.5" /> Shop Income (+)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEntryType('expense');
-                  if (!editingEntryId) setEntryCategory('Raw Material');
-                }}
-                className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
-                  entryType === 'expense'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-300'
-                }`}
-              >
-                <ArrowUpRight className="w-3.5 h-3.5" /> Shop Expense (-)
-              </button>
-            </div>
-
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                {entryType === 'income' ? 'Income Title / Source *' : 'Expense Description *'}
+                Income Title / Source *
               </label>
               <input
                 required
                 type="text"
-                value={entryTitle}
-                onChange={(e) => setEntryTitle(e.target.value)}
-                placeholder={
-                  entryType === 'income'
-                    ? 'e.g. Scrap sale, Mould rent, Opening cash...'
-                    : 'e.g. Cement bags, Sand, Tea & Tiffin, Diesel...'
-                }
+                value={incomeTitle}
+                onChange={(e) => setIncomeTitle(e.target.value)}
+                placeholder="Enter income description"
                 maxLength={160}
-                className="w-full px-3 py-2.5 text-sm rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                className="w-full px-3 py-2.5 text-sm rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Category
-              </label>
-              <input
-                type="text"
-                value={entryCategory}
-                onChange={(e) => setEntryCategory(e.target.value)}
-                placeholder="Category"
-                maxLength={80}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
-              />
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {(entryType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setEntryCategory(cat)}
-                    className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition ${
-                      entryCategory === cat
-                        ? 'bg-[#1D4ED8] border-[#1D4ED8] text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -969,10 +1011,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   type="number"
                   min={1}
                   step="any"
-                  value={entryAmount}
-                  onChange={(e) => setEntryAmount(e.target.value)}
+                  value={incomeAmount}
+                  onChange={(e) => setIncomeAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
               <div>
@@ -982,9 +1024,9 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 <input
                   required
                   type="date"
-                  value={entryDate}
-                  onChange={(e) => setEntryDate(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs font-mono rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                  value={incomeDate}
+                  onChange={(e) => setIncomeDate(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs font-mono rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
               <div>
@@ -992,11 +1034,11 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   Mode
                 </label>
                 <select
-                  value={entryPayMethod}
+                  value={incomePayMethod}
                   onChange={(e) =>
-                    setEntryPayMethod(e.target.value as 'Cash' | 'UPI' | 'Bank Transfer' | 'Other')
+                    setIncomePayMethod(e.target.value as 'Cash' | 'UPI' | 'Bank Transfer' | 'Other')
                   }
-                  className="w-full px-2.5 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                  className="w-full px-2.5 py-2 text-xs rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
                   <option value="Cash">Cash</option>
                   <option value="UPI">UPI</option>
@@ -1008,76 +1050,68 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Note (If Any)
+                Note (Optional)
               </label>
               <textarea
                 rows={2}
-                value={entryNote}
-                onChange={(e) => setEntryNote(e.target.value)}
-                placeholder="Optional note or vendor / receipt reference..."
+                value={incomeNote}
+                onChange={(e) => setIncomeNote(e.target.value)}
+                placeholder="Optional note..."
                 maxLength={500}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
               />
             </div>
 
             <motion.button
               type="submit"
               whileTap={{ scale: 0.97 }}
-              disabled={savingEntry}
-              className={`w-full py-3 rounded-xl text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 ${
-                entryType === 'income'
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'bg-[#0B1F44] hover:bg-[#13326b]'
-              }`}
+              disabled={savingIncome}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
             >
-              {savingEntry ? <Loader2 className="w-4 h-4 animate-spin" /> : <IndianRupee className="w-4 h-4" />}
-              {savingEntry
-                ? 'Saving to Cloud...'
-                : editingEntryId
-                ? 'Update Entry'
-                : entryType === 'income'
-                ? 'Save Shop Income'
-                : 'Save Shop Expense'}
+              {savingIncome ? <Loader2 className="w-4 h-4 animate-spin" /> : <IndianRupee className="w-4 h-4" />}
+              {savingIncome
+                ? 'Saving...'
+                : editingIncomeId
+                ? 'Update Shop Income'
+                : 'Save Shop Income'}
             </motion.button>
           </form>
 
-          {/* Separate Shop Income & Shop Expenses Sections (Down Side) */}
-          <div className="xl:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            {/* 1. SHOP INCOME SECTION (SEPARATE) */}
-            <div className="bg-white border border-emerald-200 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3">
-              <div className="flex items-center justify-between border-b border-emerald-100 pb-2.5">
+            {/* Shop Income List */}
+            <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3">
+              <div className="flex items-center justify-between border-b border-emerald-100 dark:border-slate-800 pb-2.5">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                     <ArrowDownLeft className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-[#0B1F44]">
-                      {language === 'te' ? 'షాప్ ఆదాయం' : 'Shop Income'}
+                    <h4 className="text-sm font-bold text-[#0B1F44] dark:text-white">
+                      {language === 'te' ? 'షాప్ ఆదాయం వివరాలు' : 'Shop Income'}
                     </h4>
                     <div className="text-[11px] text-slate-500">
-                      Bills + {filteredEntries.filter((e) => e.type === 'income').length} manual entries
+                      Bills + {filteredIncomeEntries.length} manual entries
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-bold font-mono tabular-nums text-emerald-600">
-                    +{formatCurrency(daySummary.totalDayIncome)}
+                    +<AnimatedNumber value={manualIncomeTotal + daySummary.salesCollected} format={(n) => formatCurrency(n)} />
                   </div>
-                  <div className="text-[10px] text-slate-400">{selectedDate}</div>
+                  <div className="text-[10px] text-slate-400">Bills + Manual</div>
                 </div>
               </div>
 
               {/* Auto Bill Income Row */}
-              <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 flex items-center justify-between gap-2">
+              <div className="bg-blue-50/80 dark:bg-slate-800/70 border border-blue-200 dark:border-slate-700 rounded-xl p-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-[#1D4ED8] text-white flex items-center justify-center shrink-0">
                     <ReceiptText className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-bold text-[#0B1F44] truncate">
+                    <div className="text-xs font-bold text-[#0B1F44] dark:text-white truncate">
                       Bill Sales ({selectedDate})
                     </div>
-                    <div className="text-[10px] text-slate-600 truncate">
+                    <div className="text-[10px] text-slate-600 dark:text-slate-300 truncate">
                       {daySummary.dayBillsCount} bills ({formatCurrency(daySummary.dayBilledTotal)})
                     </div>
                   </div>
@@ -1087,28 +1121,32 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 </div>
               </div>
 
-              {/* Manual Shop Income Items */}
               <div className="space-y-2">
-                {filteredEntries.filter((e) => e.type === 'income').length === 0 ? (
-                  <div className="py-5 text-center text-xs text-slate-400 border border-dashed border-emerald-200/70 rounded-xl">
-                    No other shop income entries for {dateScope === 'day' ? selectedDate : 'this filter'}.
+                {filteredIncomeEntries.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-emerald-200/70 rounded-xl">
+                    No manual shop income entries found.
                   </div>
                 ) : (
-                  filteredEntries
-                    .filter((e) => e.type === 'income')
-                    .map((entry) => (
-                      <div
+                  <AnimatePresence initial={false}>
+                    {filteredIncomeEntries.map((entry, idx) => (
+                      <motion.div
                         key={entry.id}
-                        className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 flex items-start justify-between gap-2"
+                        layout="position"
+                        initial={{ opacity: 0, y: 8, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={{ duration: 0.2, delay: Math.min(idx * 0.025, 0.15) }}
+                        className="rounded-xl border border-emerald-100 dark:border-slate-800 bg-emerald-50/30 dark:bg-slate-800/40 p-3 slp-card-lift flex items-start justify-between gap-2"
                       >
                         <div className="min-w-0 flex-1 space-y-0.5">
-                          <div className="text-xs font-bold text-[#0B1F44] truncate">{entry.title}</div>
+                          <div className="text-xs font-bold text-[#0B1F44] dark:text-white truncate">
+                            {entry.title}
+                          </div>
                           <div className="text-[11px] text-slate-500">
-                            <span className="font-mono">{entry.entryDate}</span>
-                            {entry.category ? ` · ${entry.category}` : ''} · {entry.paymentMethod}
+                            <span className="font-mono">{entry.entryDate}</span> · {entry.paymentMethod}
                           </div>
                           {entry.note && (
-                            <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white rounded-lg px-2 py-1 mt-1 border border-emerald-100">
+                            <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white dark:bg-slate-900 rounded-lg px-2 py-1 mt-1 border border-emerald-100 dark:border-slate-700">
                               <NotebookPen className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
                               <span>{entry.note}</span>
                             </div>
@@ -1121,114 +1159,290 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                           </div>
                           {canModifyRecord(entry.recordedByUid) && (
                             <div className="flex items-center gap-1">
-                              <button
+                              <motion.button
                                 type="button"
-                                onClick={() => handleEditEntry(entry)}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleEditIncome(entry)}
                                 className="p-1.5 rounded-lg border border-blue-200 bg-white text-[#0B1F44] hover:bg-blue-50"
                                 aria-label="Edit income entry"
                               >
                                 <Edit3 className="w-3 h-3" />
-                              </button>
-                              <button
+                              </motion.button>
+                              <motion.button
                                 type="button"
+                                whileTap={{ scale: 0.9 }}
                                 onClick={() => handleDeleteEntry(entry)}
                                 className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
                                 aria-label="Delete income entry"
                               >
                                 <Trash2 className="w-3 h-3" />
-                              </button>
+                              </motion.button>
                             </div>
                           )}
                         </div>
-                      </div>
-                    ))
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 )}
               </div>
             </div>
+          </div>
 
-            {/* 2. SHOP EXPENSES SECTION (SEPARATE) */}
-            <div className="bg-white border border-rose-200 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3">
-              <div className="flex items-center justify-between border-b border-rose-100 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                    <ArrowUpRight className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-[#0B1F44]">
-                      {language === 'te' ? 'షాప్ ఖర్చులు' : 'Shop Expenses'}
-                    </h4>
-                    <div className="text-[11px] text-slate-500">
-                      {filteredEntries.filter((e) => e.type === 'expense').length} expense entries
-                    </div>
-                  </div>
+          {/* SECTION 2: SHOP EXPENSES (Form + List incl. Labour Money Taken) */}
+          <div className="space-y-4">
+            <form
+              onSubmit={handleSubmitExpense}
+              className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3"
+            >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
+                <ArrowUpRight className="w-4 h-4 text-rose-600" />
+                {editingExpenseId ? 'Edit Shop Expense' : 'Add Shop Expense'}
+              </h3>
+              {editingExpenseId && (
+                <button
+                  type="button"
+                  onClick={resetExpenseForm}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                Expense Description *
+              </label>
+              <input
+                required
+                type="text"
+                value={expenseTitle}
+                onChange={(e) => setExpenseTitle(e.target.value)}
+                placeholder="Enter expense description"
+                maxLength={160}
+                className="w-full px-3 py-2.5 text-sm rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  Amount (₹) *
+                </label>
+                <input
+                  required
+                  type="number"
+                  min={1}
+                  step="any"
+                  value={expenseAmount}
+                  onChange={(e) => setExpenseAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  Date *
+                </label>
+                <input
+                  required
+                  type="date"
+                  value={expenseDate}
+                  onChange={(e) => setExpenseDate(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs font-mono rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  Mode
+                </label>
+                <select
+                  value={expensePayMethod}
+                  onChange={(e) =>
+                    setExpensePayMethod(e.target.value as 'Cash' | 'UPI' | 'Bank Transfer' | 'Other')
+                  }
+                  className="w-full px-2.5 py-2 text-xs rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                Note (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={expenseNote}
+                onChange={(e) => setExpenseNote(e.target.value)}
+                placeholder="Optional note..."
+                maxLength={500}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
+              />
+            </div>
+
+            <motion.button
+              type="submit"
+              whileTap={{ scale: 0.97 }}
+              disabled={savingExpense}
+              className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+            >
+              {savingExpense ? <Loader2 className="w-4 h-4 animate-spin" /> : <IndianRupee className="w-4 h-4" />}
+              {savingExpense
+                ? 'Saving...'
+                : editingExpenseId
+                ? 'Update Shop Expense'
+                : 'Save Shop Expense'}
+            </motion.button>
+          </form>
+
+            {/* Combined Shop Expenses + Labour Money Taken List */}
+            <div className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm shadow-blue-900/5 space-y-3">
+            <div className="flex items-center justify-between border-b border-rose-100 dark:border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <ArrowUpRight className="w-4 h-4" />
                 </div>
-                <div className="text-right">
-                  <div className="text-sm font-bold font-mono tabular-nums text-rose-600">
-                    -{formatCurrency(daySummary.shopExpenses)}
+                <div>
+                  <h4 className="text-sm font-bold text-[#0B1F44] dark:text-white">
+                    {language === 'te' ? 'షాప్ ఖర్చులు & లేబర్ డబ్బు' : 'Shop Expenses'}
+                  </h4>
+                  <div className="text-[11px] text-slate-500">
+                    {combinedExpenses.length} expense items (includes paid labour money taken)
                   </div>
-                  <div className="text-[10px] text-slate-400">{selectedDate}</div>
                 </div>
               </div>
+              <div className="text-right">
+                <div className="text-sm font-bold font-mono tabular-nums text-rose-600">
+                  -<AnimatedNumber value={combinedExpensesTotal} format={(n) => formatCurrency(n)} />
+                </div>
+                <div className="text-[10px] text-slate-400">Shop + Labour</div>
+              </div>
+            </div>
 
-              <div className="space-y-2">
-                {filteredEntries.filter((e) => e.type === 'expense').length === 0 ? (
-                  <div className="py-5 text-center text-xs text-slate-400 border border-dashed border-rose-200/70 rounded-xl">
-                    No shop expenses recorded for {dateScope === 'day' ? selectedDate : 'this filter'}.
-                  </div>
-                ) : (
-                  filteredEntries
-                    .filter((e) => e.type === 'expense')
-                    .map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="rounded-xl border border-rose-100 bg-rose-50/30 p-3 flex items-start justify-between gap-2"
+            <div className="space-y-2">
+              {combinedExpenses.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-rose-200/70 rounded-xl">
+                  No expenses or labour money taken recorded yet.
+                </div>
+              ) : (
+                <AnimatePresence initial={false}>
+                  {combinedExpenses.map((row, idx) =>
+                    row.kind === 'labour' ? (
+                      <motion.div
+                        key={`labour_${row.work.id}`}
+                        layout="position"
+                        initial={{ opacity: 0, y: 8, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={{ duration: 0.2, delay: Math.min(idx * 0.025, 0.15) }}
+                        className="rounded-xl border border-blue-200 dark:border-slate-700 bg-blue-50/40 dark:bg-slate-800/50 p-3 slp-card-lift flex items-start justify-between gap-2"
                       >
                         <div className="min-w-0 flex-1 space-y-0.5">
-                          <div className="text-xs font-bold text-[#0B1F44] truncate">{entry.title}</div>
-                          <div className="text-[11px] text-slate-500">
-                            <span className="font-mono">{entry.entryDate}</span>
-                            {entry.category ? ` · ${entry.category}` : ''} · {entry.paymentMethod}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-[#0B1F44] dark:text-white">
+                              {row.work.workerName}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-[#0B1F44] text-white text-[10px] font-bold">
+                              Labour Money Taken
+                            </span>
                           </div>
-                          {entry.note && (
-                            <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white rounded-lg px-2 py-1 mt-1 border border-rose-100">
+                          <div className="text-[11px] font-medium text-[#1D4ED8] dark:text-sky-400">
+                            Work Done: {row.work.workDone}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            <span className="font-mono">{row.work.workDate}</span> · {row.work.paymentMethod}
+                          </div>
+                          {row.work.note && (
+                            <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white dark:bg-slate-900 rounded-lg px-2 py-1 mt-1 border border-blue-100 dark:border-slate-700">
                               <NotebookPen className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
-                              <span>{entry.note}</span>
+                              <span>{row.work.note}</span>
                             </div>
                           )}
                         </div>
 
                         <div className="flex flex-col items-end gap-1.5 shrink-0">
                           <div className="text-xs font-bold font-mono tabular-nums text-rose-600">
-                            -{formatCurrency(entry.amount)}
+                            -{formatCurrency(row.work.wageAmount)}
                           </div>
-                          {canModifyRecord(entry.recordedByUid) && (
+                          {canModifyRecord(row.work.recordedByUid) && (
+                            <motion.button
+                              type="button"
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => handleEditLabour(row.work)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-white text-[10px] font-semibold text-[#0B1F44] hover:bg-blue-50"
+                            >
+                              <Edit3 className="w-3 h-3" /> Edit
+                            </motion.button>
+                          )}
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key={row.entry.id}
+                        layout="position"
+                        initial={{ opacity: 0, y: 8, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={{ duration: 0.2, delay: Math.min(idx * 0.025, 0.15) }}
+                        className="rounded-xl border border-rose-100 dark:border-slate-800 bg-rose-50/30 dark:bg-slate-800/40 p-3 slp-card-lift flex items-start justify-between gap-2"
+                      >
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="text-xs font-bold text-[#0B1F44] dark:text-white truncate">
+                            {row.entry.title}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            <span className="font-mono">{row.entry.entryDate}</span> · {row.entry.paymentMethod}
+                          </div>
+                          {row.entry.note && (
+                            <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white dark:bg-slate-900 rounded-lg px-2 py-1 mt-1 border border-rose-100 dark:border-slate-700">
+                              <NotebookPen className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                              <span>{row.entry.note}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <div className="text-xs font-bold font-mono tabular-nums text-rose-600">
+                            -{formatCurrency(row.entry.amount)}
+                          </div>
+                          {canModifyRecord(row.entry.recordedByUid) && (
                             <div className="flex items-center gap-1">
-                              <button
+                              <motion.button
                                 type="button"
-                                onClick={() => handleEditEntry(entry)}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleEditExpense(row.entry)}
                                 className="p-1.5 rounded-lg border border-blue-200 bg-white text-[#0B1F44] hover:bg-blue-50"
                                 aria-label="Edit expense entry"
                               >
                                 <Edit3 className="w-3 h-3" />
-                              </button>
-                              <button
+                              </motion.button>
+                              <motion.button
                                 type="button"
-                                onClick={() => handleDeleteEntry(entry)}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleDeleteEntry(row.entry)}
                                 className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
                                 aria-label="Delete expense entry"
                               >
                                 <Trash2 className="w-3 h-3" />
-                              </button>
+                              </motion.button>
                             </div>
                           )}
                         </div>
-                      </div>
-                    ))
-                )}
-              </div>
+                      </motion.div>
+                    )
+                  )}
+                </AnimatePresence>
+              )}
             </div>
           </div>
         </div>
+      </div>
       )}
     </div>
   );

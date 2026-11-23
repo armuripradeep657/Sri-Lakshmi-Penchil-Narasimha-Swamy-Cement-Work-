@@ -1,28 +1,42 @@
 import React, { useEffect, useState } from 'react';
 import {
   Building2,
+  Clock,
   Download,
   Globe,
-  MessageSquare,
+  Package,
   Printer,
+  ReceiptText,
+  RotateCcw,
   Save,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
+import { formatTimestamp } from '../lib/firebase';
+import { formatCurrency } from '../lib/upiAndExport';
 import { PWAInstallButton } from '../components/PWAInstallButton';
+
+const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
 export const BusinessSettingsPage: React.FC = () => {
   const {
     business,
     businessSettings,
     products,
+    removedProducts,
     customers,
     bills,
+    removedBills,
     payments,
     categories,
     saveBusinessProfile,
     saveBusinessSettings,
+    restoreDeletedBillAtomic,
+    permanentlyDeleteBillAtomic,
+    restoreDeletedProduct,
+    permanentlyDeleteProduct,
   } = useBillingData();
   const { isAdmin, language, toggleLanguage } = useAuth();
 
@@ -48,15 +62,15 @@ export const BusinessSettingsPage: React.FC = () => {
   const [showQrCode, setShowQrCode] = useState(businessSettings?.showQrCode ?? true);
   const [footerMessage, setFooterMessage] = useState(businessSettings?.footerMessage || '');
   const [invoiceNotes, setInvoiceNotes] = useState(businessSettings?.invoiceNotes || '');
-  const [whatsappEnabled, setWhatsappEnabled] = useState(businessSettings?.whatsappEnabled ?? true);
-  const [smsEnabled, setSmsEnabled] = useState(businessSettings?.smsEnabled ?? true);
-  const [smsSenderId, setSmsSenderId] = useState(businessSettings?.smsSenderId || 'SLPBIL');
-  const [smsDltTemplateId, setSmsDltTemplateId] = useState(businessSettings?.smsDltTemplateId || '');
 
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restorePreview, setRestorePreview] = useState<string | null>(null);
+  const [recoveryTab, setRecoveryTab] = useState<'bills' | 'products'>('bills');
+  const [recoveryBusyId, setRecoveryBusyId] = useState<string | null>(null);
+  const [confirmPermanentId, setConfirmPermanentId] = useState<string | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
     if (business) {
@@ -82,10 +96,6 @@ export const BusinessSettingsPage: React.FC = () => {
       setShowQrCode(businessSettings.showQrCode ?? true);
       setFooterMessage(businessSettings.footerMessage || '');
       setInvoiceNotes(businessSettings.invoiceNotes || '');
-      setWhatsappEnabled(businessSettings.whatsappEnabled ?? true);
-      setSmsEnabled(businessSettings.smsEnabled ?? true);
-      setSmsSenderId(businessSettings.smsSenderId || 'SLPBIL');
-      setSmsDltTemplateId(businessSettings.smsDltTemplateId || '');
     }
   }, [businessSettings]);
 
@@ -133,10 +143,6 @@ export const BusinessSettingsPage: React.FC = () => {
         showQrCode,
         footerMessage: footerMessage.trim(),
         invoiceNotes: invoiceNotes.trim(),
-        whatsappEnabled,
-        smsEnabled,
-        smsSenderId: smsSenderId.trim().toUpperCase(),
-        smsDltTemplateId: smsDltTemplateId.trim(),
       });
       setFeedback('All business settings saved and synchronized across every terminal.');
     } catch (err) {
@@ -180,7 +186,16 @@ export const BusinessSettingsPage: React.FC = () => {
     }
   };
 
+  const computeDaysLeft = (deletedAtMs?: number, deleteExpiresAtMs?: number) => {
+    const expiry =
+      Number(deleteExpiresAtMs || 0) ||
+      (Number(deletedAtMs || 0) > 0 ? Number(deletedAtMs) + TEN_DAYS_MS : Date.now() + TEN_DAYS_MS);
+    const remaining = Math.max(0, expiry - Date.now());
+    return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
+  };
+
   return (
+    <div className="space-y-6">
     <form onSubmit={handleSaveAll} className="space-y-6">
       {feedback && (
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
@@ -426,58 +441,6 @@ export const BusinessSettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Messaging Gateways */}
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4">
-        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-          <MessageSquare className="w-4 h-4 text-[#1D4ED8]" />
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-            WhatsApp & MSG91 SMS Gateway Settings
-          </h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-          <label className="inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              disabled={!isAdmin}
-              checked={whatsappEnabled}
-              onChange={(e) => setWhatsappEnabled(e.target.checked)}
-            />
-            Enable WhatsApp Invoice Sharing
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              disabled={!isAdmin}
-              checked={smsEnabled}
-              onChange={(e) => setSmsEnabled(e.target.checked)}
-            />
-            Enable MSG91 SMS Dispatch
-          </label>
-          <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">MSG91 Sender ID</label>
-            <input
-              disabled={!isAdmin}
-              value={smsSenderId}
-              onChange={(e) => setSmsSenderId(e.target.value)}
-              className="w-full px-3 py-2 font-mono uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-            />
-          </div>
-          <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">DLT Template / Flow ID</label>
-            <input
-              disabled={!isAdmin}
-              value={smsDltTemplateId}
-              onChange={(e) => setSmsDltTemplateId(e.target.value)}
-              placeholder="Configured in environment or DLT portal"
-              className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-            />
-          </div>
-        </div>
-        <p className="text-[11px] text-slate-500">
-          API credentials (`MSG91_AUTH_KEY`, `WHATSAPP_CLOUD_API_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`) are read strictly on the backend server from environment secrets and are never exposed in client UI.
-        </p>
-      </div>
-
       {/* Backup & Restore */}
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-3">
         <h3 className="text-sm font-bold text-slate-900 dark:text-white">Cloud Data Backup & Verification</h3>
@@ -509,5 +472,323 @@ export const BusinessSettingsPage: React.FC = () => {
         </div>
       )}
     </form>
+
+      {/* Removed Bills & Products (10-Day Recovery Bin) */}
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-5 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div>
+            <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              Removed Bills &amp; Products
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Deleted bills and products stay here for 10 days so you can restore them anytime, then auto-delete permanently.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold">
+            <Clock className="w-3.5 h-3.5" /> 10-Day Auto-Purge
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-blue-50 dark:bg-slate-950 border border-blue-100 dark:border-slate-800 max-w-sm">
+          <button
+            type="button"
+            onClick={() => {
+              setRecoveryTab('bills');
+              setConfirmPermanentId(null);
+            }}
+            className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+              recoveryTab === 'bills'
+                ? 'bg-[#0B1F44] text-white shadow-sm'
+                : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white'
+            }`}
+          >
+            <ReceiptText className="w-3.5 h-3.5" />
+            Removed Bills ({removedBills.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRecoveryTab('products');
+              setConfirmPermanentId(null);
+            }}
+            className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+              recoveryTab === 'products'
+                ? 'bg-[#0B1F44] text-white shadow-sm'
+                : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white'
+            }`}
+          >
+            <Package className="w-3.5 h-3.5" />
+            Removed Products ({removedProducts.length})
+          </button>
+        </div>
+
+        {recoveryNotice && (
+          <div
+            className={`rounded-xl px-3.5 py-2.5 text-xs font-medium ${
+              recoveryNotice.type === 'ok'
+                ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                : 'bg-rose-50 border border-rose-200 text-rose-700'
+            }`}
+          >
+            {recoveryNotice.text}
+          </div>
+        )}
+
+        {recoveryTab === 'bills' ? (
+          removedBills.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">
+              No removed bills in the 10-day recovery bin.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {removedBills.map((bill) => {
+                const daysLeft = computeDaysLeft(bill.deletedAtMs, bill.deleteExpiresAtMs);
+                const deletedDate = bill.deletedAtMs
+                  ? new Date(bill.deletedAtMs).toLocaleDateString('en-IN')
+                  : formatTimestamp(bill.updatedAt).toLocaleDateString('en-IN');
+                const isBusy = recoveryBusyId === bill.id;
+                const isConfirming = confirmPermanentId === bill.id;
+                return (
+                  <div
+                    key={bill.id}
+                    className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-[#0B1F44] dark:text-white">
+                          {bill.billNumber}
+                        </span>
+                        <span className="font-mono font-bold text-xs text-[#1D4ED8]">
+                          {formatCurrency(bill.grandTotal)}
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
+                          {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left
+                        </span>
+                      </div>
+                      <div className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                        {bill.customerName} {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Removed on {deletedDate}
+                        {bill.deletedByName ? ` by ${bill.deletedByName}` : ''} ·{' '}
+                        {bill.itemsSummary || `${bill.itemCount} items`}
+                      </div>
+                    </div>
+
+                    {isAdmin && (
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={async () => {
+                            setRecoveryBusyId(bill.id);
+                            setRecoveryNotice(null);
+                            try {
+                              await restoreDeletedBillAtomic(bill.id);
+                              setRecoveryNotice({
+                                type: 'ok',
+                                text: `Restored bill ${bill.billNumber} back to Bill History.`,
+                              });
+                            } catch (err) {
+                              setRecoveryNotice({
+                                type: 'err',
+                                text: err instanceof Error ? err.message : 'Failed to restore bill.',
+                              });
+                            } finally {
+                              setRecoveryBusyId(null);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Restore
+                        </button>
+                        {isConfirming ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={async () => {
+                                setRecoveryBusyId(bill.id);
+                                setRecoveryNotice(null);
+                                try {
+                                  await permanentlyDeleteBillAtomic(bill.id);
+                                  setConfirmPermanentId(null);
+                                  setRecoveryNotice({
+                                    type: 'ok',
+                                    text: `Permanently removed bill ${bill.billNumber}.`,
+                                  });
+                                } catch (err) {
+                                  setRecoveryNotice({
+                                    type: 'err',
+                                    text:
+                                      err instanceof Error
+                                        ? err.message
+                                        : 'Failed to delete bill permanently.',
+                                  });
+                                } finally {
+                                  setRecoveryBusyId(null);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50"
+                            >
+                              Confirm Delete
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => setConfirmPermanentId(null)}
+                              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => setConfirmPermanentId(bill.id)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete Permanently
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : removedProducts.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-400">
+            No removed products in the 10-day recovery bin.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {removedProducts.map((product) => {
+              const daysLeft = computeDaysLeft(product.deletedAtMs, product.deleteExpiresAtMs);
+              const deletedDate = product.deletedAtMs
+                ? new Date(product.deletedAtMs).toLocaleDateString('en-IN')
+                : formatTimestamp(product.updatedAt).toLocaleDateString('en-IN');
+              const isBusy = recoveryBusyId === product.id;
+              const isConfirming = confirmPermanentId === product.id;
+              return (
+                <div
+                  key={product.id}
+                  className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-xs text-[#0B1F44] dark:text-white">
+                        {product.name}
+                      </span>
+                      <span className="font-mono text-xs text-[#1D4ED8] font-bold">
+                        {formatCurrency(product.sellingPrice)}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
+                        {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {product.category} · <span className="font-mono">{product.productCode}</span> · Stock:{' '}
+                      {product.stock} {product.unit}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Removed on {deletedDate}
+                      {product.deletedByName ? ` by ${product.deletedByName}` : ''}
+                    </div>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={async () => {
+                          setRecoveryBusyId(product.id);
+                          setRecoveryNotice(null);
+                          try {
+                            await restoreDeletedProduct(product.id);
+                            setRecoveryNotice({
+                              type: 'ok',
+                              text: `Restored product "${product.name}" back to Products.`,
+                            });
+                          } catch (err) {
+                            setRecoveryNotice({
+                              type: 'err',
+                              text: err instanceof Error ? err.message : 'Failed to restore product.',
+                            });
+                          } finally {
+                            setRecoveryBusyId(null);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Restore
+                      </button>
+                      {isConfirming ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={async () => {
+                              setRecoveryBusyId(product.id);
+                              setRecoveryNotice(null);
+                              try {
+                                await permanentlyDeleteProduct(product.id);
+                                setConfirmPermanentId(null);
+                                setRecoveryNotice({
+                                  type: 'ok',
+                                  text: `Permanently removed product "${product.name}".`,
+                                });
+                              } catch (err) {
+                                setRecoveryNotice({
+                                  type: 'err',
+                                  text:
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'Failed to delete product permanently.',
+                                });
+                              } finally {
+                                setRecoveryBusyId(null);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50"
+                          >
+                            Confirm Delete
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => setConfirmPermanentId(null)}
+                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => setConfirmPermanentId(product.id)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete Permanently
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   );
 };

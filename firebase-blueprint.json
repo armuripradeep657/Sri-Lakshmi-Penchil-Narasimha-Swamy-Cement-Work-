@@ -36,6 +36,7 @@
         "ownerUid": { "type": "string", "maxLength": 128 },
         "authorizedUids": { "type": "array" },
         "email": { "type": "string", "maxLength": 160 },
+        "username": { "type": "string", "maxLength": 40 },
         "displayName": { "type": "string", "maxLength": 120 },
         "role": { "type": "string", "enum": ["admin", "cashier"] },
         "status": { "type": "string", "enum": ["pending", "accepted", "revoked"] },
@@ -61,6 +62,8 @@
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "email": { "type": "string", "maxLength": 160 },
+        "authEmail": { "type": "string", "maxLength": 160 },
+        "username": { "type": "string", "maxLength": 40 },
         "displayName": { "type": "string", "maxLength": 120 },
         "role": { "type": "string", "enum": ["admin", "cashier"] },
         "status": { "type": "string", "enum": ["active", "disabled", "revoked"] },
@@ -78,6 +81,10 @@
         "mpinSalt": { "type": "string", "maxLength": 80 },
         "mpinEnabled": { "type": "boolean" },
         "mpinUpdatedAt": { "type": "string", "format": "date-time" },
+        "passwordHash": { "type": "string", "maxLength": 160 },
+        "passwordSalt": { "type": "string", "maxLength": 80 },
+        "passwordEnabled": { "type": "boolean" },
+        "passwordUpdatedAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -155,6 +162,12 @@
         "variantsSummary": { "type": "string", "maxLength": 500 },
         "imageUrl": { "type": "string", "maxLength": 2000 },
         "description": { "type": "string", "maxLength": 600 },
+        "isDeleted": { "type": "boolean" },
+        "deletedAt": { "type": "string", "format": "date-time" },
+        "deletedAtMs": { "type": "number" },
+        "deleteExpiresAtMs": { "type": "number" },
+        "deletedByUid": { "type": "string", "maxLength": 128 },
+        "deletedByName": { "type": "string", "maxLength": 120 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -221,6 +234,12 @@
         "editedByName": { "type": "string", "maxLength": 120 },
         "editedAt": { "type": "string", "format": "date-time" },
         "notes": { "type": "string", "maxLength": 400 },
+        "isDeleted": { "type": "boolean" },
+        "deletedAt": { "type": "string", "format": "date-time" },
+        "deletedAtMs": { "type": "number" },
+        "deleteExpiresAtMs": { "type": "number" },
+        "deletedByUid": { "type": "string", "maxLength": 128 },
+        "deletedByName": { "type": "string", "maxLength": 120 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -515,6 +534,21 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "businessId", "ownerUid", "authorizedUids", "entryDate", "type", "title", "amount", "paymentMethod", "recordedByUid", "createdAt", "updatedAt"]
+    },
+    "UsernameIndex": {
+      "title": "UsernameIndex",
+      "description": "Non-listable exact username lookup pointer for username + password sign-in.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "minLength": 3, "maxLength": 40 },
+        "authEmail": { "type": "string", "maxLength": 160 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "authEmail", "uid", "businessId", "active", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -525,6 +559,10 @@
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserAccount" },
       "description": "Authorized admin and cashier roles and permissions."
+    },
+    "/usernameIndex/{username}": {
+      "schema": { "$ref": "#/entities/UsernameIndex" },
+      "description": "Exact username-to-authEmail lookup pointer."
     },
     "/admins/{userId}": {
       "schema": { "$ref": "#/entities/AdminRecord" },

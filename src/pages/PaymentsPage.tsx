@@ -3,7 +3,6 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   CreditCard,
-  Download,
   Plus,
   Search,
   Wallet,
@@ -11,7 +10,8 @@ import {
 } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
 import { formatTimestamp } from '../lib/firebase';
-import { exportRowsToExcel, formatCurrency } from '../lib/upiAndExport';
+import { formatCurrency } from '../lib/upiAndExport';
+import { AnimatedNumber, MotionCard } from '../components/MotionPrimitives';
 
 export const PaymentsPage: React.FC = () => {
   const { payments, bills, recordPaymentAtomic } = useBillingData();
@@ -96,49 +96,49 @@ export const PaymentsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        <MotionCard delay={0} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" /> Total Collected
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 mt-1">
-            {formatCurrency(totals.collected)}
+            <AnimatedNumber value={totals.collected} format={(n) => formatCurrency(n)} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">
             Cash: {formatCurrency(totals.cash)}
           </div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        </MotionCard>
+        <MotionCard delay={0.04} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <CreditCard className="w-3.5 h-3.5 text-[#1D4ED8]" /> UPI & Bank Transfers
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
-            {formatCurrency(totals.upi + totals.bank)}
+            <AnimatedNumber value={totals.upi + totals.bank} format={(n) => formatCurrency(n)} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">
             UPI {formatCurrency(totals.upi)} · Bank {formatCurrency(totals.bank)}
           </div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        </MotionCard>
+        <MotionCard delay={0.08} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <Wallet className="w-3.5 h-3.5 text-amber-500" /> Pending Receivables
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400 mt-1">
-            {formatCurrency(totals.totalPending)}
+            <AnimatedNumber value={totals.totalPending} format={(n) => formatCurrency(n)} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">{pendingBills.length} open bills</div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        </MotionCard>
+        <MotionCard delay={0.12} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <ArrowUpRight className="w-3.5 h-3.5 text-rose-500" /> Refunds Issued
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400 mt-1">
-            {formatCurrency(totals.refunded)}
+            <AnimatedNumber value={totals.refunded} format={(n) => formatCurrency(n)} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">Atomic audit-logged refunds</div>
-        </div>
+        </MotionCard>
       </div>
 
       {feedback && (
@@ -185,27 +185,6 @@ export const PaymentsPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() =>
-              exportRowsToExcel(
-                filtered.map((p) => ({
-                  Date: formatTimestamp(p.createdAt).toLocaleString('en-IN'),
-                  BillNumber: p.billNumber,
-                  Customer: p.customerName,
-                  Type: p.type,
-                  Method: p.method,
-                  Amount: p.amount,
-                  Reference: p.referenceId || '',
-                  RecordedBy: p.recordedByName || '',
-                })),
-                'slp-payments-ledger',
-                'Payments'
-              )
-            }
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium"
-          >
-            <Download className="w-3.5 h-3.5" /> Excel
-          </button>
           <button
             onClick={() => {
               setError(null);

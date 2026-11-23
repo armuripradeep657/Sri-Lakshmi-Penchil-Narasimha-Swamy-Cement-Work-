@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowDownUp,
   ArrowUpRight,
-  Download,
   History,
   Package,
   Plus,
@@ -14,7 +13,8 @@ import {
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
-import { exportRowsToExcel, formatCurrency } from '../lib/upiAndExport';
+import { formatCurrency } from '../lib/upiAndExport';
+import { AnimatedNumber, MotionCard } from '../components/MotionPrimitives';
 import { Product } from '../types/billing';
 
 export const InventoryPage: React.FC = () => {
@@ -108,67 +108,48 @@ export const InventoryPage: React.FC = () => {
     }
   };
 
-  const handleExportInventory = () => {
-    exportRowsToExcel(
-      filteredProducts.map((p) => ({
-        Code: p.productCode,
-        Name: p.name,
-        Category: p.category,
-        Unit: p.unit || 'Piece',
-        CurrentStock: p.stock,
-        LowStockThreshold: p.lowStockThreshold ?? 10,
-        PurchasePrice: p.purchasePrice,
-        SellingPrice: p.sellingPrice,
-        StockValueCost: p.stock * p.purchasePrice,
-        StockValueRetail: p.stock * p.sellingPrice,
-      })),
-      'slp-inventory-levels',
-      'Inventory'
-    );
-  };
-
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        <MotionCard delay={0} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <Package className="w-3.5 h-3.5 text-[#1D4ED8]" /> Total Units in Yard
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
-            {stats.totalUnits.toLocaleString('en-IN')}
+            <AnimatedNumber value={stats.totalUnits} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">{products.length} catalog SKUs</div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        </MotionCard>
+        <MotionCard delay={0.04} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600" /> Cost Valuation
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
-            {formatCurrency(stats.purchaseValuation)}
+            <AnimatedNumber value={stats.purchaseValuation} format={(n) => formatCurrency(n)} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">
             Retail: {formatCurrency(stats.retailValuation)}
           </div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        </MotionCard>
+        <MotionCard delay={0.08} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> Low Stock Alerts
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400 mt-1">
-            {stats.lowCount}
+            <AnimatedNumber value={stats.lowCount} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">At or below threshold</div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+        </MotionCard>
+        <MotionCard delay={0.12} className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 shadow-sm slp-card-lift">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <ArrowDownUp className="w-3.5 h-3.5 text-rose-500" /> Out of Stock
           </div>
           <div className="text-xl font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400 mt-1">
-            {stats.outCount}
+            <AnimatedNumber value={stats.outCount} />
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">Zero units remaining</div>
-        </div>
+        </MotionCard>
       </div>
 
       {feedback && (
@@ -228,12 +209,6 @@ export const InventoryPage: React.FC = () => {
             </select>
           )}
 
-          <button
-            onClick={handleExportInventory}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
-          >
-            <Download className="w-3.5 h-3.5" /> Excel
-          </button>
         </div>
       </div>
 

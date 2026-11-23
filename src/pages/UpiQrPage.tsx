@@ -134,14 +134,9 @@ export const UpiQrPage: React.FC = () => {
         className="lg:col-span-7 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4"
       >
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              UPI QR & Merchant Payment Configuration
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Appears on A4 Tax Invoices, Thermal Receipts, Billing Counter, and Customer Online Invoices.
-            </p>
-          </div>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+            UPI QR Payment Settings
+          </h2>
           <QrCode className="w-6 h-6 text-[#1D4ED8]" />
         </div>
 

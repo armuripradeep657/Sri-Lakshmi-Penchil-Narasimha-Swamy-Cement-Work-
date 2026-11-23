@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowRight,
   Barcode,
-  Camera,
   Download,
   Edit3,
   Image as ImageIcon,
@@ -13,15 +12,12 @@ import {
   Search,
   Sparkles,
   Trash2,
-  Upload,
   X,
 } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { parseVariants } from '../lib/seedData';
-import { exportRowsToExcel, parseExcelProducts } from '../lib/upiAndExport';
 import { Product } from '../types/billing';
-import { ScannerModal } from '../components/ScannerModal';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
 import {
   deriveMixedVerificationCode,
@@ -42,8 +38,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
   const [catFilter, setCatFilter] = useState('All');
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
   const [barcodePreviewProduct, setBarcodePreviewProduct] = useState<Product | null>(null);
-  const [scannerOpen, setScannerOpen] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState<Product | null>(null);
+  const [deletingProd, setDeletingProd] = useState(false);
   const [pressedSize, setPressedSize] = useState<{
     key: string;
     product: Product;
@@ -51,7 +48,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
     price: number;
     nonce: number;
   } | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
   const popTimerRef = useRef<number | null>(null);
 
   const canManage = isAdmin || Boolean(userAccount?.canManageProducts);
@@ -70,116 +66,33 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
     });
   }, [products, search, catFilter]);
 
-  const handleExportExcel = () => {
-    exportRowsToExcel(
-      products.map((p) => ({
-        ProductCode: p.productCode,
-        Name: p.name,
-        NameTelugu: p.nameTe || '',
-        Category: p.category,
-        Barcode: p.barcode || '',
-        PurchasePrice: p.purchasePrice,
-        SellingPrice: p.sellingPrice,
-        Stock: p.stock,
-        LowStockThreshold: p.lowStockThreshold ?? 10,
-        TaxRate: p.taxRate,
-        Unit: p.unit || 'Piece',
-        Variants: p.variantsSummary || '',
-      })),
-      'SLP_Billing_Products',
-      'Products'
-    );
-  };
-
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const rows = await parseExcelProducts(file);
-      let imported = 0;
-      for (const row of rows) {
-        const name = String(row.Name || row.name || '').trim();
-        if (!name) continue;
-        await saveProduct({
-          productCode: String(row.ProductCode || row.productCode || ''),
-          name,
-          nameTe: String(row.NameTelugu || row.nameTe || ''),
-          category: String(row.Category || row.category || 'General'),
-          barcode: String(row.Barcode || row.barcode || ''),
-          purchasePrice: Number(row.PurchasePrice || row.purchasePrice || 0),
-          sellingPrice: Number(row.SellingPrice || row.sellingPrice || 0),
-          stock: Number(row.Stock || row.stock || 0),
-          lowStockThreshold: Number(row.LowStockThreshold || 10),
-          taxRate: Number(row.TaxRate || row.taxRate || 0),
-          unit: String(row.Unit || 'Piece'),
-          variantsSummary: String(row.Variants || ''),
-        });
-        imported += 1;
-      }
-      setStatusMsg(`Imported ${imported} products into cloud catalog.`);
-    } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Excel import failed.');
-    } finally {
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
   return (
-    <div className="space-y-5 animate-slp-in">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Product Catalog</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Centralized catalog with bilingual Telugu names, size variants, and real-time sync
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setScannerOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
+    <div className="space-y-4 animate-slp-in">
+      {canManage && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() =>
+              setEditing({
+                name: '',
+                nameTe: '',
+                category: categories[0]?.name || 'Darwaja',
+                barcode: generateCode128Value(),
+                purchasePrice: 0,
+                sellingPrice: 0,
+                stock: 20,
+                lowStockThreshold: 10,
+                taxRate: 18,
+                unit: 'Piece',
+                variantsSummary: '',
+              })
+            }
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-bold hover:bg-[#1E40AF] shadow-sm"
           >
-            <Camera className="w-3.5 h-3.5 text-[#1D4ED8]" /> Scan Barcode
-          </button>
-          <button
-            onClick={handleExportExcel}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
-          >
-            <Download className="w-3.5 h-3.5" /> Export Excel
-          </button>
-          {canManage && (
-            <>
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportExcel} />
-              <button
-                onClick={() => fileRef.current?.click()}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
-              >
-                <Upload className="w-3.5 h-3.5" /> Import Excel
-              </button>
-              <button
-                onClick={() =>
-                  setEditing({
-                    name: '',
-                    nameTe: '',
-                    category: categories[0]?.name || 'Darwaja',
-                    barcode: generateCode128Value(),
-                    purchasePrice: 0,
-                    sellingPrice: 0,
-                    stock: 20,
-                    lowStockThreshold: 10,
-                    taxRate: 18,
-                    unit: 'Piece',
-                    variantsSummary: '',
-                  })
-                }
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
-              >
-                <Plus className="w-4 h-4" /> Add Product
-              </button>
-            </>
-          )}
+            <Plus className="w-4 h-4" /> Add Product
+          </motion.button>
         </div>
-      </div>
+      )}
 
       {statusMsg && (
         <div className="px-4 py-2.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-200">
@@ -238,6 +151,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
           return (
             <motion.div
               key={product.id}
+              whileHover={{ y: -2 }}
               animate={isCardActive ? { scale: [1, 1.015, 1] } : { scale: 1 }}
               transition={{ duration: 0.25 }}
               className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 flex gap-4 justify-between transition-colors shadow-sm shadow-blue-900/5 ${
@@ -282,7 +196,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                       </button>
                       {isAdmin && (
                         <button
-                          onClick={() => deleteProduct(product.id)}
+                          type="button"
+                          onClick={() => setDeleteConfirmProduct(product)}
+                          title="Move Product to Removed Bills & Products (10-Day Recovery)"
                           className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -372,14 +288,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
         />
       )}
 
-      <ScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        products={products}
-        onProductFound={(p) => setSearch(p.productCode)}
-        title="Scan Product Barcode"
-      />
-
       {barcodePreviewProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-5 space-y-4 shadow-xl">
@@ -423,6 +331,69 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
               <Download className="w-3.5 h-3.5" />
               Download Code 128 Label (PNG)
             </button>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirmProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900 p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold text-[#0B1F44] dark:text-white">
+                  Remove Product · {deleteConfirmProduct.name}?
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5 font-mono">
+                  {deleteConfirmProduct.productCode} · ₹{deleteConfirmProduct.sellingPrice}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmProduct(null)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 leading-relaxed">
+              &quot;{deleteConfirmProduct.name}&quot; will be moved to{' '}
+              <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept for{' '}
+              <strong>10 days</strong> before permanent removal.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingProd}
+                onClick={() => setDeleteConfirmProduct(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingProd}
+                onClick={async () => {
+                  setDeletingProd(true);
+                  try {
+                    const removedName = deleteConfirmProduct.name;
+                    await deleteProduct(deleteConfirmProduct.id);
+                    setDeleteConfirmProduct(null);
+                    setStatusMsg(
+                      `Moved "${removedName}" to Settings → Removed Bills & Products (kept for 10 days).`
+                    );
+                  } catch (err) {
+                    setStatusMsg(err instanceof Error ? err.message : 'Failed to remove product.');
+                    setDeleteConfirmProduct(null);
+                  } finally {
+                    setDeletingProd(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deletingProd ? 'Removing...' : 'Move to Removed Products'}
+              </button>
+            </div>
           </div>
         </div>
       )}

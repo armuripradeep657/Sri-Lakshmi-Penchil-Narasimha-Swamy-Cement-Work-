@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   CreditCard,
-  Download,
   Edit3,
   MapPin,
   Phone,
@@ -13,7 +12,8 @@ import {
 } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
 import { formatTimestamp } from '../lib/firebase';
-import { exportRowsToExcel, formatCurrency } from '../lib/upiAndExport';
+import { formatCurrency } from '../lib/upiAndExport';
+import { AnimatedNumber } from '../components/MotionPrimitives';
 import { Customer } from '../types/billing';
 
 export const CustomersPage: React.FC = () => {
@@ -113,20 +113,22 @@ export const CustomersPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 animate-slp-in">
       {/* Header summary */}
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
         <div className="flex items-center gap-6">
           <div>
             <div className="text-xs text-slate-500 flex items-center gap-1">
-              <Users className="w-3.5 h-3.5 text-[#1D4ED8]" /> Registered Customers
+              <Users className="w-3.5 h-3.5 text-[#1D4ED8]" /> Customers
             </div>
-            <div className="text-lg font-bold font-mono text-slate-900 dark:text-white">{customers.length}</div>
+            <div className="text-lg font-bold font-mono text-slate-900 dark:text-white">
+              <AnimatedNumber value={customers.length} />
+            </div>
           </div>
           <div>
-            <div className="text-xs text-slate-500">Total Pending Balances</div>
+            <div className="text-xs text-slate-500">Pending Balances</div>
             <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400">
-              {formatCurrency(totalReceivables)}
+              <AnimatedNumber value={totalReceivables} format={(n) => formatCurrency(n)} />
             </div>
           </div>
         </div>
@@ -138,10 +140,10 @@ export const CustomersPage: React.FC = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name, phone, area..."
-              className="pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
             />
           </div>
-          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs cursor-pointer">
+          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs cursor-pointer">
             <input
               type="checkbox"
               checked={filterPending}
@@ -151,27 +153,8 @@ export const CustomersPage: React.FC = () => {
             Pending Only
           </label>
           <button
-            onClick={() =>
-              exportRowsToExcel(
-                filteredCustomers.map((c) => ({
-                  Name: c.name,
-                  Mobile: c.mobile || '',
-                  Address: c.address || '',
-                  Bills: c.billCount || 0,
-                  TotalPurchases: c.totalPurchases || 0,
-                  PendingBalance: c.outstandingBalance || 0,
-                })),
-                'slp-customers',
-                'Customers'
-              )
-            }
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium"
-          >
-            <Download className="w-3.5 h-3.5" /> Excel
-          </button>
-          <button
             onClick={() => setEditingCustomer({ name: '', mobile: '', email: '', address: '' })}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8]"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] transition"
           >
             <Plus className="w-3.5 h-3.5" /> Add Customer
           </button>

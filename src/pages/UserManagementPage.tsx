@@ -1,13 +1,54 @@
 import React, { useState } from 'react';
-import { KeyRound, Phone, Shield, UserCheck, UserPlus, UserX } from 'lucide-react';
+import {
+  AtSign,
+  Check,
+  Copy,
+  Edit3,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Mail,
+  Phone,
+  Shield,
+  UserCheck,
+  UserPlus,
+  UserX,
+} from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
+import { firebaseProjectId } from '../lib/firebase';
+import { normalizeUsername } from '../lib/mpinCrypto';
 import { UserRole } from '../types/billing';
 
 export const UserManagementPage: React.FC = () => {
-  const { users, invites, inviteStaffMember, updateUserAccess, revokeInvite } = useBillingData();
-  const { isAdmin, firebaseUser } = useAuth();
+  const {
+    users,
+    invites,
+    inviteStaffMember,
+    createStaffAccountWithPassword,
+    adminUpdateUserCredentials,
+    updateUserAccess,
+    revokeInvite,
+  } = useBillingData();
+  const { isAdmin, activeUid } = useAuth();
 
+  const [createMode, setCreateMode] = useState<'password' | 'google'>('password');
+
+  // Direct Username + Password state
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [optionalEmail, setOptionalEmail] = useState('');
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    displayName: string;
+    username: string;
+    password: string;
+  } | null>(null);
+  const [copiedCreds, setCopiedCreds] = useState(false);
+
+  // Shared & Google invite state
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<UserRole>('cashier');
@@ -19,6 +60,11 @@ export const UserManagementPage: React.FC = () => {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Inline username assignment for existing users
+  const [editingUid, setEditingUid] = useState<string | null>(null);
+  const [editingUsername, setEditingUsername] = useState('');
+  const [savingEditUid, setSavingEditUid] = useState(false);
+
   if (!isAdmin) {
     return (
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-xs text-slate-500">
@@ -27,98 +73,309 @@ export const UserManagementPage: React.FC = () => {
     );
   }
 
-  const handleInvite = async (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !displayName.trim()) return;
     setSubmitting(true);
     setError(null);
     setFeedback(null);
+    setCreatedCredentials(null);
+
     try {
-      await inviteStaffMember({
-        email,
-        displayName,
-        role,
-        canEditBills,
-        canCancelBills,
-        canViewReports,
-        canManageProducts,
-      });
-      setFeedback(
-        `Invited ${email.trim().toLowerCase()} as ${role}. They can now sign in with their Google account to claim access.`
-      );
-      setEmail('');
-      setDisplayName('');
+      if (createMode === 'password') {
+        const res = await createStaffAccountWithPassword({
+          username,
+          password,
+          displayName,
+          phoneNumber,
+          email: optionalEmail,
+          role,
+          canEditBills,
+          canCancelBills,
+          canViewReports,
+          canManageProducts,
+        });
+        setCreatedCredentials({
+          displayName: displayName.trim(),
+          username: res.username,
+          password,
+        });
+        setFeedback(
+          `Staff login "@${res.username}" is active immediately! They can sign in from any device right now.`
+        );
+        setUsername('');
+        setPassword('');
+        setPhoneNumber('');
+        setOptionalEmail('');
+        setDisplayName('');
+      } else {
+        if (!email.trim() || !displayName.trim()) return;
+        await inviteStaffMember({
+          email,
+          displayName,
+          role,
+          canEditBills,
+          canCancelBills,
+          canViewReports,
+          canManageProducts,
+        });
+        setFeedback(
+          `Invited ${email.trim().toLowerCase()} as ${role}. They can now sign in with their Google account to claim access.`
+        );
+        setEmail('');
+        setDisplayName('');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to invite staff user.');
+      setError(err instanceof Error ? err.message : 'Failed to create staff access.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handleCopyCreatedCredentials = async () => {
+    if (!createdCredentials || !navigator.clipboard) return;
+    const text = `SLP Billing Staff Login\nName: ${createdCredentials.displayName}\nUsername: ${createdCredentials.username}\nPassword: ${createdCredentials.password}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCreds(true);
+      setTimeout(() => setCopiedCreds(false), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
+  const handleSaveRowUsername = async (uid: string) => {
+    if (!editingUsername.trim()) return;
+    setSavingEditUid(true);
+    setError(null);
+    try {
+      await adminUpdateUserCredentials(uid, { username: editingUsername });
+      setEditingUid(null);
+      setEditingUsername('');
+      setFeedback('Updated staff username successfully.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update username.');
+    } finally {
+      setSavingEditUid(false);
+    }
+  };
+
+  const showEmailPwdProviderHint =
+    error && (error.includes('Email/Password') || error.includes('operation-not-allowed'));
+
   return (
     <div className="space-y-6">
-      {/* Invite Staff Form */}
+      {/* Create Staff Form */}
       <form
-        onSubmit={handleInvite}
-        className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4"
+        onSubmit={handleCreateSubmit}
+        className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4"
       >
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-[#1D4ED8]" /> Authorize New Staff / Cashier Account
+              <UserPlus className="w-4 h-4 text-[#1D4ED8]" /> Create Staff / Co-Admin Login
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Staff sign in via verified Google Sign-In. Firestore security rules enforce these roles server-side.
+              Create a ready-to-use Username &amp; Password for any device, or send a Google email invite.
             </p>
           </div>
           <Shield className="w-5 h-5 text-[#1D4ED8]" />
         </div>
 
+        {/* Mode Tabs */}
+        <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-blue-50 dark:bg-slate-950 border border-blue-100 dark:border-slate-800 max-w-md">
+          <button
+            type="button"
+            onClick={() => {
+              setCreateMode('password');
+              setError(null);
+              setFeedback(null);
+            }}
+            className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+              createMode === 'password'
+                ? 'bg-[#0B1F44] text-white shadow-sm'
+                : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white'
+            }`}
+          >
+            <AtSign className="w-3.5 h-3.5" /> Username &amp; Password
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCreateMode('google');
+              setError(null);
+              setFeedback(null);
+            }}
+            className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+              createMode === 'google'
+                ? 'bg-[#1D4ED8] text-white shadow-sm'
+                : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white'
+            }`}
+          >
+            <Mail className="w-3.5 h-3.5" /> Google Email Invite
+          </button>
+        </div>
+
         {feedback && (
-          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-            {feedback}
-          </div>
-        )}
-        {error && (
-          <div className="rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
-            {error}
+          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 px-3 py-2.5 text-xs text-emerald-700 dark:text-emerald-300 space-y-2">
+            <div>{feedback}</div>
+            {createdCredentials && (
+              <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 p-3 flex flex-wrap items-center justify-between gap-3 text-slate-700 dark:text-slate-200">
+                <div className="font-mono text-[11px] space-y-0.5">
+                  <div>
+                    <span className="text-slate-500">Name:</span>{' '}
+                    <strong>{createdCredentials.displayName}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Username:</span>{' '}
+                    <strong className="text-[#1D4ED8]">{createdCredentials.username}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Password:</span>{' '}
+                    <strong>{createdCredentials.password}</strong>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyCreatedCredentials}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-semibold hover:bg-[#1D4ED8]"
+                >
+                  {copiedCreds ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedCreds ? 'Copied Login Info' : 'Copy Login Info'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Google Email *</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="cashier@gmail.com"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-            />
+        {error && (
+          <div className="rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-2.5 text-xs text-rose-700 dark:text-rose-300 space-y-2">
+            <div>{error}</div>
+            {showEmailPwdProviderHint && (
+              <a
+                href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/providers`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-semibold"
+              >
+                Enable Email/Password in Firebase Console <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
-          <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Full Name *</label>
-            <input
-              required
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Counter Staff Name"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-            />
+        )}
+
+        {createMode === 'password' ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Full Name *</label>
+              <input
+                required
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Counter Staff Name"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Username *</label>
+              <input
+                required
+                value={username}
+                onChange={(e) => setUsername(normalizeUsername(e.target.value))}
+                placeholder="e.g. staff.ravi"
+                className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Password *</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={4}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Min 4 characters"
+                  className="w-full pl-3 pr-9 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="9876543210"
+                className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+                Recovery Email (Optional)
+              </label>
+              <input
+                type="email"
+                value={optionalEmail}
+                onChange={(e) => setOptionalEmail(e.target.value)}
+                placeholder="staff@gmail.com (optional)"
+                className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Role</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              >
+                <option value="cashier">Staff / Cashier (POS &amp; Billing)</option>
+                <option value="admin">Co-Admin (Full Access)</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Role</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-            >
-              <option value="cashier">Cashier (POS & Billing)</option>
-              <option value="admin">Co-Admin (Full Access)</option>
-            </select>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Google Email *</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="cashier@gmail.com"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Full Name *</label>
+              <input
+                required
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Counter Staff Name"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Role</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              >
+                <option value="cashier">Staff / Cashier (POS &amp; Billing)</option>
+                <option value="admin">Co-Admin (Full Access)</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex flex-wrap gap-4 text-xs pt-1">
           <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -139,7 +396,7 @@ export const UserManagementPage: React.FC = () => {
               checked={canManageProducts}
               onChange={(e) => setCanManageProducts(e.target.checked)}
             />
-            Can Manage Products & Stock
+            Can Manage Products &amp; Stock
           </label>
         </div>
 
@@ -149,7 +406,11 @@ export const UserManagementPage: React.FC = () => {
             disabled={submitting}
             className="px-4 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
           >
-            {submitting ? 'Authorizing...' : 'Create Staff Invite'}
+            {submitting
+              ? 'Creating Access...'
+              : createMode === 'password'
+              ? 'Create Staff Username & Password'
+              : 'Create Google Staff Invite'}
           </button>
         </div>
       </form>
@@ -157,21 +418,22 @@ export const UserManagementPage: React.FC = () => {
       {/* Active Users Table */}
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-x-auto">
         <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <UserCheck className="w-4 h-4 text-emerald-600" /> Authorized Staff Accounts ({users.length})
+          <UserCheck className="w-4 h-4 text-emerald-600" /> Authorized Accounts ({users.length})
         </div>
         <table className="w-full text-xs text-left">
           <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 border-b border-slate-200 dark:border-slate-800">
             <tr>
               <th className="py-3 px-4 font-semibold">User</th>
               <th className="py-3 px-4 font-semibold">Role</th>
-              <th className="py-3 px-4 font-semibold">Permissions</th>
+              <th className="py-3 px-4 font-semibold">Login Methods &amp; Permissions</th>
               <th className="py-3 px-4 font-semibold">Status</th>
               <th className="py-3 px-4 font-semibold text-right">Controls</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {users.map((u) => {
-              const isSelf = u.uid === firebaseUser?.uid;
+              const isSelf = u.uid === activeUid;
+              const isEditingThis = editingUid === u.uid;
               return (
                 <tr key={u.uid} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   <td className="py-3 px-4">
@@ -191,6 +453,11 @@ export const UserManagementPage: React.FC = () => {
                         <div className="font-semibold text-slate-900 dark:text-white truncate">
                           {u.displayName} {isSelf ? '(You)' : ''}
                         </div>
+                        {u.username && (
+                          <div className="font-mono text-[11px] font-bold text-[#1D4ED8] truncate">
+                            @{u.username}
+                          </div>
+                        )}
                         <div className="font-mono text-[11px] text-slate-500 truncate">{u.email}</div>
                         {u.phoneNumber && (
                           <div className="font-mono text-[11px] text-[#1D4ED8] flex items-center gap-1 mt-0.5">
@@ -213,10 +480,58 @@ export const UserManagementPage: React.FC = () => {
                           .filter(Boolean)
                           .join(' · ') || 'POS, My Bills, Scanner & Profile'}
                       </div>
-                      {u.mpinEnabled && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                          <KeyRound className="w-2.5 h-2.5" /> 6-Digit MPIN Active
-                        </span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {u.passwordEnabled && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold">
+                            <AtSign className="w-2.5 h-2.5" /> Username/Password
+                          </span>
+                        )}
+                        {u.mpinEnabled && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                            <KeyRound className="w-2.5 h-2.5" /> 4-Digit MPIN
+                          </span>
+                        )}
+                      </div>
+                      {isEditingThis ? (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <input
+                            type="text"
+                            value={editingUsername}
+                            onChange={(e) => setEditingUsername(normalizeUsername(e.target.value))}
+                            placeholder="username"
+                            className="px-2 py-1 rounded border border-blue-300 font-mono text-[11px] w-32 bg-white text-slate-900"
+                          />
+                          <button
+                            type="button"
+                            disabled={savingEditUid}
+                            onClick={() => handleSaveRowUsername(u.uid)}
+                            className="px-2 py-1 rounded bg-[#0B1F44] text-white text-[10px] font-semibold"
+                          >
+                            {savingEditUid ? '...' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingUid(null);
+                              setEditingUsername('');
+                            }}
+                            className="px-2 py-1 rounded border border-slate-200 text-[10px]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingUid(u.uid);
+                            setEditingUsername(u.username || '');
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#1D4ED8] hover:underline pt-0.5"
+                        >
+                          <Edit3 className="w-2.5 h-2.5" />
+                          {u.username ? 'Change Username' : 'Assign Username'}
+                        </button>
                       )}
                     </div>
                   </td>
@@ -269,7 +584,7 @@ export const UserManagementPage: React.FC = () => {
       {invites.length > 0 && (
         <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-x-auto">
           <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <UserX className="w-4 h-4 text-slate-500" /> Staff Invitations ({invites.length})
+            <UserX className="w-4 h-4 text-slate-500" /> Google Staff Invitations ({invites.length})
           </div>
           <table className="w-full text-xs text-left">
             <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 border-b border-slate-200 dark:border-slate-800">

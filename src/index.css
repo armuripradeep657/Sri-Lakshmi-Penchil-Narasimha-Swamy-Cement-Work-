@@ -47,11 +47,11 @@
 @keyframes slp-fade-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px) scale(0.99);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -66,18 +66,59 @@
   }
 }
 
+@keyframes slp-logo-breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+@keyframes slp-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
 .animate-slp-in {
-  animation: slp-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slp-fade-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .animate-slp-ring {
   animation: slp-size-ring 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+.animate-slp-breathe {
+  animation: slp-logo-breathe 6s ease-in-out infinite;
+}
+
+.slp-card-lift {
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.slp-card-lift:hover {
+  transform: translateY(-2px);
+}
+
+.slp-shimmer {
+  background: linear-gradient(90deg, rgba(219, 234, 254, 0.4) 25%, rgba(239, 246, 255, 0.9) 50%, rgba(219, 234, 254, 0.4) 75%);
+  background-size: 200% 100%;
+  animation: slp-shimmer 1.4s infinite linear;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-slp-in,
-  .animate-slp-ring {
+  .animate-slp-ring,
+  .animate-slp-breathe,
+  .slp-shimmer {
     animation: none;
+  }
+  .slp-card-lift:hover {
+    transform: none;
   }
 }
 

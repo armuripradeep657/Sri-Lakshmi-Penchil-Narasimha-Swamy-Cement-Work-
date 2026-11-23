@@ -143,13 +143,7 @@ export const ThermalReceiptsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 animate-slp-in">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Thermal Receipts (58mm / 80mm)</h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Configure thermal slip formatting and print via Browser, Bluetooth ESC/POS, USB, or PDF
-        </p>
-      </div>
+    <div className="space-y-4 animate-slp-in">
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">

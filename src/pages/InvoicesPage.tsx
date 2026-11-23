@@ -45,33 +45,25 @@ export const InvoicesPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 animate-slp-in">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Tax Invoices &amp; Customer Links</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Download A4 invoices, inspect GST splits, and manage revocable customer portal links
-          </p>
+    <div className="space-y-4 animate-slp-in">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search invoice # or customer..."
+            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-blue-100 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm"
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search invoice # or customer..."
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-            />
-          </div>
-          <button
-            onClick={() => setScannerOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F44] hover:bg-[#13326b] text-white text-xs font-semibold shrink-0"
-          >
-            <ScanBarcode className="w-4 h-4 text-cyan-300" />
-            Verify Bill
-          </button>
-        </div>
+        <button
+          onClick={() => setScannerOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold shrink-0 transition"
+        >
+          <ScanBarcode className="w-4 h-4 text-cyan-300" />
+          Verify Bill
+        </button>
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">

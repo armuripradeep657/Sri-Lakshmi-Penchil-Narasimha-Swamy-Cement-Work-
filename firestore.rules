@@ -12,6 +12,10 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidUsernameId(uname) {
+      return uname is string && uname.size() >= 3 && uname.size() <= 40 && uname.matches('^[a-z0-9._\\-]+$');
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -28,20 +32,31 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isAdminProvisionedPasswordMember() {
+      return isSignedIn() &&
+        request.auth.token.firebase.sign_in_provider == 'password' &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isAuthorizedSessionUser() {
+      return isVerifiedUser() || isAdminProvisionedPasswordMember();
+    }
+
     function isBootAdmin() {
       return isVerifiedUser() && request.auth.token.email == 'armuripradeepkumar@gmail.com';
     }
 
     function isAdmin() {
       return isBootAdmin() || (
-        isVerifiedUser() &&
+        isAuthorizedSessionUser() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
     function isActiveUser(uid) {
       return isBootAdmin() || (
-        isVerifiedUser() &&
+        isAuthorizedSessionUser() &&
         exists(/databases/$(database)/documents/users/$(uid)) &&
         get(/databases/$(database)/documents/users/$(uid)).data.status == 'active'
       );
@@ -65,10 +80,10 @@ service cloud.firestore {
 
     function isDocAuthorized(docData) {
       return isBootAdmin() || (
-        isVerifiedUser() && (
+        isAuthorizedSessionUser() && (
           docData.ownerUid == request.auth.uid ||
           (docData.authorizedUids is list && request.auth.uid in docData.authorizedUids) ||
-          ('authorizedEmails' in docData && docData.authorizedEmails is list && request.auth.token.email in docData.authorizedEmails)
+          (isVerifiedUser() && 'authorizedEmails' in docData && docData.authorizedEmails is list && request.auth.token.email in docData.authorizedEmails)
         )
       );
     }
@@ -80,11 +95,12 @@ service cloud.firestore {
 
     function isBusinessMember(businessId) {
       return isBootAdmin() || (
-        isVerifiedUser() &&
+        isAuthorizedSessionUser() &&
         businessExists(businessId) &&
         isActiveUser(request.auth.uid) && (
           request.auth.uid in get(/databases/$(database)/documents/businesses/$(businessId)).data.authorizedUids ||
           (
+            isVerifiedUser() &&
             'authorizedEmails' in get(/databases/$(database)/documents/businesses/$(businessId)).data &&
             request.auth.token.email in get(/databases/$(database)/documents/businesses/$(businessId)).data.authorizedEmails
           )
@@ -94,7 +110,7 @@ service cloud.firestore {
 
     function isBusinessAdmin(businessId) {
       return isBootAdmin() || (
-        isVerifiedUser() &&
+        isAuthorizedSessionUser() &&
         businessExists(businessId) &&
         isAdmin() &&
         request.auth.uid in get(/databases/$(database)/documents/businesses/$(businessId)).data.authorizedUids
@@ -128,12 +144,13 @@ service cloud.firestore {
 
     function isValidInvite(data) {
       return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'email', 'displayName', 'role', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'email', 'displayName', 'role', 'status', 'canEditBills', 'canCancelBills', 'canViewReports', 'canManageProducts', 'phoneNumber', 'photoDataUrl', 'mpinHash', 'mpinSalt', 'mpinEnabled', 'previousUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'email', 'username', 'displayName', 'role', 'status', 'canEditBills', 'canCancelBills', 'canViewReports', 'canManageProducts', 'phoneNumber', 'photoDataUrl', 'mpinHash', 'mpinSalt', 'mpinEnabled', 'previousUid', 'createdAt', 'updatedAt']) &&
         isValidId(data.id) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
         hasValidAuthorizedUids(data) &&
         data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        (!('username' in data) || (data.username is string && data.username.size() <= 40)) &&
         data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
         data.role in ['admin', 'cashier'] &&
         data.status in ['pending', 'accepted', 'revoked'] &&
@@ -153,9 +170,11 @@ service cloud.firestore {
 
     function isValidUserAccount(data) {
       return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'businessId', 'ownerUid', 'authorizedUids', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'status', 'businessId', 'ownerUid', 'authorizedUids', 'inviteId', 'canEditBills', 'canCancelBills', 'canViewReports', 'canManageProducts', 'phoneNumber', 'photoDataUrl', 'mpinHash', 'mpinSalt', 'mpinEnabled', 'mpinUpdatedAt', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'authEmail', 'username', 'displayName', 'role', 'status', 'businessId', 'ownerUid', 'authorizedUids', 'inviteId', 'canEditBills', 'canCancelBills', 'canViewReports', 'canManageProducts', 'phoneNumber', 'photoDataUrl', 'mpinHash', 'mpinSalt', 'mpinEnabled', 'mpinUpdatedAt', 'passwordHash', 'passwordSalt', 'passwordEnabled', 'passwordUpdatedAt', 'createdAt', 'updatedAt']) &&
         isValidId(data.uid) &&
         data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        (!('authEmail' in data) || (data.authEmail is string && data.authEmail.size() <= 160)) &&
+        (!('username' in data) || (data.username is string && data.username.size() <= 40)) &&
         data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
         data.role in ['admin', 'cashier'] &&
         data.status in ['active', 'disabled', 'revoked'] &&
@@ -173,6 +192,22 @@ service cloud.firestore {
         (!('mpinSalt' in data) || (data.mpinSalt is string && data.mpinSalt.size() <= 80)) &&
         (!('mpinEnabled' in data) || data.mpinEnabled is bool) &&
         (!('mpinUpdatedAt' in data) || data.mpinUpdatedAt is timestamp) &&
+        (!('passwordHash' in data) || (data.passwordHash is string && data.passwordHash.size() <= 160)) &&
+        (!('passwordSalt' in data) || (data.passwordSalt is string && data.passwordSalt.size() <= 80)) &&
+        (!('passwordEnabled' in data) || data.passwordEnabled is bool) &&
+        (!('passwordUpdatedAt' in data) || data.passwordUpdatedAt is timestamp) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUsernameIndex(data) {
+      return data.keys().hasAll(['username', 'authEmail', 'uid', 'businessId', 'active', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['username', 'authEmail', 'uid', 'businessId', 'active', 'createdAt', 'updatedAt']) &&
+        isValidUsernameId(data.username) &&
+        data.authEmail is string && data.authEmail.size() >= 3 && data.authEmail.size() <= 160 &&
+        isValidId(data.uid) &&
+        isValidId(data.businessId) &&
+        data.active is bool &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -221,7 +256,7 @@ service cloud.firestore {
 
     function isValidProduct(data) {
       return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'productCode', 'name', 'category', 'purchasePrice', 'sellingPrice', 'stock', 'taxRate', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'productCode', 'name', 'nameTe', 'category', 'barcode', 'purchasePrice', 'sellingPrice', 'stock', 'lowStockThreshold', 'taxRate', 'unit', 'variantsSummary', 'imageUrl', 'description', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'productCode', 'name', 'nameTe', 'category', 'barcode', 'purchasePrice', 'sellingPrice', 'stock', 'lowStockThreshold', 'taxRate', 'unit', 'variantsSummary', 'imageUrl', 'description', 'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'createdAt', 'updatedAt']) &&
         isValidId(data.id) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
@@ -241,6 +276,12 @@ service cloud.firestore {
         (!('variantsSummary' in data) || (data.variantsSummary is string && data.variantsSummary.size() <= 500)) &&
         (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2000)) &&
         (!('description' in data) || (data.description is string && data.description.size() <= 600)) &&
+        (!('isDeleted' in data) || data.isDeleted is bool) &&
+        (!('deletedAt' in data) || data.deletedAt is timestamp) &&
+        (!('deletedAtMs' in data) || data.deletedAtMs is number) &&
+        (!('deleteExpiresAtMs' in data) || data.deleteExpiresAtMs is number) &&
+        (!('deletedByUid' in data) || (data.deletedByUid is string && data.deletedByUid.size() <= 128)) &&
+        (!('deletedByName' in data) || (data.deletedByName is string && data.deletedByName.size() <= 120)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -267,7 +308,7 @@ service cloud.firestore {
 
     function isValidBill(data) {
       return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'billNumber', 'customerName', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'createdByUid', 'createdByName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'billNumber', 'customerId', 'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'verificationBarcode', 'createdByUid', 'createdByName', 'editedByUid', 'editedByName', 'editedAt', 'notes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'billNumber', 'customerId', 'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'verificationBarcode', 'createdByUid', 'createdByName', 'editedByUid', 'editedByName', 'editedAt', 'notes', 'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'createdAt', 'updatedAt']) &&
         isValidId(data.id) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
@@ -303,6 +344,12 @@ service cloud.firestore {
         (!('editedByName' in data) || (data.editedByName is string && data.editedByName.size() <= 120)) &&
         (!('editedAt' in data) || data.editedAt is timestamp) &&
         (!('notes' in data) || (data.notes is string && data.notes.size() <= 400)) &&
+        (!('isDeleted' in data) || data.isDeleted is bool) &&
+        (!('deletedAt' in data) || data.deletedAt is timestamp) &&
+        (!('deletedAtMs' in data) || data.deletedAtMs is number) &&
+        (!('deleteExpiresAtMs' in data) || data.deleteExpiresAtMs is number) &&
+        (!('deletedByUid' in data) || (data.deletedByUid is string && data.deletedByUid.size() <= 128)) &&
+        (!('deletedByName' in data) || (data.deletedByName is string && data.deletedByName.size() <= 120)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -651,17 +698,51 @@ service cloud.firestore {
     }
 
     match /admins/{userId} {
-      allow get: if isValidId(userId) && (isBootAdmin() || (isVerifiedUser() && request.auth.uid == userId));
+      allow get: if isValidId(userId) && (isBootAdmin() || (isAuthorizedSessionUser() && request.auth.uid == userId));
       allow list: if isBootAdmin();
       allow create, update: if isValidId(userId) && isAdmin() && isValidAdminRecord(incoming());
       allow delete: if isValidId(userId) && isBootAdmin();
     }
 
+    match /usernameIndex/{username} {
+      allow get: if isValidUsernameId(username) && existing().active == true;
+      allow list: if false;
+      allow create: if isValidUsernameId(username) &&
+        isValidUsernameIndex(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            isAuthorizedSessionUser() &&
+            incoming().uid == request.auth.uid &&
+            isBusinessMember(incoming().businessId)
+          )
+        );
+      allow update: if isValidUsernameId(username) &&
+        isValidUsernameIndex(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            isAuthorizedSessionUser() &&
+            existing().uid == request.auth.uid &&
+            incoming().uid == request.auth.uid &&
+            isBusinessMember(existing().businessId)
+          )
+        );
+      allow delete: if isValidUsernameId(username) && (
+        isAdmin() ||
+        (isAuthorizedSessionUser() && existing().uid == request.auth.uid)
+      );
+    }
+
     match /users/{userId} {
       allow get: if isValidId(userId) && (
         isBootAdmin() ||
-        (isVerifiedUser() && request.auth.uid == userId) ||
-        (isVerifiedUser() && isDocAuthorized(existing()))
+        (isAuthorizedSessionUser() && request.auth.uid == userId) ||
+        (isAuthorizedSessionUser() && isDocAuthorized(existing()))
       );
       allow list: if isDocAuthorized(existing());
       allow create: if isValidId(userId) &&
@@ -690,7 +771,7 @@ service cloud.firestore {
         (
           isAdmin() ||
           (
-            isVerifiedUser() &&
+            isAuthorizedSessionUser() &&
             request.auth.uid == userId &&
             existing().status == 'active' &&
             incoming().role == existing().role &&
@@ -699,8 +780,9 @@ service cloud.firestore {
             incoming().ownerUid == existing().ownerUid &&
             incoming().authorizedUids == existing().authorizedUids &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'displayName', 'phoneNumber', 'photoDataUrl', 'email',
-              'mpinHash', 'mpinSalt', 'mpinEnabled', 'mpinUpdatedAt', 'updatedAt'
+              'displayName', 'phoneNumber', 'photoDataUrl', 'email', 'authEmail', 'username',
+              'mpinHash', 'mpinSalt', 'mpinEnabled', 'mpinUpdatedAt',
+              'passwordHash', 'passwordSalt', 'passwordEnabled', 'passwordUpdatedAt', 'updatedAt'
             ])
           )
         );
@@ -834,9 +916,18 @@ service cloud.firestore {
           (
             existing().billStatus == 'active' &&
             incoming().diff(existing()).affectedKeys().hasOnly(['amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'notes', 'updatedAt'])
+          ) ||
+          (
+            existing().createdByUid == request.auth.uid &&
+            incoming().isDeleted == true &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'publicLinkRevoked', 'updatedAt'
+            ])
           )
         );
-      allow delete: if false;
+      allow delete: if isValidId(billId) &&
+        isBusinessAdmin(existing().businessId) &&
+        existing().isDeleted == true;
     }
 
     match /billItems/{itemId} {
@@ -898,9 +989,9 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isBusinessAdmin(existing().businessId) ||
-          incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'revoked', 'updatedAt'])
         );
-      allow delete: if false;
+      allow delete: if isValidId(invoiceId) && isBusinessAdmin(existing().businessId);
     }
 
     match /publicInvoices/{token} {
@@ -925,7 +1016,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isBusinessAdmin(existing().businessId) ||
-          incoming().diff(existing()).affectedKeys().hasOnly(['amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'revoked', 'updatedAt'])
         );
       allow delete: if isValidId(token) && isBusinessAdmin(existing().businessId);
     }

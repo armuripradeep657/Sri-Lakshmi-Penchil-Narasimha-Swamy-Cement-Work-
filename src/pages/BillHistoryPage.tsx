@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Ban,
+  Barcode,
+  Camera,
   Edit3,
   Eye,
   HardHat,
@@ -21,8 +24,11 @@ import { CartItemInput, useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
 import { formatCurrency } from '../lib/upiAndExport';
+import { getBillVerificationBarcode } from '../lib/barcodeAndBillImage';
+import { AnimatedNumber, MotionCard } from '../components/MotionPrimitives';
 import { Bill, BillItem, GstType, PaymentMethod } from '../types/billing';
 import { PostBillActionsModal } from '../components/InvoiceViews';
+import { ScannerModal } from '../components/ScannerModal';
 
 type HistorySectionTab = 'all' | 'bills' | 'labour' | 'cashbook';
 type CreatorFilter = 'all' | 'staff' | 'mine';
@@ -38,10 +44,11 @@ export const BillHistoryPage: React.FC = () => {
     editBillAtomic,
     recordPaymentAtomic,
     cancelBillAtomic,
+    softDeleteBillAtomic,
     recordRefundAtomic,
     updateBillNotes,
   } = useBillingData();
-  const { isAdmin, userAccount, firebaseUser } = useAuth();
+  const { isAdmin, userAccount, activeUid } = useAuth();
 
   const [sectionTab, setSectionTab] = useState<HistorySectionTab>(() => (isAdmin ? 'all' : 'bills'));
   const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>('all');
@@ -52,9 +59,13 @@ export const BillHistoryPage: React.FC = () => {
   const [cancelModalBill, setCancelModalBill] = useState<Bill | null>(null);
   const [refundModalBill, setRefundModalBill] = useState<Bill | null>(null);
   const [editNotesBill, setEditNotesBill] = useState<Bill | null>(null);
+  const [deleteModalBill, setDeleteModalBill] = useState<Bill | null>(null);
+  const [deletingBill, setDeletingBill] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const scopedBills = useMemo(() => {
-    const myUid = firebaseUser?.uid || '';
+    const myUid = activeUid || '';
     const base = isAdmin
       ? bills.filter((b) => {
           if (creatorFilter === 'mine') return b.createdByUid === myUid;
@@ -67,12 +78,13 @@ export const BillHistoryPage: React.FC = () => {
     if (!q) return base;
     return base.filter(
       (b) =>
-        b.billNumber.toLowerCase().includes(q) ||
+        getBillVerificationBarcode(b).toLowerCase().includes(q) ||
         b.customerName.toLowerCase().includes(q) ||
         (b.customerMobile && b.customerMobile.toLowerCase().includes(q)) ||
-        b.createdByName.toLowerCase().includes(q)
+        b.createdByName.toLowerCase().includes(q) ||
+        (b.itemsSummary && b.itemsSummary.toLowerCase().includes(q))
     );
-  }, [bills, isAdmin, firebaseUser?.uid, creatorFilter, searchQuery]);
+  }, [bills, isAdmin, activeUid, creatorFilter, searchQuery]);
 
   const sortedLabour = useMemo(() => {
     return [...labourWorks].sort((a, b) => {
@@ -82,11 +94,34 @@ export const BillHistoryPage: React.FC = () => {
   }, [labourWorks]);
 
   const sortedCashbook = useMemo(() => {
-    return [...shopEntries].sort((a, b) => {
+    const manualRows = shopEntries.map((e) => ({
+      ...e,
+      isLabourDerived: false,
+    }));
+    const labourExpenseRows = labourWorks
+      .filter((w) => w.wageAmount > 0 && w.paymentMethod !== 'Unpaid')
+      .map((w) => ({
+        id: `labour_exp_${w.id}`,
+        businessId: w.businessId,
+        ownerUid: w.ownerUid,
+        authorizedUids: w.authorizedUids,
+        entryDate: w.workDate,
+        type: 'expense' as const,
+        title: `${w.workerName} · ${w.workDone}`,
+        category: 'Labour Money Taken',
+        amount: Number(w.wageAmount || 0),
+        paymentMethod: w.paymentMethod as 'Cash' | 'UPI' | 'Bank Transfer' | 'Other',
+        note: w.note,
+        recordedByUid: w.recordedByUid,
+        recordedByName: w.recordedByName,
+        createdAt: w.createdAt,
+        isLabourDerived: true,
+      }));
+    return [...manualRows, ...labourExpenseRows].sort((a, b) => {
       if (a.entryDate !== b.entryDate) return b.entryDate.localeCompare(a.entryDate);
       return formatTimestamp(b.createdAt).getTime() - formatTimestamp(a.createdAt).getTime();
     });
-  }, [shopEntries]);
+  }, [shopEntries, labourWorks]);
 
   const totals = useMemo(() => {
     const billSales = scopedBills
@@ -96,12 +131,16 @@ export const BillHistoryPage: React.FC = () => {
       .filter((b) => b.billStatus === 'active')
       .reduce((sum, b) => sum + Number(b.pendingBalance || 0), 0);
     const labourTotal = labourWorks.reduce((sum, w) => sum + Number(w.wageAmount || 0), 0);
+    const labourPaid = labourWorks
+      .filter((w) => w.wageAmount > 0 && w.paymentMethod !== 'Unpaid')
+      .reduce((sum, w) => sum + Number(w.wageAmount || 0), 0);
     const shopIncome = shopEntries
       .filter((e) => e.type === 'income')
       .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-    const shopExpense = shopEntries
+    const manualExpense = shopEntries
       .filter((e) => e.type === 'expense')
       .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const shopExpense = manualExpense + labourPaid;
     return { billSales, pendingTotal, labourTotal, shopIncome, shopExpense };
   }, [scopedBills, labourWorks, shopEntries]);
 
@@ -110,53 +149,53 @@ export const BillHistoryPage: React.FC = () => {
   const showBillsSection = !isAdmin || sectionTab === 'all' || sectionTab === 'bills';
 
   return (
-    <div className="space-y-4 animate-slp-in">
-      {/* Summary Cards */}
+    <div className="space-y-4">
+      {/* Summary Cards with Animated Counters */}
       {isAdmin ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm">
+          <MotionCard delay={0} className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
             <div className="text-[11px] font-semibold text-slate-500">Bills ({scopedBills.length})</div>
             <div className="mt-1 text-base font-bold font-mono text-[#0B1F44]">
-              {formatCurrency(totals.billSales)}
+              <AnimatedNumber value={totals.billSales} format={(n) => formatCurrency(n)} />
             </div>
-          </div>
-          <div className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm">
+          </MotionCard>
+          <MotionCard delay={0.04} className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
             <div className="text-[11px] font-semibold text-slate-500">Labour Work ({labourWorks.length})</div>
             <div className="mt-1 text-base font-bold font-mono text-[#1D4ED8]">
-              {formatCurrency(totals.labourTotal)}
+              <AnimatedNumber value={totals.labourTotal} format={(n) => formatCurrency(n)} />
             </div>
-          </div>
-          <div className="bg-white border border-emerald-100 rounded-2xl p-3.5 shadow-sm">
+          </MotionCard>
+          <MotionCard delay={0.08} className="bg-white border border-emerald-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
             <div className="text-[11px] font-semibold text-emerald-700">Shop Income</div>
             <div className="mt-1 text-base font-bold font-mono text-emerald-700">
-              +{formatCurrency(totals.shopIncome)}
+              +<AnimatedNumber value={totals.shopIncome} format={(n) => formatCurrency(n)} />
             </div>
-          </div>
-          <div className="bg-white border border-rose-100 rounded-2xl p-3.5 shadow-sm">
+          </MotionCard>
+          <MotionCard delay={0.12} className="bg-white border border-rose-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
             <div className="text-[11px] font-semibold text-rose-700">Shop Expenses</div>
             <div className="mt-1 text-base font-bold font-mono text-rose-700">
-              -{formatCurrency(totals.shopExpense)}
+              -<AnimatedNumber value={totals.shopExpense} format={(n) => formatCurrency(n)} />
             </div>
-          </div>
+          </MotionCard>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm">
+          <MotionCard delay={0} className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
             <div className="text-[11px] font-semibold text-slate-500">My Bills ({scopedBills.length})</div>
             <div className="mt-1 text-base font-bold font-mono text-[#0B1F44]">
-              {formatCurrency(totals.billSales)}
+              <AnimatedNumber value={totals.billSales} format={(n) => formatCurrency(n)} />
             </div>
-          </div>
-          <div className="bg-white border border-amber-100 rounded-2xl p-3.5 shadow-sm">
+          </MotionCard>
+          <MotionCard delay={0.05} className="bg-white border border-amber-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
             <div className="text-[11px] font-semibold text-amber-700">My Bills Due</div>
             <div className="mt-1 text-base font-bold font-mono text-amber-700">
-              {formatCurrency(totals.pendingTotal)}
+              <AnimatedNumber value={totals.pendingTotal} format={(n) => formatCurrency(n)} />
             </div>
-          </div>
+          </MotionCard>
         </div>
       )}
 
-      {/* Admin Section Switcher: All / Bills / Labour / Cashbook */}
+      {/* Admin Section Switcher with Sliding Pill */}
       {isAdmin && (
         <div className="grid grid-cols-4 gap-1.5 p-1 rounded-2xl bg-blue-100/70 border border-blue-200/70">
           {(
@@ -164,37 +203,57 @@ export const BillHistoryPage: React.FC = () => {
               { id: 'all', label: 'All' },
               { id: 'bills', label: `Bills (${scopedBills.length})` },
               { id: 'labour', label: `Labour (${labourWorks.length})` },
-              { id: 'cashbook', label: `Cashbook (${shopEntries.length})` },
+              { id: 'cashbook', label: `Income & Expenses (${sortedCashbook.length})` },
             ] as Array<{ id: HistorySectionTab; label: string }>
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSectionTab(tab.id)}
-              className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition truncate ${
-                sectionTab === tab.id
-                  ? 'bg-[#1D4ED8] text-white shadow-sm'
-                  : 'text-[#0B1F44] hover:bg-white/70'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ).map((tab) => {
+            const active = sectionTab === tab.id;
+            return (
+              <motion.button
+                key={tab.id}
+                type="button"
+                whileTap={{ scale: 0.96 }}
+                onClick={() => setSectionTab(tab.id)}
+                className={`relative py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition-colors truncate ${
+                  active ? 'text-white' : 'text-[#0B1F44] hover:bg-white/60'
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="history-section-pill"
+                    transition={{ type: 'spring', stiffness: 460, damping: 32 }}
+                    className="absolute inset-0 rounded-xl bg-[#1D4ED8] shadow-sm"
+                  />
+                )}
+                <span className="relative z-10">{tab.label}</span>
+              </motion.button>
+            );
+          })}
         </div>
       )}
 
-      {/* Search & Admin Creator Filter */}
+      {/* Search, Scan Barcode & Admin Creator Filter */}
       {showBillsSection && (
         <div className="bg-white border border-blue-100 rounded-2xl p-3 shadow-sm flex flex-col sm:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search bill #, customer name, mobile..."
-              className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
-            />
+          <div className="flex items-center gap-2 flex-1">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search barcode, customer name, product..."
+                className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+              />
+            </div>
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.94 }}
+              onClick={() => setScannerOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold shrink-0 transition"
+            >
+              <Camera className="w-3.5 h-3.5 text-cyan-300" />
+              <span>Scan Barcode</span>
+            </motion.button>
           </div>
           {isAdmin && (
             <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-blue-50 border border-blue-100 shrink-0">
@@ -248,14 +307,15 @@ export const BillHistoryPage: React.FC = () => {
             ) : (
               scopedBills.map((bill) => {
                 const dt = formatTimestamp(bill.createdAt);
-                const isOwnBill = bill.createdByUid === firebaseUser?.uid;
+                const isOwnBill = bill.createdByUid === activeUid;
                 return (
                   <div key={bill.id} className="p-3.5 space-y-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-mono font-bold text-xs text-[#0B1F44]">
-                            {bill.billNumber}
+                          <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-[#0B1F44]">
+                            <Barcode className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                            {getBillVerificationBarcode(bill)}
                           </span>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -343,6 +403,19 @@ export const BillHistoryPage: React.FC = () => {
                           Cancel
                         </button>
                       )}
+                      {(isAdmin || isOwnBill) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeleteModalBill(bill);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 text-rose-700 text-[11px] font-semibold"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -355,7 +428,7 @@ export const BillHistoryPage: React.FC = () => {
             <table className="w-full text-xs text-left">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
                 <tr>
-                  <th className="py-3 px-4 font-semibold">Bill #</th>
+                  <th className="py-3 px-4 font-semibold">Barcode</th>
                   <th className="py-3 px-4 font-semibold">Date &amp; Time</th>
                   <th className="py-3 px-4 font-semibold">Customer</th>
                   <th className="py-3 px-4 font-semibold">Products</th>
@@ -378,13 +451,16 @@ export const BillHistoryPage: React.FC = () => {
                 ) : (
                   scopedBills.map((bill) => {
                     const dt = formatTimestamp(bill.createdAt);
-                    const isOwnBill = bill.createdByUid === firebaseUser?.uid;
+                    const isOwnBill = bill.createdByUid === activeUid;
                     return (
                       <tr key={bill.id} className="hover:bg-blue-50/40">
                         <td className="py-3 px-4 font-mono font-semibold text-[#0B1F44] whitespace-nowrap">
-                          <div>{bill.billNumber}</div>
+                          <div className="inline-flex items-center gap-1.5">
+                            <Barcode className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                            <span>{getBillVerificationBarcode(bill)}</span>
+                          </div>
                           {Boolean(bill.editedAt) && (
-                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] text-[10px] font-sans font-bold">
+                            <span className="block w-fit mt-0.5 px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] text-[10px] font-sans font-bold">
                               Edited
                             </span>
                           )}
@@ -501,6 +577,19 @@ export const BillHistoryPage: React.FC = () => {
                                 <Ban className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            {(isAdmin || isOwnBill) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteError(null);
+                                  setDeleteModalBill(bill);
+                                }}
+                                title="Delete Bill (Moves to Settings for 10 Days)"
+                                className="p-1.5 rounded-md border border-rose-200 bg-rose-50/70 text-rose-700 hover:bg-rose-100"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -605,10 +694,14 @@ export const BillHistoryPage: React.FC = () => {
                           <span className="text-xs font-bold text-[#0B1F44]">{entry.title}</span>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              isIncome ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                              isIncome
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : entry.isLabourDerived
+                                ? 'bg-blue-50 text-[#1D4ED8]'
+                                : 'bg-rose-50 text-rose-700'
                             }`}
                           >
-                            {entry.type}
+                            {entry.isLabourDerived ? 'Labour Expense' : entry.type}
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -660,7 +753,7 @@ export const BillHistoryPage: React.FC = () => {
       {/* Record Payment Modal */}
       {paymentModalBill && (
         <SimpleActionModal
-          title={`Record Payment · ${paymentModalBill.billNumber}`}
+          title={`Record Payment · ${getBillVerificationBarcode(paymentModalBill)}`}
           subtitle={`Pending Balance: ${formatCurrency(paymentModalBill.pendingBalance)}`}
           defaultAmount={paymentModalBill.pendingBalance}
           showMethod
@@ -682,7 +775,7 @@ export const BillHistoryPage: React.FC = () => {
       {/* Cancel Bill Modal */}
       {cancelModalBill && (
         <SimpleActionModal
-          title={`Cancel Bill · ${cancelModalBill.billNumber}`}
+          title={`Cancel Bill · ${getBillVerificationBarcode(cancelModalBill)}`}
           subtitle="Stock will be automatically restocked and an immutable audit entry recorded."
           reasonLabel="Cancellation Reason *"
           requireReason
@@ -699,7 +792,7 @@ export const BillHistoryPage: React.FC = () => {
       {/* Refund Modal */}
       {refundModalBill && (
         <SimpleActionModal
-          title={`Record Refund · ${refundModalBill.billNumber}`}
+          title={`Record Refund · ${getBillVerificationBarcode(refundModalBill)}`}
           subtitle={`Max refundable: ${formatCurrency(refundModalBill.amountPaid)}`}
           defaultAmount={refundModalBill.amountPaid}
           showMethod
@@ -723,7 +816,7 @@ export const BillHistoryPage: React.FC = () => {
       {/* Edit Notes Modal */}
       {editNotesBill && (
         <SimpleActionModal
-          title={`Edit Notes · ${editNotesBill.billNumber}`}
+          title={`Edit Notes · ${getBillVerificationBarcode(editNotesBill)}`}
           subtitle="Financial figures remain locked for audit compliance."
           reasonLabel="Bill Notes"
           defaultReason={editNotesBill.notes || ''}
@@ -735,6 +828,85 @@ export const BillHistoryPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* Delete Bill Confirmation Modal (Soft Delete to 10-Day Recovery Bin) */}
+      {deleteModalBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white border border-rose-200 shadow-2xl p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[#0B1F44]">
+                  Delete Bill · {getBillVerificationBarcode(deleteModalBill)}?
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  {deleteModalBill.customerName} ·{' '}
+                  <span className="font-mono font-bold text-[#0B1F44]">
+                    {formatCurrency(deleteModalBill.grandTotal)}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalBill(null)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 leading-relaxed">
+              This bill will be moved to <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept safely for <strong>10 days</strong> so an Admin can restore it anytime before permanent deletion.
+            </div>
+
+            {deleteError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-700">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingBill}
+                onClick={() => setDeleteModalBill(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingBill}
+                onClick={async () => {
+                  setDeletingBill(true);
+                  setDeleteError(null);
+                  try {
+                    await softDeleteBillAtomic(deleteModalBill.id);
+                    setDeleteModalBill(null);
+                  } catch (err) {
+                    setDeleteError(err instanceof Error ? err.message : 'Failed to delete bill.');
+                  } finally {
+                    setDeletingBill(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deletingBill ? 'Moving...' : 'Move to Removed Bills'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        products={products}
+        bills={bills}
+        onBillFound={(b) => setActiveBill(b)}
+        onProductFound={(p) => setSearchQuery(p.name)}
+        title="Scan Bill or Product Barcode"
+      />
     </div>
   );
 };
@@ -877,7 +1049,7 @@ const EditBillModal: React.FC<{
       >
         <div className="px-5 py-3.5 bg-[#0B1F44] text-white flex items-center justify-between">
           <div>
-            <h3 className="text-sm sm:text-base font-bold">Edit Bill · {bill.billNumber}</h3>
+            <h3 className="text-sm sm:text-base font-bold">Edit Bill · {getBillVerificationBarcode(bill)}</h3>
             <p className="text-[11px] text-blue-200">
               Created by {bill.createdByName} · Modify prices, quantities, customer &amp; payment
             </p>

@@ -20,6 +20,7 @@ import { generateSafeId } from '../lib/firebase';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
 import { Bill, BillItem, GstType, PaymentMethod, Product } from '../types/billing';
 import { PostBillActionsModal } from '../components/InvoiceViews';
+import { AnimatedNumber } from '../components/MotionPrimitives';
 
 export interface QuickAddBillPayload {
   product: Product;
@@ -294,19 +295,30 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            {categoriesList.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                  selectedCategory === cat
-                    ? 'bg-[#1D4ED8] text-white shadow-sm shadow-blue-600/20'
-                    : 'bg-blue-50 dark:bg-slate-800 text-[#0B1F44] dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-slate-700'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+            {categoriesList.map((cat) => {
+              const active = selectedCategory === cat;
+              return (
+                <motion.button
+                  key={cat}
+                  whileTap={{ scale: 0.94 }}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`relative px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                    active
+                      ? 'text-white'
+                      : 'bg-blue-50 dark:bg-slate-800 text-[#0B1F44] dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="billing-cat-pill"
+                      transition={{ type: 'spring', stiffness: 460, damping: 32 }}
+                      className="absolute inset-0 rounded-xl bg-[#1D4ED8] shadow-sm shadow-blue-600/20"
+                    />
+                  )}
+                  <span className="relative z-10">{cat}</span>
+                </motion.button>
+              );
+            })}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:max-h-[560px] lg:overflow-y-auto pr-0.5">
@@ -561,14 +573,20 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 Select products or size variants to build a bill.
               </div>
             ) : (
-              cart.map((item, idx) => {
-                const matchedProd = products.find((p) => p.id === item.productId);
-                const imgSrc = item.imageUrl || resolveProductImage(matchedProd, item.productName);
-                return (
-                  <div
-                    key={`${item.productId}-${item.variantLabel || idx}`}
-                    className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2"
-                  >
+              <AnimatePresence initial={false}>
+                {cart.map((item, idx) => {
+                  const matchedProd = products.find((p) => p.id === item.productId);
+                  const imgSrc = item.imageUrl || resolveProductImage(matchedProd, item.productName);
+                  return (
+                    <motion.div
+                      key={`${item.productId}-${item.variantLabel || 'BASE'}`}
+                      layout="position"
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, x: 16, scale: 0.95 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2"
+                    >
                     <div className="flex items-start justify-between gap-2.5">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <img
@@ -644,9 +662,10 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                         </span>
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 );
-              })
+              })}
+              </AnimatePresence>
             )}
           </div>
 
@@ -746,11 +765,11 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
             )}
             <div className="flex justify-between text-base font-bold text-[#0B1F44] dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
               <span className="font-sans">Grand Total</span>
-              <span className="tabular-nums">{formatCurrency(totals.grandTotal)}</span>
+              <AnimatedNumber value={totals.grandTotal} format={(n) => formatCurrency(n)} />
             </div>
             <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
               <span className="font-sans">Paying Now</span>
-              <span className="tabular-nums">{formatCurrency(totals.paidNum)}</span>
+              <AnimatedNumber value={totals.paidNum} format={(n) => formatCurrency(n)} />
             </div>
             <div className={`flex justify-between font-semibold ${totals.pendingBalance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
               <span className="font-sans">{totals.pendingBalance > 0 ? 'Due Balance (Shows QR)' : 'Status'}</span>

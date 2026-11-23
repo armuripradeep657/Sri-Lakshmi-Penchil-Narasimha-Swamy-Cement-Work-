@@ -1,5 +1,5 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { initializeApp, getApps } from 'firebase/app';
+import { Auth, getAuth, GoogleAuthProvider, inMemoryPersistence, initializeAuth } from 'firebase/auth';
 import {
   doc,
   Firestore,
@@ -30,10 +30,25 @@ function createFirestoreInstance(): Firestore {
   }
 }
 
+export const firebaseProjectId = firebaseConfig.projectId;
 export const db = createFirestoreInstance();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export function getStaffProvisionerAuth(): Auth {
+  const name = 'StaffProvisioner';
+  const existing = getApps().find((a) => a.name === name);
+  if (existing) {
+    return getAuth(existing);
+  }
+  const secondaryApp = initializeApp(firebaseConfig, name);
+  try {
+    return initializeAuth(secondaryApp, { persistence: inMemoryPersistence });
+  } catch {
+    return getAuth(secondaryApp);
+  }
+}
 
 export { waitForPendingWrites };
 

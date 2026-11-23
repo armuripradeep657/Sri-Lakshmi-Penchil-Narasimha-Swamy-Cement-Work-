@@ -7,6 +7,8 @@ export type NavPageId =
   | 'inventory'
   | 'customers'
   | 'labour-cashbook'
+  | 'shop-income'
+  | 'shop-expenses'
   | 'shop-cashbook'
   | 'payments'
   | 'upi-qr'
@@ -52,6 +54,8 @@ export interface Business {
 export interface UserAccount {
   uid: string;
   email: string;
+  authEmail?: string;
+  username?: string;
   displayName: string;
   role: UserRole;
   status: UserStatus;
@@ -69,6 +73,10 @@ export interface UserAccount {
   mpinSalt?: string;
   mpinEnabled?: boolean;
   mpinUpdatedAt?: unknown;
+  passwordHash?: string;
+  passwordSalt?: string;
+  passwordEnabled?: boolean;
+  passwordUpdatedAt?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -79,6 +87,7 @@ export interface InviteRecord {
   ownerUid: string;
   authorizedUids: string[];
   email: string;
+  username?: string;
   displayName: string;
   role: UserRole;
   status: 'pending' | 'accepted' | 'revoked';
@@ -150,6 +159,12 @@ export interface Product {
   variantsSummary?: string; // JSON-encoded or pipe-separated "6FT:620|6½FT:620"
   imageUrl?: string;
   description?: string;
+  isDeleted?: boolean;
+  deletedAt?: unknown;
+  deletedAtMs?: number;
+  deleteExpiresAtMs?: number;
+  deletedByUid?: string;
+  deletedByName?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -208,6 +223,12 @@ export interface Bill {
   editedByName?: string;
   editedAt?: unknown;
   notes?: string;
+  isDeleted?: boolean;
+  deletedAt?: unknown;
+  deletedAtMs?: number;
+  deleteExpiresAtMs?: number;
+  deletedByUid?: string;
+  deletedByName?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

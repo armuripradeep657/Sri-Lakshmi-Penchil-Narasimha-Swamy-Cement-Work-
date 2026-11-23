@@ -199,49 +199,23 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
     }
     setSendingSms(true);
     setStatusBanner(null);
+    const messageBody = `${business.name}: Bill ${bill.billNumber} · Total ₹${bill.grandTotal.toFixed(2)}${
+      bill.pendingBalance > 0 ? ` · Due ₹${bill.pendingBalance.toFixed(2)}` : ' · AMOUNT PAID'
+    }. View bill: ${publicUrl}`;
     try {
-      const res = await fetch('/api/messages/sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mobile: bill.customerMobile,
-          billNumber: bill.billNumber,
-          grandTotal: bill.grandTotal,
-          invoiceUrl: publicUrl,
-          businessName: business.name,
-          senderId: businessSettings?.smsSenderId,
-          templateId: businessSettings?.smsDltTemplateId,
-        }),
+      const cleanPhone = bill.customerMobile.replace(/[^0-9+]/g, '');
+      window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(messageBody)}`;
+      await logMessageDispatch({
+        channel: 'sms',
+        recipientMobile: bill.customerMobile,
+        billId: bill.id,
+        billNumber: bill.billNumber,
+        messageBody,
+        status: 'opened_share_screen',
       });
-      const data = await res.json();
-      if (data.sent) {
-        await logMessageDispatch({
-          channel: 'sms',
-          recipientMobile: bill.customerMobile,
-          billId: bill.id,
-          billNumber: bill.billNumber,
-          messageBody: data.messagePreview,
-          status: 'sent',
-          providerMessageId: data.providerMessageId || '',
-        });
-        setStatusBanner({ type: 'success', text: 'SMS delivered via MSG91 gateway.' });
-      } else {
-        await logMessageDispatch({
-          channel: 'sms',
-          recipientMobile: bill.customerMobile,
-          billId: bill.id,
-          billNumber: bill.billNumber,
-          messageBody: data.messagePreview || '',
-          status: 'failed',
-          errorMessage: data.error || 'Gateway not configured',
-        });
-        setStatusBanner({
-          type: 'info',
-          text: data.error || 'MSG91 SMS gateway is not configured in server secrets.',
-        });
-      }
+      setStatusBanner({ type: 'success', text: 'Opened device SMS app with bill details.' });
     } catch (err) {
-      setStatusBanner({ type: 'error', text: err instanceof Error ? err.message : 'SMS request failed.' });
+      setStatusBanner({ type: 'error', text: err instanceof Error ? err.message : 'Unable to open SMS app.' });
     } finally {
       setSendingSms(false);
     }

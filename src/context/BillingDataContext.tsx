@@ -1,8 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { createUserWithEmailAndPassword, signOut as authSignOut } from 'firebase/auth';
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
   increment,
+  limit,
   onSnapshot,
   query,
   runTransaction,
@@ -20,10 +24,20 @@ import {
   formatTimestamp,
   generateSafeId,
   generateSecureToken,
+  getStaffProvisionerAuth,
   handleFirestoreError,
   OperationType,
   waitForPendingWrites,
 } from '../lib/firebase';
+import {
+  generateMpinSalt,
+  hashSecretPassword,
+  isValidSecretPassword,
+  isValidUsername,
+  normalizeUsername,
+  toFirebaseAuthPassword,
+  usernameToSyntheticEmail,
+} from '../lib/mpinCrypto';
 import { BOOT_ADMIN_EMAIL, DEFAULT_BUSINESS_ID } from '../lib/seedData';
 import { generateUniqueMixedBarcode } from '../lib/barcodeAndBillImage';
 import { useAuth } from './AuthContext';
@@ -53,6 +67,25 @@ import {
   UserAccount,
   UserRole,
 } from '../types/billing';
+
+const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+
+function readCachedJson<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedJson(key: string, val: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch {
+    // ignore storage quota errors
+  }
+}
 
 export interface CartItemInput {
   productId: string;
@@ -104,8 +137,10 @@ interface BillingDataContextValue {
   devices: DeviceSession[];
   categories: Category[];
   products: Product[];
+  removedProducts: Product[];
   customers: Customer[];
   bills: Bill[];
+  removedBills: Bill[];
   billItems: BillItem[];
   payments: PaymentRecord[];
   invoices: InvoiceRecord[];
@@ -131,6 +166,9 @@ interface BillingDataContextValue {
     notes?: string;
   }) => Promise<void>;
   cancelBillAtomic: (billId: string, reason: string) => Promise<void>;
+  softDeleteBillAtomic: (billId: string) => Promise<void>;
+  restoreDeletedBillAtomic: (billId: string) => Promise<void>;
+  permanentlyDeleteBillAtomic: (billId: string) => Promise<void>;
   recordRefundAtomic: (params: {
     billId: string;
     amount: number;
@@ -141,6 +179,8 @@ interface BillingDataContextValue {
   togglePublicInvoiceRevoke: (billId: string, publicToken: string, revoked: boolean) => Promise<void>;
   saveProduct: (product: Partial<Product> & { name: string; category: string; purchasePrice: number; sellingPrice: number; stock: number; taxRate: number }) => Promise<string>;
   deleteProduct: (productId: string) => Promise<void>;
+  restoreDeletedProduct: (productId: string) => Promise<void>;
+  permanentlyDeleteProduct: (productId: string) => Promise<void>;
   adjustStockAtomic: (productId: string, quantityChange: number, type: 'restock' | 'adjustment' | 'return', note: string) => Promise<void>;
   saveCategory: (name: string, nameTe?: string, id?: string) => Promise<void>;
   saveCustomer: (customer: Partial<Customer> & { name: string }) => Promise<string>;
@@ -180,6 +220,22 @@ interface BillingDataContextValue {
     canViewReports: boolean;
     canManageProducts: boolean;
   }) => Promise<void>;
+  createStaffAccountWithPassword: (params: {
+    username: string;
+    password: string;
+    displayName: string;
+    phoneNumber?: string;
+    email?: string;
+    role: UserRole;
+    canEditBills: boolean;
+    canCancelBills: boolean;
+    canViewReports: boolean;
+    canManageProducts: boolean;
+  }) => Promise<{ uid: string; username: string; authEmail: string }>;
+  adminUpdateUserCredentials: (
+    uid: string,
+    params: { username?: string }
+  ) => Promise<void>;
   updateUserAccess: (uid: string, updates: Partial<UserAccount>) => Promise<void>;
   revokeInvite: (inviteId: string) => Promise<void>;
   setDeviceStatus: (deviceId: string, status: 'authorized' | 'revoked') => Promise<void>;
@@ -281,19 +337,30 @@ function calculateBillTotalsLocal(params: {
 }
 
 export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { firebaseUser, userAccount, deviceRevoked, accessDeniedReason, authReady, isAdmin } = useAuth();
+  const { firebaseUser, activeUid, userAccount, deviceRevoked, accessDeniedReason, authReady, isAdmin } = useAuth();
   const isOnline = useOnlineStatus();
 
-  const [business, setBusiness] = useState<Business | null>(null);
-  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
-  const [upiSetting, setUpiSetting] = useState<UpiSetting | null>(null);
+  const businessId = userAccount?.businessId || DEFAULT_BUSINESS_ID;
+  const userUid = activeUid || firebaseUser?.uid || userAccount?.uid || '';
+  const userEmail = (firebaseUser?.email || userAccount?.email || '').toLowerCase();
+  const accountStatus = userAccount?.status || '';
+
+  const [business, setBusiness] = useState<Business | null>(() =>
+    readCachedJson<Business>(`slp_cached_biz_${businessId}`)
+  );
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(() =>
+    readCachedJson<BusinessSettings>(`slp_cached_settings_${businessId}`)
+  );
+  const [upiSetting, setUpiSetting] = useState<UpiSetting | null>(() =>
+    readCachedJson<UpiSetting>(`slp_cached_upi_${businessId}`)
+  );
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [invites, setInvites] = useState<InviteRecord[]>([]);
   const [devices, setDevices] = useState<DeviceSession[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [rawProducts, setRawProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [bills, setBills] = useState<Bill[]>([]);
+  const [rawBills, setRawBills] = useState<Bill[]>([]);
   const [billItems, setBillItems] = useState<BillItem[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -305,7 +372,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [shopEntries, setShopEntries] = useState<ShopEntry[]>([]);
 
   const [syncState, setSyncState] = useState<SyncState>(() =>
-    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'synchronizing'
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connected'
   );
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [cloudNotice, setCloudNotice] = useState<{
@@ -314,21 +381,46 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     message: string;
   } | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  const [loadingData, setLoadingData] = useState(true);
+  const [loadingData, setLoadingData] = useState<boolean>(() => !readCachedJson(`slp_cached_biz_${businessId}`));
 
   const submittedKeysRef = useRef<Set<string>>(new Set());
   const pendingColsRef = useRef<Set<string>>(new Set());
   const wasOfflineRef = useRef<boolean>(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+  const hadOfflineMutationsRef = useRef<boolean>(false);
   const noticeTimerRef = useRef<number | null>(null);
-  const hasLoadedOnceRef = useRef<boolean>(false);
+  const hasLoadedOnceRef = useRef<boolean>(Boolean(readCachedJson(`slp_cached_biz_${businessId}`)));
+  const activeSubKeyRef = useRef<string>('');
+  const purgedExpiredRef = useRef<boolean>(false);
 
-  const businessId = userAccount?.businessId || DEFAULT_BUSINESS_ID;
-  const userUid = firebaseUser?.uid || '';
-  const userEmail = (firebaseUser?.email || '').toLowerCase();
-  const accountStatus = userAccount?.status || '';
+  const products = useMemo(() => rawProducts.filter((p) => !p.isDeleted), [rawProducts]);
+  const removedProducts = useMemo(
+    () =>
+      rawProducts
+        .filter((p) => Boolean(p.isDeleted))
+        .sort((a, b) => Number(b.deletedAtMs || 0) - Number(a.deletedAtMs || 0)),
+    [rawProducts]
+  );
+
+  const bills = useMemo(() => rawBills.filter((b) => !b.isDeleted), [rawBills]);
+  const removedBills = useMemo(
+    () =>
+      rawBills
+        .filter((b) => Boolean(b.isDeleted))
+        .sort((a, b) => Number(b.deletedAtMs || 0) - Number(a.deletedAtMs || 0)),
+    [rawBills]
+  );
+
+  // Unified actor identity supporting online Firebase Auth and offline-unlocked cached sessions
+  const actorUser = useMemo(
+    () => (userUid ? { uid: userUid, email: userEmail } : null),
+    [userUid, userEmail]
+  );
 
   const showNotice = useCallback(
     (status: 'offline' | 'syncing' | 'synced', message: string, autoHideMs?: number) => {
+      if (status === 'offline') {
+        hadOfflineMutationsRef.current = true;
+      }
       if (noticeTimerRef.current) {
         window.clearTimeout(noticeTimerRef.current);
         noticeTimerRef.current = null;
@@ -355,77 +447,76 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     if (!isOnline) {
       wasOfflineRef.current = true;
       setSyncState('offline');
-      showNotice('offline', 'Offline Mode — Changes save locally & sync to database when online.');
     } else if (wasOfflineRef.current) {
       wasOfflineRef.current = false;
-      setSyncState('synchronizing');
-      showNotice('syncing', 'Connected to Internet · Syncing offline data to database...');
-      waitForPendingWrites(db)
-        .then(() => {
-          pendingColsRef.current.clear();
-          setPendingSyncCount(0);
-          setSyncState('saved');
-          setLastSyncedAt(new Date());
-          showNotice('synced', 'Connected to Database · All offline changes synced', 3800);
-        })
-        .catch(() => {
-          setSyncState('connected');
-          showNotice('synced', 'Connected to Database · Background sync active', 3200);
-        });
+      if (hadOfflineMutationsRef.current || pendingColsRef.current.size > 0) {
+        setSyncState('synchronizing');
+        waitForPendingWrites(db)
+          .then(() => {
+            hadOfflineMutationsRef.current = false;
+            pendingColsRef.current.clear();
+            setPendingSyncCount(0);
+            setSyncState('connected');
+            setLastSyncedAt(new Date());
+            showNotice('synced', 'Offline changes synced to cloud', 3200);
+          })
+          .catch(() => {
+            setSyncState('connected');
+          });
+      } else {
+        setSyncState('connected');
+      }
     } else {
       setSyncState((prev) => (prev === 'offline' ? 'connected' : prev));
     }
   }, [isOnline, showNotice]);
 
   useEffect(() => {
-    if (!authReady || !userUid || !userEmail || accountStatus !== 'active' || accessDeniedReason || deviceRevoked) {
+    if (!authReady || !userUid || accountStatus !== 'active' || accessDeniedReason || deviceRevoked) {
+      activeSubKeyRef.current = '';
       setLoadingData(false);
       return;
     }
 
+    const subKey = `${userUid}::${businessId}::${isAdmin}`;
+    activeSubKeyRef.current = subKey;
+
     if (!hasLoadedOnceRef.current) {
       setLoadingData(true);
     }
-    setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
 
-    const isBoot = userEmail === BOOT_ADMIN_EMAIL;
+    const isBoot = Boolean((firebaseUser ? firebaseUser.emailVerified : true) && userEmail === BOOT_ADMIN_EMAIL);
 
     const buildScopedQuery = (colName: string) => {
       if (isBoot) {
         return query(collection(db, colName), where('businessId', '==', businessId));
       }
-      return query(collection(db, colName), where('authorizedEmails', 'array-contains', userEmail));
+      return query(collection(db, colName), where('authorizedUids', 'array-contains', userUid));
     };
 
     const unsubs: Array<() => void> = [];
 
-    const markSynced = (sourceKey: string, fromCache: boolean, hasPending: boolean) => {
-      if (hasPending) {
-        pendingColsRef.current.add(sourceKey);
-      } else {
-        pendingColsRef.current.delete(sourceKey);
-      }
+    const markReady = (sourceKey: string) => {
+      pendingColsRef.current.delete(sourceKey);
       setPendingSyncCount(pendingColsRef.current.size);
-
-      if (!navigator.onLine) {
-        setSyncState('offline');
-      } else if (pendingColsRef.current.size > 0) {
-        setSyncState('synchronizing');
-      } else if (!fromCache) {
+      if (navigator.onLine) {
         setSyncState('connected');
         setLastSyncedAt(new Date());
       } else {
-        setSyncState('connected');
+        setSyncState('offline');
       }
     };
 
     unsubs.push(
       onSnapshot(
         doc(db, 'businesses', businessId),
-        { includeMetadataChanges: true },
         (snap) => {
-          if (snap.exists()) setBusiness(snap.data() as Business);
-          markSynced('businesses', snap.metadata.fromCache, snap.metadata.hasPendingWrites);
+          if (snap.exists()) {
+            const data = snap.data() as Business;
+            setBusiness(data);
+            writeCachedJson(`slp_cached_biz_${businessId}`, data);
+          }
+          markReady('businesses');
           hasLoadedOnceRef.current = true;
           setLoadingData(false);
         },
@@ -440,10 +531,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     unsubs.push(
       onSnapshot(
         doc(db, 'businessSettings', businessId),
-        { includeMetadataChanges: true },
         (snap) => {
-          if (snap.exists()) setBusinessSettings(snap.data() as BusinessSettings);
-          markSynced('businessSettings', snap.metadata.fromCache, snap.metadata.hasPendingWrites);
+          if (snap.exists()) {
+            const data = snap.data() as BusinessSettings;
+            setBusinessSettings(data);
+            writeCachedJson(`slp_cached_settings_${businessId}`, data);
+          }
+          markReady('businessSettings');
         },
         (err) => {
           if (!navigator.onLine) return;
@@ -455,10 +549,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     unsubs.push(
       onSnapshot(
         doc(db, 'upiSettings', businessId),
-        { includeMetadataChanges: true },
         (snap) => {
-          if (snap.exists()) setUpiSetting(snap.data() as UpiSetting);
-          markSynced('upiSettings', snap.metadata.fromCache, snap.metadata.hasPendingWrites);
+          if (snap.exists()) {
+            const data = snap.data() as UpiSetting;
+            setUpiSetting(data);
+            writeCachedJson(`slp_cached_upi_${businessId}`, data);
+          }
+          markReady('upiSettings');
         },
         (err) => {
           if (!navigator.onLine) return;
@@ -505,14 +602,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       unsubs.push(
         onSnapshot(
           buildScopedQuery(colName),
-          { includeMetadataChanges: true },
           (snap) => {
             const list = snap.docs.map((d) => d.data() as T & { createdAt?: unknown });
             if (sortDescByCreatedAt) {
               list.sort((a, b) => formatTimestamp(b.createdAt).getTime() - formatTimestamp(a.createdAt).getTime());
             }
             setter(list as T[]);
-            markSynced(colName, snap.metadata.fromCache, snap.metadata.hasPendingWrites);
+            markReady(colName);
           },
           (err) => {
             if (!navigator.onLine) return;
@@ -525,9 +621,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     subscribeCol<DeviceSession>('devices', setDevices);
     subscribeCol<Category>('categories', setCategories, false);
-    subscribeCol<Product>('products', setProducts, false);
+    subscribeCol<Product>('products', setRawProducts, false);
     subscribeCol<Customer>('customers', setCustomers);
-    subscribeCol<Bill>('bills', setBills);
+    subscribeCol<Bill>('bills', setRawBills);
     subscribeCol<BillItem>('billItems', setBillItems);
     subscribeCol<PaymentRecord>('payments', setPayments);
     subscribeCol<InvoiceRecord>('invoices', setInvoices);
@@ -541,22 +637,22 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [authReady, userUid, userEmail, accountStatus, accessDeniedReason, deviceRevoked, businessId, isAdmin]);
+  }, [authReady, userUid, userEmail, firebaseUser?.emailVerified, accountStatus, accessDeniedReason, deviceRevoked, businessId, isAdmin]);
 
   const accessContext = useMemo(() => {
-    const ownerUid = business?.ownerUid || userAccount?.ownerUid || firebaseUser?.uid || '';
+    const ownerUid = business?.ownerUid || userAccount?.ownerUid || userUid || '';
     const authorizedUids = business?.authorizedUids?.length
       ? business.authorizedUids
-      : userAccount?.authorizedUids || [ownerUid];
+      : userAccount?.authorizedUids || (ownerUid ? [ownerUid] : []);
     const authorizedEmails = business?.authorizedEmails?.length
       ? business.authorizedEmails
-      : [firebaseUser?.email?.toLowerCase() || BOOT_ADMIN_EMAIL];
+      : [userEmail || BOOT_ADMIN_EMAIL];
     return { ownerUid, authorizedUids, authorizedEmails };
-  }, [business, userAccount, firebaseUser]);
+  }, [business, userAccount, userUid, userEmail]);
 
   const createBillAtomic = useCallback(
     async (payload: CreateBillPayload): Promise<Bill> => {
-      if (!firebaseUser || !userAccount || !business) {
+      if (!actorUser || !userAccount || !business) {
         throw new Error('Authentication and business profile required.');
       }
       if (submittedKeysRef.current.has(payload.idempotencyKey)) {
@@ -564,7 +660,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
       submittedKeysRef.current.add(payload.idempotencyKey);
 
-      setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
+      if (!navigator.onLine) setSyncState('offline');
 
       try {
         let calcData: ReturnType<typeof calculateBillTotalsLocal>;
@@ -614,7 +710,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const publicToken = generateSecureToken();
         const verificationBarcode = generateUniqueMixedBarcode();
         const invoiceId = generateSafeId('inv');
-        const creatorName = userAccount.displayName || firebaseUser.email || 'Staff';
+        const creatorName = userAccount.displayName || actorUser.email || 'Staff';
 
         let createdBillNumber = '';
 
@@ -665,7 +761,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             billStatus: 'active',
             publicToken,
             publicLinkRevoked: false,
-            createdByUid: firebaseUser.uid,
+            createdByUid: actorUser.uid,
             createdByName: creatorName,
             notes: (payload.notes || '').trim(),
             createdAt: serverTimestamp(),
@@ -722,7 +818,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 billId,
                 billNumber: createdBillNumber,
                 note: `Sold offline via ${createdBillNumber}`,
-                createdByUid: firebaseUser.uid,
+                createdByUid: actorUser.uid,
                 createdAt: serverTimestamp(),
               });
             }
@@ -774,7 +870,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               referenceId: (payload.paymentReference || '').trim(),
               status: 'completed',
               type: 'payment',
-              recordedByUid: firebaseUser.uid,
+              recordedByUid: actorUser.uid,
               recordedByName: creatorName,
               notes: `Offline payment for ${createdBillNumber}`,
               createdAt: serverTimestamp(),
@@ -882,8 +978,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             entityType: 'bill',
             entityId: billId,
             summary: `Created ${createdBillNumber} offline for ${payload.customerName.trim()} · Total ₹${calcData.grandTotal.toFixed(2)}`,
-            actorUid: firebaseUser.uid,
-            actorEmail: firebaseUser.email || '',
+            actorUid: actorUser.uid,
+            actorEmail: actorUser.email || '',
             actorName: creatorName,
             createdAt: serverTimestamp(),
           });
@@ -955,7 +1051,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             billStatus: 'active',
             publicToken,
             publicLinkRevoked: false,
-            createdByUid: firebaseUser.uid,
+            createdByUid: actorUser.uid,
             createdByName: creatorName,
             notes: (payload.notes || '').trim(),
             createdAt: serverTimestamp(),
@@ -1017,7 +1113,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 billId,
                 billNumber: createdBillNumber,
                 note: `Sold via ${createdBillNumber}`,
-                createdByUid: firebaseUser.uid,
+                createdByUid: actorUser.uid,
                 createdAt: serverTimestamp(),
               });
 
@@ -1093,7 +1189,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               referenceId: (payload.paymentReference || '').trim(),
               status: 'completed',
               type: 'payment',
-              recordedByUid: firebaseUser.uid,
+              recordedByUid: actorUser.uid,
               recordedByName: creatorName,
               notes: `Initial payment for ${createdBillNumber}`,
               createdAt: serverTimestamp(),
@@ -1201,8 +1297,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             entityType: 'bill',
             entityId: billId,
             summary: `Created ${createdBillNumber} for ${payload.customerName.trim()} · Total ₹${calcData.grandTotal.toFixed(2)} · Paid ₹${calcData.amountPaid.toFixed(2)}`,
-            actorUid: firebaseUser.uid,
-            actorEmail: firebaseUser.email || '',
+            actorUid: actorUser.uid,
+            actorEmail: actorUser.email || '',
             actorName: creatorName,
             createdAt: serverTimestamp(),
           });
@@ -1251,7 +1347,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           billStatus: 'active',
           publicToken,
           publicLinkRevoked: false,
-          createdByUid: firebaseUser.uid,
+          createdByUid: actorUser.uid,
           createdByName: creatorName,
           notes: payload.notes,
           createdAt: new Date(),
@@ -1263,7 +1359,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         throw err;
       }
     },
-    [firebaseUser, userAccount, business, businessId, accessContext, upiSetting, products, showNotice]
+    [actorUser, userAccount, business, businessId, accessContext, upiSetting, products, showNotice]
   );
 
   const recordPaymentAtomic = useCallback(
@@ -1274,11 +1370,11 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       referenceId?: string;
       notes?: string;
     }) => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       if (params.amount <= 0) throw new Error('Payment amount must be greater than zero.');
 
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
-      const creatorName = userAccount.displayName || firebaseUser.email || 'Staff';
+      const creatorName = userAccount.displayName || actorUser.email || 'Staff';
 
       const runOfflinePayment = async () => {
         const cachedBill = bills.find((b) => b.id === params.billId);
@@ -1335,7 +1431,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           referenceId: (params.referenceId || '').trim(),
           status: 'completed',
           type: 'payment',
-          recordedByUid: firebaseUser.uid,
+          recordedByUid: actorUser.uid,
           recordedByName: creatorName,
           notes: (params.notes || '').trim(),
           createdAt: serverTimestamp(),
@@ -1415,7 +1511,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           referenceId: (params.referenceId || '').trim(),
           status: 'completed',
           type: 'payment',
-          recordedByUid: firebaseUser.uid,
+          recordedByUid: actorUser.uid,
           recordedByName: creatorName,
           notes: (params.notes || '').trim(),
           createdAt: serverTimestamp(),
@@ -1452,8 +1548,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           entityType: 'bill',
           entityId: billData.id,
           summary: `Recorded ₹${payAmount.toFixed(2)} (${params.method}) on ${billData.billNumber}. New status: ${nextStatus}.`,
-          actorUid: firebaseUser.uid,
-          actorEmail: firebaseUser.email || '',
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
           actorName: creatorName,
           createdAt: serverTimestamp(),
         });
@@ -1469,14 +1565,14 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
     },
-    [firebaseUser, userAccount, businessId, accessContext, invoices, bills, showNotice]
+    [actorUser, userAccount, businessId, accessContext, invoices, bills, showNotice]
   );
 
   const cancelBillAtomic = useCallback(
     async (billId: string, reason: string) => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       setSyncState('synchronizing');
-      const creatorName = userAccount.displayName || firebaseUser.email || 'Admin';
+      const creatorName = userAccount.displayName || actorUser.email || 'Admin';
 
       await runTransaction(db, async (tx) => {
         const billRef = doc(db, 'bills', billId);
@@ -1540,7 +1636,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               billId,
               billNumber: billData.billNumber,
               note: `Restocked from cancelled bill ${billData.billNumber}`,
-              createdByUid: firebaseUser.uid,
+              createdByUid: actorUser.uid,
               createdAt: serverTimestamp(),
             });
           }
@@ -1586,8 +1682,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           entityType: 'bill',
           entityId: billId,
           summary: `Cancelled ${billData.billNumber} (₹${billData.grandTotal.toFixed(2)}). Reason: ${reason}`,
-          actorUid: firebaseUser.uid,
-          actorEmail: firebaseUser.email || '',
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
           actorName: creatorName,
           createdAt: serverTimestamp(),
         });
@@ -1596,7 +1692,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setSyncState('saved');
       setLastSyncedAt(new Date());
     },
-    [firebaseUser, userAccount, billItems, invoices, businessId, accessContext]
+    [actorUser, userAccount, billItems, invoices, businessId, accessContext]
   );
 
   const recordRefundAtomic = useCallback(
@@ -1606,9 +1702,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       method: 'Cash' | 'UPI' | 'Bank Transfer' | 'Other';
       reason: string;
     }) => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       setSyncState('synchronizing');
-      const creatorName = userAccount.displayName || firebaseUser.email || 'Admin';
+      const creatorName = userAccount.displayName || actorUser.email || 'Admin';
 
       await runTransaction(db, async (tx) => {
         const billRef = doc(db, 'bills', params.billId);
@@ -1661,7 +1757,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           referenceId: '',
           status: 'refunded',
           type: 'refund',
-          recordedByUid: firebaseUser.uid,
+          recordedByUid: actorUser.uid,
           recordedByName: creatorName,
           notes: params.reason,
           createdAt: serverTimestamp(),
@@ -1698,8 +1794,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           entityType: 'bill',
           entityId: billData.id,
           summary: `Refunded ₹${refundAmt.toFixed(2)} on ${billData.billNumber}. Reason: ${params.reason}`,
-          actorUid: firebaseUser.uid,
-          actorEmail: firebaseUser.email || '',
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
           actorName: creatorName,
           createdAt: serverTimestamp(),
         });
@@ -1708,12 +1804,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setSyncState('saved');
       setLastSyncedAt(new Date());
     },
-    [firebaseUser, userAccount, invoices, businessId, accessContext]
+    [actorUser, userAccount, invoices, businessId, accessContext]
   );
 
   const editBillAtomic = useCallback(
     async (payload: EditBillPayload) => {
-      if (!firebaseUser || !userAccount || !business) {
+      if (!actorUser || !userAccount || !business) {
         throw new Error('Authentication and business profile required.');
       }
       if (!isAdmin) {
@@ -1769,7 +1865,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         });
       }
 
-      const editorName = userAccount.displayName || firebaseUser.email || 'Admin';
+      const editorName = userAccount.displayName || actorUser.email || 'Admin';
       const oldItems = billItems.filter((bi) => bi.billId === payload.billId);
       const oldQtyByProd = new Map<string, number>();
       oldItems.forEach((oi) => {
@@ -1822,7 +1918,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           paymentMethod: resolvedPaymentMethod,
           paymentStatus: calcData.paymentStatus,
           notes: (payload.notes || '').trim().slice(0, 400),
-          editedByUid: firebaseUser.uid,
+          editedByUid: actorUser.uid,
           editedByName: editorName.slice(0, 120),
           editedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -1889,7 +1985,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             billId: payload.billId,
             billNumber: billData.billNumber,
             note: `Edited bill ${billData.billNumber} by ${editorName}`,
-            createdByUid: firebaseUser.uid,
+            createdByUid: actorUser.uid,
             createdAt: serverTimestamp(),
           });
         });
@@ -1966,8 +2062,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           entityType: 'bill',
           entityId: payload.billId,
           summary: `Admin ${editorName} edited ${billData.billNumber}: ₹${Number(billData.grandTotal || 0).toFixed(2)} -> ₹${calcData.grandTotal.toFixed(2)}`,
-          actorUid: firebaseUser.uid,
-          actorEmail: firebaseUser.email || '',
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
           actorName: editorName,
           createdAt: serverTimestamp(),
         });
@@ -2049,12 +2145,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
     },
-    [firebaseUser, userAccount, business, isAdmin, billItems, bills, products, customers, invoices, businessId, accessContext, showNotice]
+    [actorUser, userAccount, business, isAdmin, billItems, bills, products, customers, invoices, businessId, accessContext, showNotice]
   );
 
   const updateBillNotes = useCallback(
     async (billId: string, notes: string) => {
-      if (!firebaseUser || !userAccount) return;
+      if (!actorUser || !userAccount) return;
       await commitWithOfflineSupport(
         updateDoc(doc(db, 'bills', billId), {
           notes: notes.slice(0, 400),
@@ -2073,14 +2169,14 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           entityType: 'bill',
           entityId: billId,
           summary: `Updated bill notes: ${notes.slice(0, 100)}`,
-          actorUid: firebaseUser.uid,
-          actorEmail: firebaseUser.email || '',
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
           actorName: userAccount.displayName,
           createdAt: serverTimestamp(),
         })
       );
     },
-    [firebaseUser, userAccount, businessId, accessContext]
+    [actorUser, userAccount, businessId, accessContext]
   );
 
   const togglePublicInvoiceRevoke = useCallback(
@@ -2117,7 +2213,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         taxRate: number;
       }
     ): Promise<string> => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       setSyncState('synchronizing');
       const isEdit = Boolean(product.id);
       const id = product.id || generateSafeId('prod');
@@ -2167,8 +2263,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           entityType: 'product',
           entityId: id,
           summary: `${isEdit ? 'Updated' : 'Created'} product "${product.name}" @ ₹${product.sellingPrice}`,
-          actorUid: firebaseUser.uid,
-          actorEmail: firebaseUser.email || '',
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
           actorName: userAccount.displayName,
           createdAt: serverTimestamp(),
         })
@@ -2178,16 +2274,302 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (navigator.onLine) setLastSyncedAt(new Date());
       return id;
     },
-    [firebaseUser, userAccount, businessId, accessContext, products.length]
+    [actorUser, userAccount, businessId, accessContext, products.length]
   );
 
-  const deleteProduct = useCallback(async (productId: string) => {
-    await commitWithOfflineSupport(deleteDoc(doc(db, 'products', productId)));
-  }, []);
+  const softDeleteBillAtomic = useCallback(
+    async (billId: string) => {
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      const target = rawBills.find((b) => b.id === billId);
+      if (!target) throw new Error('Bill not found.');
+      if (!isAdmin && target.createdByUid !== actorUser.uid) {
+        throw new Error('You can only delete bills created by your account.');
+      }
+      const nowMs = Date.now();
+      const expiresAtMs = nowMs + TEN_DAYS_MS;
+      const actorName = (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120);
+
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'bills', billId), {
+        isDeleted: true,
+        deletedAt: serverTimestamp(),
+        deletedAtMs: nowMs,
+        deleteExpiresAtMs: expiresAtMs,
+        deletedByUid: actorUser.uid,
+        deletedByName: actorName,
+        publicLinkRevoked: true,
+        updatedAt: serverTimestamp(),
+      });
+
+      const inv = invoices.find((i) => i.billId === billId);
+      if (inv) {
+        batch.update(doc(db, 'invoices', inv.id), {
+          revoked: true,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      if (target.publicToken) {
+        batch.update(doc(db, 'publicInvoices', target.publicToken), {
+          revoked: true,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'SOFT_DELETE_BILL',
+        entityType: 'bill',
+        entityId: billId,
+        summary: `Moved bill ${target.billNumber} (${target.customerName}) to 10-day Removed Bills & Products bin`,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName,
+        createdAt: serverTimestamp(),
+      });
+
+      await commitWithOfflineSupport(batch.commit());
+      if (!navigator.onLine) {
+        setSyncState('offline');
+        showNotice('offline', `Bill ${target.billNumber} moved to Removed bin offline · Auto-syncs later`);
+      }
+    },
+    [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice]
+  );
+
+  const restoreDeletedBillAtomic = useCallback(
+    async (billId: string) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error('Only business administrators can restore deleted bills.');
+      }
+      const target = rawBills.find((b) => b.id === billId);
+      if (!target) throw new Error('Removed bill not found.');
+      const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
+
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'bills', billId), {
+        isDeleted: false,
+        updatedAt: serverTimestamp(),
+      });
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'RESTORE_BILL',
+        entityType: 'bill',
+        entityId: billId,
+        summary: `Restored bill ${target.billNumber} (${target.customerName}) from Removed Bills & Products`,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName,
+        createdAt: serverTimestamp(),
+      });
+
+      await commitWithOfflineSupport(batch.commit());
+    },
+    [actorUser, userAccount, isAdmin, rawBills, businessId, accessContext]
+  );
+
+  const permanentlyDeleteBillAtomic = useCallback(
+    async (billId: string) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error('Only business administrators can permanently delete bills.');
+      }
+      const target = rawBills.find((b) => b.id === billId);
+      if (!target) return;
+      if (!target.isDeleted) {
+        await updateDoc(doc(db, 'bills', billId), {
+          isDeleted: true,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'bills', billId));
+      billItems
+        .filter((bi) => bi.billId === billId)
+        .forEach((bi) => batch.delete(doc(db, 'billItems', bi.id)));
+      invoices
+        .filter((inv) => inv.billId === billId)
+        .forEach((inv) => batch.delete(doc(db, 'invoices', inv.id)));
+      if (target.publicToken) {
+        batch.delete(doc(db, 'publicInvoices', target.publicToken));
+      }
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'PERMANENT_DELETE_BILL',
+        entityType: 'bill',
+        entityId: billId,
+        summary: `Permanently removed bill ${target.billNumber} (${target.customerName})`,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName,
+        createdAt: serverTimestamp(),
+      });
+
+      await commitWithOfflineSupport(batch.commit());
+    },
+    [actorUser, userAccount, isAdmin, rawBills, billItems, invoices, businessId, accessContext]
+  );
+
+  const deleteProduct = useCallback(
+    async (productId: string) => {
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      const target = rawProducts.find((p) => p.id === productId);
+      const nowMs = Date.now();
+      const expiresAtMs = nowMs + TEN_DAYS_MS;
+      const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
+
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'products', productId), {
+        isDeleted: true,
+        deletedAt: serverTimestamp(),
+        deletedAtMs: nowMs,
+        deleteExpiresAtMs: expiresAtMs,
+        deletedByUid: actorUser.uid,
+        deletedByName: actorName,
+        updatedAt: serverTimestamp(),
+      });
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'SOFT_DELETE_PRODUCT',
+        entityType: 'product',
+        entityId: productId,
+        summary: `Moved product "${target?.name || productId}" to 10-day Removed Bills & Products bin`,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName,
+        createdAt: serverTimestamp(),
+      });
+
+      await commitWithOfflineSupport(batch.commit());
+    },
+    [actorUser, userAccount, rawProducts, businessId, accessContext]
+  );
+
+  const restoreDeletedProduct = useCallback(
+    async (productId: string) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error('Only business administrators can restore deleted products.');
+      }
+      const target = rawProducts.find((p) => p.id === productId);
+      if (!target) throw new Error('Removed product not found.');
+      const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
+
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'products', productId), {
+        isDeleted: false,
+        updatedAt: serverTimestamp(),
+      });
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'RESTORE_PRODUCT',
+        entityType: 'product',
+        entityId: productId,
+        summary: `Restored product "${target.name}" from Removed Bills & Products`,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName,
+        createdAt: serverTimestamp(),
+      });
+
+      await commitWithOfflineSupport(batch.commit());
+    },
+    [actorUser, userAccount, isAdmin, rawProducts, businessId, accessContext]
+  );
+
+  const permanentlyDeleteProduct = useCallback(
+    async (productId: string) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error('Only business administrators can permanently delete products.');
+      }
+      const target = rawProducts.find((p) => p.id === productId);
+      const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
+      await commitWithOfflineSupport(deleteDoc(doc(db, 'products', productId)));
+
+      const audId = generateSafeId('aud');
+      await commitWithOfflineSupport(
+        setDoc(doc(db, 'auditLogs', audId), {
+          id: audId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          action: 'PERMANENT_DELETE_PRODUCT',
+          entityType: 'product',
+          entityId: productId,
+          summary: `Permanently removed product "${target?.name || productId}"`,
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
+          actorName,
+          createdAt: serverTimestamp(),
+        })
+      );
+    },
+    [actorUser, userAccount, isAdmin, rawProducts, businessId, accessContext]
+  );
+
+  // Automatic 10-day permanent purge when admin is online
+  useEffect(() => {
+    if (!isAdmin || !isOnline || loadingData || purgedExpiredRef.current) return;
+    const now = Date.now();
+    const expiredBills = removedBills.filter(
+      (b) => typeof b.deleteExpiresAtMs === 'number' && b.deleteExpiresAtMs <= now
+    );
+    const expiredProducts = removedProducts.filter(
+      (p) => typeof p.deleteExpiresAtMs === 'number' && p.deleteExpiresAtMs <= now
+    );
+    if (expiredBills.length === 0 && expiredProducts.length === 0) return;
+
+    purgedExpiredRef.current = true;
+    (async () => {
+      for (const eb of expiredBills) {
+        await permanentlyDeleteBillAtomic(eb.id).catch(() => {});
+      }
+      for (const ep of expiredProducts) {
+        await permanentlyDeleteProduct(ep.id).catch(() => {});
+      }
+    })();
+  }, [
+    isAdmin,
+    isOnline,
+    loadingData,
+    removedBills,
+    removedProducts,
+    permanentlyDeleteBillAtomic,
+    permanentlyDeleteProduct,
+  ]);
 
   const adjustStockAtomic = useCallback(
     async (productId: string, quantityChange: number, type: 'restock' | 'adjustment' | 'return', note: string) => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
 
       const runOfflineStockAdjust = async () => {
@@ -2214,7 +2596,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           previousStock: prevStock,
           newStock,
           note: note || `Offline ${type}`,
-          createdByUid: firebaseUser.uid,
+          createdByUid: actorUser.uid,
           createdAt: serverTimestamp(),
         });
         await commitWithOfflineSupport(batch.commit());
@@ -2255,7 +2637,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             previousStock: prevStock,
             newStock,
             note: note || `Manual ${type}`,
-            createdByUid: firebaseUser.uid,
+            createdByUid: actorUser.uid,
             createdAt: serverTimestamp(),
           });
         });
@@ -2271,7 +2653,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
     },
-    [firebaseUser, userAccount, businessId, accessContext, products, showNotice]
+    [actorUser, userAccount, businessId, accessContext, products, showNotice]
   );
 
   const saveCategory = useCallback(
@@ -2298,7 +2680,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const saveCustomer = useCallback(
     async (customer: Partial<Customer> & { name: string }): Promise<string> => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
       const isEdit = Boolean(customer.id);
       const id = customer.id || generateSafeId('cust');
@@ -2347,7 +2729,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (navigator.onLine) setLastSyncedAt(new Date());
       return id;
     },
-    [firebaseUser, userAccount, businessId, accessContext]
+    [actorUser, userAccount, businessId, accessContext]
   );
 
   const saveLabourWork = useCallback(
@@ -2360,7 +2742,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       paymentMethod: 'Cash' | 'UPI' | 'Bank Transfer' | 'Unpaid';
       note?: string;
     }): Promise<string> => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       const cleanName = entry.workerName.trim().slice(0, 160);
       const cleanWork = entry.workDone.trim().slice(0, 300);
       const cleanDate = entry.workDate.trim().slice(0, 10);
@@ -2401,8 +2783,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               wageAmount: wage,
               paymentMethod: entry.paymentMethod,
               note: cleanNote,
-              recordedByUid: firebaseUser.uid,
-              recordedByName: (userAccount.displayName || firebaseUser.email || 'Staff').slice(0, 120),
+              recordedByUid: actorUser.uid,
+              recordedByName: (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120),
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             })
@@ -2417,7 +2799,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         throw err;
       }
     },
-    [firebaseUser, userAccount, businessId, accessContext]
+    [actorUser, userAccount, businessId, accessContext]
   );
 
   const deleteLabourWork = useCallback(async (workId: string) => {
@@ -2444,7 +2826,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       paymentMethod: 'Cash' | 'UPI' | 'Bank Transfer' | 'Other';
       note?: string;
     }): Promise<string> => {
-      if (!firebaseUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
       const cleanTitle = entry.title.trim().slice(0, 160);
       const cleanDate = entry.entryDate.trim().slice(0, 10);
       const amount = Math.round(Number(entry.amount || 0) * 100) / 100;
@@ -2487,8 +2869,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               amount,
               paymentMethod: entry.paymentMethod,
               note: cleanNote,
-              recordedByUid: firebaseUser.uid,
-              recordedByName: (userAccount.displayName || firebaseUser.email || 'Staff').slice(0, 120),
+              recordedByUid: actorUser.uid,
+              recordedByName: (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120),
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             })
@@ -2503,7 +2885,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         throw err;
       }
     },
-    [firebaseUser, userAccount, businessId, accessContext]
+    [actorUser, userAccount, businessId, accessContext]
   );
 
   const deleteShopEntry = useCallback(async (entryId: string) => {
@@ -2521,7 +2903,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const saveBusinessProfile = useCallback(
     async (updates: Partial<Business>) => {
-      if (!firebaseUser || !userAccount) return;
+      if (!actorUser || !userAccount) return;
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
       await commitWithOfflineSupport(
         updateDoc(doc(db, 'businesses', businessId), {
@@ -2548,7 +2930,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setSyncState(navigator.onLine ? 'saved' : 'offline');
       if (navigator.onLine) setLastSyncedAt(new Date());
     },
-    [firebaseUser, userAccount, businessId, accessContext]
+    [actorUser, userAccount, businessId, accessContext]
   );
 
   const saveBusinessSettings = useCallback(
@@ -2602,7 +2984,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         'id' | 'businessId' | 'ownerUid' | 'authorizedUids' | 'authorizedEmails' | 'sentByUid' | 'createdAt'
       >
     ) => {
-      if (!firebaseUser) return;
+      if (!actorUser) return;
       const id = generateSafeId('msg');
       await commitWithOfflineSupport(
         setDoc(doc(db, 'messageLogs', id), {
@@ -2612,12 +2994,268 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           ownerUid: accessContext.ownerUid,
           authorizedUids: accessContext.authorizedUids,
           authorizedEmails: accessContext.authorizedEmails,
-          sentByUid: firebaseUser.uid,
+          sentByUid: actorUser.uid,
           createdAt: serverTimestamp(),
         })
       );
     },
-    [firebaseUser, businessId, accessContext]
+    [actorUser, businessId, accessContext]
+  );
+
+  const propagateStaffAccessToBusinessDocs = useCallback(
+    async (staffUid: string, staffEmail?: string) => {
+      const bizRef = doc(db, 'businesses', businessId);
+      const bizSnap = await getDoc(bizRef);
+      const bizData = bizSnap.exists() ? (bizSnap.data() as Business) : business;
+      const nextUids = [...new Set([...(bizData?.authorizedUids || accessContext.authorizedUids), staffUid])].slice(0, 25);
+      const cleanEmail = (staffEmail || '').trim().toLowerCase();
+      const nextEmails = cleanEmail
+        ? [...new Set([...(bizData?.authorizedEmails || accessContext.authorizedEmails), cleanEmail])].slice(0, 25)
+        : bizData?.authorizedEmails || accessContext.authorizedEmails;
+
+      await updateDoc(bizRef, {
+        authorizedUids: nextUids,
+        authorizedEmails: nextEmails,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Propagate new authorizedUids to business catalog, settings, customers, bills, and invoices
+      const cols = [
+        'businessSettings',
+        'upiSettings',
+        'categories',
+        'products',
+        'customers',
+        'bills',
+        'billItems',
+        'invoices',
+        'devices',
+      ];
+
+      let batch = writeBatch(db);
+      let opCount = 0;
+
+      const flushIfFull = async () => {
+        if (opCount >= 380) {
+          await batch.commit();
+          batch = writeBatch(db);
+          opCount = 0;
+        }
+      };
+
+      for (const colName of cols) {
+        try {
+          const snap = await getDocs(
+            query(collection(db, colName), where('businessId', '==', businessId), limit(300))
+          );
+          for (const d of snap.docs) {
+            const data = d.data() as { authorizedUids?: string[]; authorizedEmails?: string[] };
+            const curUids = Array.isArray(data.authorizedUids) ? data.authorizedUids : [];
+            if (curUids.includes(staffUid)) continue;
+            const mergedUids = [...new Set([...curUids, staffUid])].slice(0, 25);
+            const curEmails = Array.isArray(data.authorizedEmails) ? data.authorizedEmails : [];
+            const mergedEmails = cleanEmail
+              ? [...new Set([...curEmails, cleanEmail])].slice(0, 25)
+              : curEmails;
+            const payload: Record<string, unknown> = {
+              authorizedUids: mergedUids,
+              authorizedEmails: mergedEmails,
+            };
+            if (colName !== 'billItems' && colName !== 'devices') {
+              payload.updatedAt = serverTimestamp();
+            } else if (colName === 'devices') {
+              payload.lastActiveAt = serverTimestamp();
+            }
+            batch.update(doc(db, colName, d.id), payload);
+            opCount += 1;
+            await flushIfFull();
+          }
+        } catch {
+          // ignore collections without matching permissions
+        }
+      }
+
+      if (opCount > 0) {
+        await batch.commit();
+      }
+    },
+    [businessId, business, accessContext]
+  );
+
+  const createStaffAccountWithPassword = useCallback(
+    async (params: {
+      username: string;
+      password: string;
+      displayName: string;
+      phoneNumber?: string;
+      email?: string;
+      role: UserRole;
+      canEditBills: boolean;
+      canCancelBills: boolean;
+      canViewReports: boolean;
+      canManageProducts: boolean;
+    }) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error('Administrator sign-in required.');
+      }
+      if (!navigator.onLine) {
+        throw new Error('Internet connection required to create a new staff login.');
+      }
+
+      const username = normalizeUsername(params.username);
+      if (!isValidUsername(username)) {
+        throw new Error('Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).');
+      }
+      if (!isValidSecretPassword(params.password)) {
+        throw new Error('Password must be at least 4 characters.');
+      }
+      const cleanName = params.displayName.trim().slice(0, 120);
+      if (!cleanName) throw new Error('Staff full name is required.');
+
+      const existingIdx = await getDoc(doc(db, 'usernameIndex', username));
+      if (existingIdx.exists()) {
+        throw new Error(`Username "@${username}" already exists. Choose a different username.`);
+      }
+
+      const rawEmail = (params.email || '').trim().toLowerCase();
+      const authEmail = rawEmail || usernameToSyntheticEmail(username);
+
+      const salt = generateMpinSalt();
+      const passwordHash = await hashSecretPassword(params.password, salt);
+
+      // Provision Firebase Auth account on secondary auth instance so Owner remains signed in
+      const provisionAuth = getStaffProvisionerAuth();
+      let newStaffUid = '';
+      try {
+        const firebasePwd = toFirebaseAuthPassword(params.password);
+        const cred = await createUserWithEmailAndPassword(provisionAuth, authEmail, firebasePwd);
+        newStaffUid = cred.user.uid;
+      } catch (err) {
+        const code =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code || '')
+            : '';
+        if (code === 'auth/operation-not-allowed') {
+          throw new Error(
+            'Email/Password sign-in is disabled in Firebase Console. Open Firebase Console → Authentication → Sign-in method → enable Email/Password first.'
+          );
+        }
+        if (code === 'auth/email-already-in-use') {
+          throw new Error(
+            `The email "${authEmail}" is already registered. Use a different username or email, or ask that staff member to set their password in My Profile.`
+          );
+        }
+        throw err;
+      } finally {
+        await authSignOut(provisionAuth).catch(() => {});
+      }
+
+      const nextAuthorizedUids = [...new Set([...accessContext.authorizedUids, newStaffUid])].slice(0, 25);
+
+      await setDoc(doc(db, 'users', newStaffUid), {
+        uid: newStaffUid,
+        email: authEmail,
+        authEmail,
+        username,
+        displayName: cleanName,
+        phoneNumber: (params.phoneNumber || '').trim().slice(0, 30),
+        role: params.role,
+        status: 'active',
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: nextAuthorizedUids,
+        canEditBills: params.canEditBills,
+        canCancelBills: params.canCancelBills,
+        canViewReports: params.canViewReports,
+        canManageProducts: params.canManageProducts,
+        passwordHash,
+        passwordSalt: salt,
+        passwordEnabled: true,
+        passwordUpdatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      await setDoc(doc(db, 'usernameIndex', username), {
+        username,
+        authEmail,
+        uid: newStaffUid,
+        businessId,
+        active: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      if (params.role === 'admin') {
+        await setDoc(doc(db, 'admins', newStaffUid), {
+          uid: newStaffUid,
+          email: authEmail,
+          businessId,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      await propagateStaffAccessToBusinessDocs(newStaffUid, authEmail);
+
+      const audId = generateSafeId('aud');
+      await setDoc(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: nextAuthorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'CREATE_STAFF_USERNAME',
+        entityType: 'user',
+        entityId: newStaffUid,
+        summary: `Created ${params.role} login @${username} (${cleanName})`,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName: userAccount.displayName,
+        createdAt: serverTimestamp(),
+      });
+
+      return { uid: newStaffUid, username, authEmail };
+    },
+    [actorUser, userAccount, isAdmin, accessContext, businessId, propagateStaffAccessToBusinessDocs]
+  );
+
+  const adminUpdateUserCredentials = useCallback(
+    async (uid: string, params: { username?: string }) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error('Administrator sign-in required.');
+      }
+      const target = users.find((u) => u.uid === uid);
+      if (!target) throw new Error('User not found.');
+      if (!params.username) return;
+
+      const nextUname = normalizeUsername(params.username);
+      if (!isValidUsername(nextUname)) {
+        throw new Error('Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).');
+      }
+      const idxSnap = await getDoc(doc(db, 'usernameIndex', nextUname));
+      if (idxSnap.exists() && idxSnap.data().uid !== uid) {
+        throw new Error(`Username "@${nextUname}" is already in use.`);
+      }
+      if (target.username && target.username !== nextUname) {
+        await deleteDoc(doc(db, 'usernameIndex', target.username)).catch(() => {});
+      }
+      const authEmail = (target.authEmail || target.email).toLowerCase();
+      await setDoc(doc(db, 'usernameIndex', nextUname), {
+        username: nextUname,
+        authEmail,
+        uid,
+        businessId,
+        active: target.status === 'active',
+        createdAt: idxSnap.exists() ? idxSnap.data().createdAt || serverTimestamp() : serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'users', uid), {
+        username: nextUname,
+        authEmail,
+        updatedAt: serverTimestamp(),
+      });
+    },
+    [actorUser, userAccount, isAdmin, users, businessId]
   );
 
   const inviteStaffMember = useCallback(
@@ -2668,15 +3306,19 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         ...updates,
         updatedAt: serverTimestamp(),
       });
-      if (updates.status && updates.status !== 'active' && business) {
-        const target = users.find((u) => u.uid === uid);
-        if (target) {
-          const nextEmails = (business.authorizedEmails || []).filter((e) => e !== target.email.toLowerCase());
-          await updateDoc(doc(db, 'businesses', businessId), {
-            authorizedEmails: nextEmails,
-            updatedAt: serverTimestamp(),
-          });
-        }
+      const target = users.find((u) => u.uid === uid);
+      if (target?.username && updates.status) {
+        await updateDoc(doc(db, 'usernameIndex', target.username), {
+          active: updates.status === 'active',
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      }
+      if (updates.status && updates.status !== 'active' && business && target) {
+        const nextEmails = (business.authorizedEmails || []).filter((e) => e !== target.email.toLowerCase());
+        await updateDoc(doc(db, 'businesses', businessId), {
+          authorizedEmails: nextEmails,
+          updatedAt: serverTimestamp(),
+        });
       }
     },
     [business, businessId, users]
@@ -2707,8 +3349,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         devices,
         categories,
         products,
+        removedProducts,
         customers,
         bills,
+        removedBills,
         billItems,
         payments,
         invoices,
@@ -2728,11 +3372,16 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         editBillAtomic,
         recordPaymentAtomic,
         cancelBillAtomic,
+        softDeleteBillAtomic,
+        restoreDeletedBillAtomic,
+        permanentlyDeleteBillAtomic,
         recordRefundAtomic,
         updateBillNotes,
         togglePublicInvoiceRevoke,
         saveProduct,
         deleteProduct,
+        restoreDeletedProduct,
+        permanentlyDeleteProduct,
         adjustStockAtomic,
         saveCategory,
         saveCustomer,
@@ -2747,6 +3396,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         markAllNotificationsRead,
         logMessageDispatch,
         inviteStaffMember,
+        createStaffAccountWithPassword,
+        adminUpdateUserCredentials,
         updateUserAccess,
         revokeInvite,
         setDeviceStatus,
