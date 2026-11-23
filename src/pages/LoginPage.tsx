@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Globe,
   KeyRound,
   Lock,
   LogOut,
@@ -23,6 +24,12 @@ import { useAuth } from '../context/AuthContext';
 import { firebaseProjectId } from '../lib/firebase';
 import { DEFAULT_BUSINESS_LOGO } from '../lib/seedData';
 import { PWAInstallButton } from '../components/PWAInstallButton';
+import {
+  getCopyrightNoticeLocalized,
+  tr,
+  translateBusinessName,
+  translateProprietor,
+} from '../lib/i18n';
 
 export const LoginPage: React.FC = () => {
   const {
@@ -42,6 +49,8 @@ export const LoginPage: React.FC = () => {
     savedMpinProfiles,
     savedPasswordProfiles,
     fullSignOut,
+    language,
+    toggleLanguage,
   } = useAuth();
 
   const [rememberMe, setRememberMe] = useState(true);
@@ -137,7 +146,9 @@ export const LoginPage: React.FC = () => {
       await signInWithUsernamePassword(usernameOrEmail, password, rememberMe);
       setPassword('');
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Unable to sign in.');
+      setPasswordError(
+        err instanceof Error ? err.message : tr(language, 'Unable to sign in.', 'లాగిన్ కావడం సాధ్యం కాలేదు.')
+      );
     } finally {
       setSigningIn(false);
     }
@@ -145,7 +156,14 @@ export const LoginPage: React.FC = () => {
 
   const handlePasswordReset = async () => {
     if (!usernameOrEmail.trim()) {
-      setResetResult({ type: 'err', text: 'Enter your username or registered email first.' });
+      setResetResult({
+        type: 'err',
+        text: tr(
+          language,
+          'Enter your username or registered email first.',
+          'ముందుగా మీ యూజర్ పేరు లేదా నమోదైన ఇమెయిల్ నమోదు చేయండి.'
+        ),
+      });
       return;
     }
     setSendingReset(true);
@@ -156,7 +174,10 @@ export const LoginPage: React.FC = () => {
     } catch (err) {
       setResetResult({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Password reset failed.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Password reset failed.', 'పాస్‌వర్డ్ రీసెట్ విఫలమైంది.'),
       });
     } finally {
       setSendingReset(false);
@@ -182,7 +203,9 @@ export const LoginPage: React.FC = () => {
       await signInWithMpin(activeProfile.uid, pinValue);
       setPin('');
     } catch (err) {
-      setMpinError(err instanceof Error ? err.message : 'Invalid MPIN.');
+      setMpinError(
+        err instanceof Error ? err.message : tr(language, 'Invalid MPIN.', 'తప్పు ఎంపిన్.')
+      );
       setPin('');
     } finally {
       setVerifyingPin(false);
@@ -252,20 +275,30 @@ export const LoginPage: React.FC = () => {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-        className="relative z-10 flex items-center justify-between max-w-5xl w-full mx-auto bg-white/95 backdrop-blur px-4 py-3 rounded-2xl border border-blue-100 shadow-sm"
+        className="relative z-10 flex items-center justify-between gap-2 max-w-5xl w-full mx-auto bg-white/95 backdrop-blur px-4 py-3 rounded-2xl border border-blue-100 shadow-sm"
       >
         <div className="flex items-center gap-3 min-w-0">
           <img
             src={DEFAULT_BUSINESS_LOGO}
-            alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+            alt={translateBusinessName(undefined, language)}
             referrerPolicy="no-referrer"
             className="w-11 h-11 rounded-xl object-contain bg-white p-0.5 border border-[#1D4ED8]/25 shadow-xs shrink-0"
           />
           <span className="font-display font-bold text-sm sm:text-base text-[#0B1F44] tracking-tight leading-tight line-clamp-2">
-            Sri Lakshmi Penchil Narasimha Swamy Cement Work
+            {translateBusinessName(undefined, language)}
           </span>
         </div>
-        <PWAInstallButton variant="light-header" />
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 text-[#0B1F44] text-xs font-bold hover:bg-blue-100 transition"
+          >
+            <Globe className="w-3.5 h-3.5 text-[#1D4ED8]" />
+            <span>{language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}</span>
+          </button>
+          <PWAInstallButton variant="light-header" />
+        </div>
       </motion.div>
 
       <motion.div
@@ -280,15 +313,16 @@ export const LoginPage: React.FC = () => {
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', stiffness: 360, damping: 24, delay: 0.08 }}
             src={DEFAULT_BUSINESS_LOGO}
-            alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+            alt={translateBusinessName(undefined, language)}
             referrerPolicy="no-referrer"
             className="w-20 h-20 rounded-2xl object-contain bg-white p-1 border-2 border-[#1D4ED8]/25 shadow-sm"
           />
           <h1 className="mt-3 text-lg sm:text-xl font-bold text-[#0B1F44] text-balance">
-            Sri Lakshmi Penchil Narasimha Swamy Cement Work
+            {translateBusinessName(undefined, language)}
           </h1>
           <p className="mt-1 text-xs text-blue-700/80 font-medium">
-            Proprietor: A. Prasad · Ph: 9912179771
+            {tr(language, 'Proprietor:', 'యజమాని:')} {translateProprietor('A. Prasad', language)} ·{' '}
+            {tr(language, 'Ph:', 'ఫోన్:')} 9912179771
           </p>
         </div>
 
@@ -296,7 +330,11 @@ export const LoginPage: React.FC = () => {
           <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 flex items-center gap-2 font-medium">
             <CloudOff className="w-4 h-4 shrink-0 text-amber-600" />
             <span>
-              No Internet · Use your saved Username &amp; Password or 4-Digit MPIN to open and bill offline.
+              {tr(
+                language,
+                'No Internet · Use your saved Username & Password or 4-Digit MPIN to open and bill offline.',
+                'ఇంటర్నెట్ లేదు · ఆఫ్‌లైన్‌లో యాప్ తెరిచి బిల్లింగ్ చేయడానికి మీ యూజర్ పేరు & పాస్‌వర్డ్ లేదా 4-అంకెల ఎంపిన్ ఉపయోగించండి.'
+              )}
             </span>
           </div>
         )}
@@ -307,15 +345,22 @@ export const LoginPage: React.FC = () => {
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <div>
                 <div className="font-semibold">
-                  {deviceRevoked ? 'Device Access Revoked' : 'Authorization Required'}
+                  {deviceRevoked
+                    ? tr(language, 'Device Access Revoked', 'పరికర అనుమతి రద్దు చేయబడింది')
+                    : tr(language, 'Authorization Required', 'అనుమతి అవసరం')}
                 </div>
                 <p className="mt-1 text-xs leading-relaxed">
                   {deviceRevoked
-                    ? 'An administrator has revoked access for this browser/device session. Please contact the business administrator.'
+                    ? tr(
+                        language,
+                        'An administrator has revoked access for this browser/device session. Please contact the business administrator.',
+                        'అడ్మిన్ ఈ పరికరం/బ్రౌజర్ అనుమతిని రద్దు చేశారు. దయచేసి వ్యాపార యజమానిని సంప్రదించండి.'
+                      )
                     : accessDeniedReason}
                 </p>
                 <p className="mt-2 font-mono text-[11px] opacity-80">
-                  Signed in as: {userAccount?.username ? `@${userAccount.username} · ` : ''}
+                  {tr(language, 'Signed in as:', 'లాగిన్ అయిన ఖాతా:')}{' '}
+                  {userAccount?.username ? `@${userAccount.username} · ` : ''}
                   {firebaseUser?.email || userAccount?.email}
                 </p>
               </div>
@@ -325,7 +370,7 @@ export const LoginPage: React.FC = () => {
               className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-blue-200 text-sm font-semibold text-[#0B1F44] hover:bg-blue-50 transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              Sign Out &amp; Switch Account
+              {tr(language, 'Sign Out & Switch Account', 'సైన్ అవుట్ & ఖాతా మార్చు')}
             </button>
           </div>
         ) : (
@@ -347,7 +392,7 @@ export const LoginPage: React.FC = () => {
                   }`}
                 >
                   <KeyRound className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">MPIN</span>
+                  <span className="truncate">{tr(language, 'MPIN', 'ఎంపిన్')}</span>
                 </button>
                 <button
                   type="button"
@@ -363,7 +408,7 @@ export const LoginPage: React.FC = () => {
                   }`}
                 >
                   <AtSign className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Password</span>
+                  <span className="truncate">{tr(language, 'Password', 'పాస్‌వర్డ్')}</span>
                 </button>
                 <button
                   type="button"
@@ -379,7 +424,7 @@ export const LoginPage: React.FC = () => {
                   }`}
                 >
                   <Lock className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Google</span>
+                  <span className="truncate">{tr(language, 'Google', 'గూగుల్')}</span>
                 </button>
               </div>
             ) : (
@@ -397,7 +442,7 @@ export const LoginPage: React.FC = () => {
                   }`}
                 >
                   <AtSign className="w-3.5 h-3.5" />
-                  Username &amp; Password
+                  {tr(language, 'Username & Password', 'యూజర్ పేరు & పాస్‌వర్డ్')}
                 </button>
                 <button
                   type="button"
@@ -412,7 +457,7 @@ export const LoginPage: React.FC = () => {
                   }`}
                 >
                   <Lock className="w-3.5 h-3.5" />
-                  Google Sign-In
+                  {tr(language, 'Google Sign-In', 'గూగుల్ లాగిన్')}
                 </button>
               </div>
             )}
@@ -427,12 +472,22 @@ export const LoginPage: React.FC = () => {
                 {emailPasswordDisabled && (
                   <div className="rounded-lg bg-white border border-rose-200 p-2.5 space-y-2 text-slate-700">
                     <div className="text-[11px] font-semibold text-[#0B1F44]">
-                      Enable Email/Password Sign-In in Firebase Authentication (One-time setup):
+                      {tr(
+                        language,
+                        'Enable Email/Password Sign-In in Firebase Authentication (One-time setup):',
+                        'ఫైర్‌బేస్‌లో ఇమెయిల్/పాస్‌వర్డ్ లాగిన్‌ను ప్రారంభించండి (ఒక్కసారి మాత్రమే):'
+                      )}
                     </div>
                     <ol className="list-decimal list-inside text-[11px] space-y-0.5 text-slate-600">
-                      <li>Open Firebase Sign-in Providers below</li>
-                      <li>Click &quot;Email/Password&quot; &rarr; Toggle Enable &rarr; Save</li>
-                      <li>Return here and sign in with Username &amp; Password</li>
+                      <li>{tr(language, 'Open Firebase Sign-in Providers below', 'కింద ఫైర్‌బేస్ సైన్-ఇన్ ప్రొవైడర్స్ తెరవండి')}</li>
+                      <li>
+                        {tr(
+                          language,
+                          'Click "Email/Password" → Toggle Enable → Save',
+                          '"Email/Password" నొక్కి ఎనేబుల్ చేసి సేవ్ చేయండి'
+                        )}
+                      </li>
+                      <li>{tr(language, 'Return here and sign in with Username & Password', 'ఇక్కడికి వచ్చి యూజర్ పేరు & పాస్‌వర్డ్‌తో లాగిన్ అవ్వండి')}</li>
                     </ol>
                     <a
                       href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/providers`}
@@ -440,7 +495,7 @@ export const LoginPage: React.FC = () => {
                       rel="noopener noreferrer"
                       className="inline-flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-[11px] font-semibold transition"
                     >
-                      Open Firebase Sign-in Providers
+                      {tr(language, 'Open Firebase Sign-in Providers', 'ఫైర్‌బేస్ సైన్-ఇన్ ప్రొవైడర్స్ తెరవండి')}
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   </div>
@@ -449,7 +504,11 @@ export const LoginPage: React.FC = () => {
                 {unauthorizedDomainHost && (
                   <div className="rounded-lg bg-white border border-rose-200 p-2.5 space-y-2 text-slate-700">
                     <div className="text-[11px] font-semibold text-[#0B1F44]">
-                      Add this Vercel domain in Firebase Authorized Domains:
+                      {tr(
+                        language,
+                        'Add this domain in Firebase Authorized Domains:',
+                        'ఫైర్‌బేస్ అనుమతించబడిన డొమైన్లలో ఈ డొమైన్‌ను జోడించండి:'
+                      )}
                     </div>
                     <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5">
                       <code className="text-[11px] font-mono text-[#0B1F44] truncate">
@@ -463,20 +522,20 @@ export const LoginPage: React.FC = () => {
                         {copiedDomain ? (
                           <>
                             <Check className="w-3 h-3 text-emerald-600" />
-                            Copied
+                            {tr(language, 'Copied', 'కాపీ అయింది')}
                           </>
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            Copy
+                            {tr(language, 'Copy', 'కాపీ')}
                           </>
                         )}
                       </button>
                     </div>
                     <ol className="list-decimal list-inside text-[11px] space-y-0.5 text-slate-600">
-                      <li>Open Firebase Authentication Settings below</li>
-                      <li>Scroll to Authorized domains &amp; click Add domain</li>
-                      <li>Paste the domain above and save, then retry login</li>
+                      <li>{tr(language, 'Open Firebase Authentication Settings below', 'కింద ఫైర్‌బేస్ సెట్టింగ్స్ తెరవండి')}</li>
+                      <li>{tr(language, 'Scroll to Authorized domains & click Add domain', 'అనుమతించబడిన డొమైన్లలో కొత్త డొమైన్ జోడించండి')}</li>
+                      <li>{tr(language, 'Paste the domain above and save, then retry login', 'పై డొమైన్‌ను పేస్ట్ చేసి సేవ్ చేసి, మళ్లీ లాగిన్ ప్రయత్నించండి')}</li>
                     </ol>
                     <a
                       href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/settings`}
@@ -484,7 +543,7 @@ export const LoginPage: React.FC = () => {
                       rel="noopener noreferrer"
                       className="inline-flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-lg bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-[11px] font-semibold transition"
                     >
-                      Open Firebase Authorized Domains
+                      {tr(language, 'Open Firebase Authorized Domains', 'ఫైర్‌బేస్ డొమైన్ సెట్టింగ్స్ తెరవండి')}
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   </div>
@@ -555,17 +614,19 @@ export const LoginPage: React.FC = () => {
                     )}
                   </div>
                   <span className="px-2 py-0.5 rounded-md bg-white border border-blue-200 text-[10px] font-bold uppercase text-[#1D4ED8]">
-                    {activeProfile.role === 'admin' ? 'Admin' : 'Staff'}
+                    {activeProfile.role === 'admin'
+                      ? tr(language, 'Admin', 'అడ్మిన్')
+                      : tr(language, 'Staff', 'సిబ్బంది')}
                   </span>
                 </div>
 
                 <div className="space-y-2">
                   <div className="text-center text-xs font-semibold text-slate-600">
                     {activeProfile.lockedUntilGoogle
-                      ? 'MPIN Locked · Use Password or Google Sign-In'
+                      ? tr(language, 'MPIN Locked · Use Password or Google Sign-In', 'ఎంపిన్ లాక్ అయింది · పాస్‌వర్డ్ లేదా గూగుల్ ద్వారా లాగిన్ అవ్వండి')
                       : verifyingPin
-                      ? 'Verifying 4-Digit MPIN...'
-                      : 'Enter 4-Digit Fast Login MPIN'}
+                      ? tr(language, 'Verifying 4-Digit MPIN...', '4-అంకెల ఎంపిన్ తనిఖీ అవుతోంది...')
+                      : tr(language, 'Enter 4-Digit Fast Login MPIN', '4-అంకెల ఫాస్ట్ లాగిన్ ఎంపిన్ నమోదు చేయండి')}
                   </div>
                   <div className="grid grid-cols-4 gap-3 max-w-[220px] mx-auto">
                     {Array.from({ length: 4 }).map((_, i) => {
@@ -614,7 +675,7 @@ export const LoginPage: React.FC = () => {
                     onClick={handleClear}
                     className="h-12 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-95 border border-slate-200 text-xs font-bold text-slate-600 transition"
                   >
-                    Clear
+                    {tr(language, 'Clear', 'క్లియర్')}
                   </button>
                   <button
                     type="button"
@@ -628,7 +689,7 @@ export const LoginPage: React.FC = () => {
                     type="button"
                     disabled={verifyingPin}
                     onClick={handleBackspace}
-                    aria-label="Backspace"
+                    aria-label={tr(language, 'Backspace', 'తొలగించు')}
                     className="h-12 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-95 border border-slate-200 flex items-center justify-center text-slate-700 transition"
                   >
                     <Delete className="w-4 h-4" />
@@ -642,7 +703,7 @@ export const LoginPage: React.FC = () => {
                     className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0B1F44] font-semibold text-xs transition"
                   >
                     <AtSign className="w-3.5 h-3.5 text-[#1D4ED8]" />
-                    Or Sign in with Username &amp; Password
+                    {tr(language, 'Or Sign in with Username & Password', 'లేదా యూజర్ పేరు & పాస్‌వర్డ్‌తో లాగిన్ అవ్వండి')}
                   </button>
 
                   {isOnline && (
@@ -652,7 +713,9 @@ export const LoginPage: React.FC = () => {
                       disabled={signingIn}
                       className="w-full text-center py-1 text-[11px] font-medium text-[#1D4ED8] hover:underline disabled:opacity-50"
                     >
-                      {signingIn ? 'Verifying Google Session...' : 'Or Sign in with Google'}
+                      {signingIn
+                        ? tr(language, 'Verifying Google Session...', 'గూగుల్ సెషన్ తనిఖీ అవుతోంది...')
+                        : tr(language, 'Or Sign in with Google', 'లేదా గూగుల్‌తో లాగిన్ అవ్వండి')}
                     </button>
                   )}
 
@@ -663,7 +726,7 @@ export const LoginPage: React.FC = () => {
                       className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-[11px] font-medium text-slate-500 hover:text-rose-600 transition"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      Full Sign Out ({userAccount?.email || firebaseUser?.email})
+                      {tr(language, 'Full Sign Out', 'పూర్తిగా సైన్ అవుట్')} ({userAccount?.email || firebaseUser?.email})
                     </button>
                   )}
                 </div>
@@ -673,7 +736,7 @@ export const LoginPage: React.FC = () => {
                 {savedPasswordProfiles.length > 0 && (
                   <div className="space-y-1.5">
                     <div className="text-[11px] font-semibold text-slate-500">
-                      Saved Accounts on This Device
+                      {tr(language, 'Saved Accounts on This Device', 'ఈ పరికరంలో సేవ్ చేసిన ఖాతాలు')}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {savedPasswordProfiles.map((prof) => (
@@ -692,7 +755,9 @@ export const LoginPage: React.FC = () => {
                         >
                           <span className="font-mono text-[#1D4ED8]">@{prof.username}</span>
                           <span className="text-[10px] uppercase text-slate-400">
-                            {prof.role === 'admin' ? 'Owner' : 'Staff'}
+                            {prof.role === 'admin'
+                              ? tr(language, 'Owner', 'యజమాని')
+                              : tr(language, 'Staff', 'సిబ్బంది')}
                           </span>
                         </button>
                       ))}
@@ -703,7 +768,7 @@ export const LoginPage: React.FC = () => {
                 <div className="text-xs space-y-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">
-                      Username or Registered Email *
+                      {tr(language, 'Username or Registered Email *', 'యూజర్ పేరు లేదా నమోదైన ఇమెయిల్ *')}
                     </label>
                     <input
                       type="text"
@@ -714,12 +779,14 @@ export const LoginPage: React.FC = () => {
                         setUsernameOrEmail(e.target.value);
                         setPasswordError(null);
                       }}
-                      placeholder="e.g. pradeep or staff1"
+                      placeholder={tr(language, 'e.g. pradeep or staff1', 'ఉదా. pradeep లేదా staff1')}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8] text-sm font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Password *</label>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      {tr(language, 'Password *', 'పాస్‌వర్డ్ *')}
+                    </label>
                     <div className="relative">
                       <input
                         type={showPassword ? 'text' : 'password'}
@@ -731,13 +798,17 @@ export const LoginPage: React.FC = () => {
                           setPassword(e.target.value);
                           setPasswordError(null);
                         }}
-                        placeholder="Enter password (min 4 characters)"
+                        placeholder={tr(language, 'Enter password (min 4 characters)', 'పాస్‌వర్డ్ నమోదు చేయండి (కనీసం 4 అక్షరాలు)')}
                         className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8] text-sm"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword((v) => !v)}
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        aria-label={
+                          showPassword
+                            ? tr(language, 'Hide password', 'పాస్‌వర్డ్ దాచు')
+                            : tr(language, 'Show password', 'పాస్‌వర్డ్ చూపు')
+                        }
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700"
                       >
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -754,7 +825,7 @@ export const LoginPage: React.FC = () => {
                       onChange={(e) => setRememberMe(e.target.checked)}
                       className="w-4 h-4 rounded border-blue-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
                     />
-                    <span>Remember login</span>
+                    <span>{tr(language, 'Remember login', 'లాగిన్ గుర్తుంచుకో')}</span>
                   </label>
                   <button
                     type="button"
@@ -764,14 +835,18 @@ export const LoginPage: React.FC = () => {
                     }}
                     className="text-[#1D4ED8] font-semibold hover:underline"
                   >
-                    Forgot password?
+                    {tr(language, 'Forgot password?', 'పాస్‌వర్డ్ మర్చిపోయారా?')}
                   </button>
                 </div>
 
                 {passwordResetOpen && (
                   <div className="rounded-xl bg-blue-50/70 border border-blue-100 p-3 space-y-2 text-xs">
                     <p className="text-slate-600">
-                      Send a reset link to your registered Google email, or ask the Business Owner to update your password in User Management.
+                      {tr(
+                        language,
+                        'Send a reset link to your registered Google email, or ask the Business Owner to update your password in User Management.',
+                        'మీ నమోదైన గూగుల్ ఇమెయిల్‌కు రీసెట్ లింక్ పంపండి లేదా వ్యాపార యజమానిని వినియోగదారుల విభాగంలో పాస్‌వర్డ్ మార్చమని అడగండి.'
+                      )}
                     </p>
                     <button
                       type="button"
@@ -779,7 +854,9 @@ export const LoginPage: React.FC = () => {
                       disabled={sendingReset}
                       className="w-full py-2 px-3 rounded-lg bg-[#0B1F44] text-white font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
                     >
-                      {sendingReset ? 'Sending Reset Link...' : 'Send Password Reset Email'}
+                      {sendingReset
+                        ? tr(language, 'Sending Reset Link...', 'రీసెట్ లింక్ పంపుతోంది...')
+                        : tr(language, 'Send Password Reset Email', 'పాస్‌వర్డ్ రీసెట్ ఇమెయిల్ పంపండి')}
                     </button>
                     {resetResult && (
                       <div
@@ -802,7 +879,9 @@ export const LoginPage: React.FC = () => {
                   className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] hover:from-[#13326b] hover:to-[#1E40AF] text-white font-semibold text-sm shadow-md shadow-blue-700/25 active:scale-[0.99] transition disabled:opacity-60"
                 >
                   <KeyRound className="w-4 h-4" />
-                  {signingIn ? 'Signing In...' : 'Sign In with Username & Password'}
+                  {signingIn
+                    ? tr(language, 'Signing In...', 'లాగిన్ అవుతోంది...')
+                    : tr(language, 'Sign In with Username & Password', 'యూజర్ పేరు & పాస్‌వర్డ్‌తో లాగిన్ అవ్వండి')}
                 </button>
 
                 {mpinLocked && (firebaseUser || userAccount) && (
@@ -812,7 +891,7 @@ export const LoginPage: React.FC = () => {
                     className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-600 transition"
                   >
                     <LogOut className="w-3.5 h-3.5" />
-                    Full Sign Out &amp; Switch Account
+                    {tr(language, 'Full Sign Out & Switch Account', 'పూర్తిగా సైన్ అవుట్ & ఖాతా మార్చు')}
                   </button>
                 )}
               </form>
@@ -825,7 +904,7 @@ export const LoginPage: React.FC = () => {
                     onChange={(e) => setRememberMe(e.target.checked)}
                     className="w-4 h-4 rounded border-blue-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
                   />
-                  <span>Keep me signed in on this trusted device</span>
+                  <span>{tr(language, 'Keep me signed in on this trusted device', 'ఈ పరికరంలో నన్ను లాగిన్ చేసి ఉంచండి')}</span>
                 </label>
 
                 <button
@@ -834,7 +913,9 @@ export const LoginPage: React.FC = () => {
                   className="w-full inline-flex items-center justify-center gap-3 py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] hover:from-[#13326b] hover:to-[#1E40AF] text-white font-semibold text-sm shadow-md shadow-blue-700/25 active:scale-[0.99] transition disabled:opacity-60"
                 >
                   <Lock className="w-4 h-4" />
-                  {signingIn ? 'Verifying Google Session...' : 'Sign in with Google'}
+                  {signingIn
+                    ? tr(language, 'Verifying Google Session...', 'గూగుల్ సెషన్ తనిఖీ అవుతోంది...')
+                    : tr(language, 'Sign in with Google', 'గూగుల్‌తో లాగిన్ అవ్వండి')}
                 </button>
 
                 <button
@@ -843,7 +924,7 @@ export const LoginPage: React.FC = () => {
                   disabled={signingIn}
                   className="w-full text-center py-1 text-xs font-medium text-[#1D4ED8] hover:underline disabled:opacity-50"
                 >
-                  Popup blocked? Sign in via Redirect
+                  {tr(language, 'Popup blocked? Sign in via Redirect', 'పాప్అప్ బ్లాక్ అయితే రీడైరెక్ట్ ద్వారా లాగిన్ అవ్వండి')}
                 </button>
 
                 {mpinLocked && (firebaseUser || userAccount) && (
@@ -853,7 +934,7 @@ export const LoginPage: React.FC = () => {
                     className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-600 transition"
                   >
                     <LogOut className="w-3.5 h-3.5" />
-                    Full Sign Out &amp; Switch Google Account
+                    {tr(language, 'Full Sign Out & Switch Google Account', 'పూర్తిగా సైన్ అవుట్ & గూగుల్ ఖాతా మార్చు')}
                   </button>
                 )}
               </div>
@@ -862,11 +943,11 @@ export const LoginPage: React.FC = () => {
             <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-3 text-xs text-slate-500">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-[#1D4ED8] shrink-0" />
-                <span>Cloud RBAC Protected</span>
+                <span>{tr(language, 'Cloud RBAC Protected', 'క్లౌడ్ భద్రత రక్షితం')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Smartphone className="w-4 h-4 text-[#1D4ED8] shrink-0" />
-                <span>Works Online &amp; Offline</span>
+                <span>{tr(language, 'Works Online & Offline', 'ఆన్‌లైన్ & ఆఫ్‌లైన్ పనిచేస్తుంది')}</span>
               </div>
             </div>
           </div>
@@ -874,7 +955,7 @@ export const LoginPage: React.FC = () => {
       </motion.div>
 
       <footer className="relative z-10 text-center text-xs text-slate-500 pb-2">
-        © {new Date().getFullYear()} Sri Lakshmi Penchil Narasimha Swamy Cement Work. All Rights Reserved.
+        {getCopyrightNoticeLocalized(undefined, language)}
       </footer>
     </div>
   );

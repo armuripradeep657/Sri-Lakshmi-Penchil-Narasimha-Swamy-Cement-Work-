@@ -5,6 +5,15 @@ import { Camera, RefreshCw, Search, ShieldAlert, X, CheckCircle2, QrCode, Barcod
 import { Bill, Product } from '../types/billing';
 import { formatTimestamp } from '../lib/firebase';
 import { deriveMixedVerificationCode, getBillVerificationBarcode } from '../lib/barcodeAndBillImage';
+import { useAuth } from '../context/AuthContext';
+import {
+  formatAppDate,
+  tr,
+  translateCustomerName,
+  translateProductName,
+  translateStatus,
+} from '../lib/i18n';
+import { Language } from '../types/billing';
 
 export interface ScanClassification {
   rawText: string;
@@ -25,13 +34,22 @@ interface ScannerModalProps {
   title?: string;
 }
 
-export function classifyScannedPayload(rawText: string, products: Product[], bills: Bill[] = []): ScanClassification {
+export function classifyScannedPayload(
+  rawText: string,
+  products: Product[],
+  bills: Bill[] = [],
+  language: Language = 'en'
+): ScanClassification {
   const trimmed = rawText.trim();
   if (!trimmed) {
     return {
       rawText: trimmed,
       kind: 'unsupported',
-      reason: 'Empty scan payload received. Point the camera clearly at a barcode or UPI QR code.',
+      reason: tr(
+        language,
+        'Empty scan payload received. Point the camera clearly at a barcode or UPI QR code.',
+        'ఖాళీ స్కాన్ అందింది. దయచేసి బార్‌కోడ్ లేదా యూపీఐ క్యూఆర్ కోడ్ వైపు కెమెరాను స్పష్టంగా చూపించండి.'
+      ),
     };
   }
 
@@ -48,8 +66,12 @@ export function classifyScannedPayload(rawText: string, products: Product[], bil
       kind: 'upi',
       upiDetails: { pa, pn, am, tn },
       reason: pa
-        ? `Detected valid UPI payment QR for ${pn || 'Payee'} (${pa}). Note: Scanning a UPI QR only reads payee details and does NOT verify completed payment.`
-        : 'Detected UPI URI missing payee VPA (pa).',
+        ? tr(
+            language,
+            `Detected valid UPI payment QR for ${pn || 'Payee'} (${pa}). Note: Scanning a UPI QR only reads payee details and does NOT verify completed payment.`,
+            `${pn || 'చెల్లింపుదారు'} (${pa}) కోసం సరైన యూపీఐ చెల్లింపు క్యూఆర్ గుర్తించబడింది. గమనిక: క్యూఆర్ స్కాన్ ద్వారా కేవలం ఖాతా వివరాలు మాత్రమే వస్తాయి, చెల్లింపు నిర్ధారణ కాదు.`
+          )
+        : tr(language, 'Detected UPI URI missing payee VPA (pa).', 'యూపీఐ క్యూఆర్‌లో మర్చంట్ ఐడి లేదు.'),
     };
   }
 
@@ -67,15 +89,19 @@ export function classifyScannedPayload(rawText: string, products: Product[], bil
     const verifyCode = getBillVerificationBarcode(matchedBill);
     const statusText =
       matchedBill.billStatus !== 'active'
-        ? matchedBill.billStatus.toUpperCase()
+        ? translateStatus(matchedBill.billStatus, language)
         : matchedBill.pendingBalance <= 0
-        ? 'AMOUNT PAID'
-        : `DUE ₹${matchedBill.pendingBalance.toFixed(2)}`;
+        ? tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')
+        : `${tr(language, 'DUE', 'బాకీ')} ₹${matchedBill.pendingBalance.toFixed(2)}`;
     return {
       rawText: trimmed,
       kind: 'bill_barcode',
       matchedBill,
-      reason: `Verified authentic bill ${matchedBill.billNumber} (Code ${verifyCode}) for ${matchedBill.customerName} (${statusText}).`,
+      reason: tr(
+        language,
+        `Verified authentic bill ${matchedBill.billNumber} (Code ${verifyCode}) for ${matchedBill.customerName} (${statusText}).`,
+        `${translateCustomerName(matchedBill.customerName, 'te')} కోసం అసలు బిల్ ${matchedBill.billNumber} (కోడ్ ${verifyCode}) నిర్ధారించబడింది (${statusText}).`
+      ),
     };
   }
 
@@ -89,11 +115,16 @@ export function classifyScannedPayload(rawText: string, products: Product[], bil
   );
 
   if (matched) {
+    const dispProd = translateProductName(matched, language);
     return {
       rawText: trimmed,
       kind: 'product_barcode',
       matchedProduct: matched,
-      reason: `Matched product "${matched.name}" (${matched.productCode}) in catalog.`,
+      reason: tr(
+        language,
+        `Matched product "${matched.name}" (${matched.productCode}) in catalog.`,
+        `కేటలాగ్‌లో "${dispProd}" (${matched.productCode}) ఉత్పత్తి గుర్తించబడింది.`
+      ),
     };
   }
 
@@ -103,8 +134,16 @@ export function classifyScannedPayload(rawText: string, products: Product[], bil
     rawText: trimmed,
     kind: 'unsupported',
     reason: looksLikeBarcode
-      ? `Scanned code "${trimmed}" did not match any product barcode or bill number in the cloud database.`
-      : `Unsupported QR content detected ("${trimmed.slice(0, 80)}"). Only product barcodes, bill barcodes, and UPI payment URIs are supported.`,
+      ? tr(
+          language,
+          `Scanned code "${trimmed}" did not match any product barcode or bill number in the cloud database.`,
+          `స్కాన్ చేసిన కోడ్ "${trimmed}" ఏ ఉత్పత్తి బార్‌కోడ్ లేదా బిల్ నంబర్‌తోనూ సరిపోలలేదు.`
+        )
+      : tr(
+          language,
+          `Unsupported QR content detected ("${trimmed.slice(0, 80)}"). Only product barcodes, bill barcodes, and UPI payment URIs are supported.`,
+          `మద్దతు లేని క్యూఆర్ వివరాలు ("${trimmed.slice(0, 80)}"). కేవలం ఉత్పత్తి బార్‌కోడ్‌లు, బిల్ బార్‌కోడ్‌లు మరియు యూపీఐ క్యూఆర్‌లకు మాత్రమే మద్దతు ఉంది.`
+        ),
   };
 }
 
@@ -126,16 +165,20 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
   onProductFound,
   onBillFound,
   onClose,
-  title = 'QR & Barcode Scanner',
+  title,
   embedded = false,
 }) => {
+  const { language } = useAuth();
+  const resolvedTitle = title || tr(language, 'QR & Barcode Scanner', 'క్యూఆర్ & బార్‌కోడ్ స్కానర్');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const productsRef = useRef<Product[]>(products);
   const billsRef = useRef<Bill[]>(bills);
+  const languageRef = useRef<Language>(language);
   productsRef.current = products;
   billsRef.current = bills;
+  languageRef.current = language;
 
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -196,7 +239,13 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
     async function startCamera() {
       setCameraError(null);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setCameraError('Camera access is not available in this browser context. Use Manual Entry below.');
+        setCameraError(
+          tr(
+            languageRef.current,
+            'Camera access is not available in this browser context. Use Manual Entry below.',
+            'ఈ బ్రౌజర్‌లో కెమెరా అందుబాటులో లేదు. కింద మాన్యువల్ నమోదు ఉపయోగించండి.'
+          )
+        );
         return;
       }
 
@@ -253,7 +302,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                 const qr = jsQR(imgData.data, canvas.width, canvas.height);
                 if (qr?.data && !cancelled) {
                   setClassification(
-                    classifyScannedPayload(qr.data, productsRef.current, billsRef.current)
+                    classifyScannedPayload(qr.data, productsRef.current, billsRef.current, languageRef.current)
                   );
                 }
               } catch {
@@ -267,7 +316,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                   const text = zxingResult?.getText();
                   if (text && !cancelled) {
                     setClassification(
-                      classifyScannedPayload(text, productsRef.current, billsRef.current)
+                      classifyScannedPayload(text, productsRef.current, billsRef.current, languageRef.current)
                     );
                   }
                 } catch {
@@ -280,9 +329,13 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
         };
         rafId = requestAnimationFrame(scanFrame);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unable to open camera';
+        const msg = err instanceof Error ? err.message : tr(languageRef.current, 'Unable to open camera', 'కెమెరా తెరవడం సాధ్యం కాలేదు');
         setCameraError(
-          `Camera permission denied or hardware unavailable (${msg}). Enter a verification barcode (e.g. 8K4M92X7P3Q1), bill #, product barcode, or UPI URI manually below.`
+          tr(
+            languageRef.current,
+            `Camera permission denied or hardware unavailable (${msg}). Enter a verification barcode (e.g. 8K4M92X7P3Q1), bill #, product barcode, or UPI URI manually below.`,
+            `కెమెరా అనుమతి నిరాకరించబడింది లేదా అందుబాటులో లేదు (${msg}). ధృవీకరణ బార్‌కోడ్, బిల్ నంబర్, ఉత్పత్తి బార్‌కోడ్ లేదా యూపీఐ వివరాలు కింద మాన్యువల్‌గా నమోదు చేయండి.`
+          )
         );
       }
     }
@@ -298,7 +351,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const handleManualLookup = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = classifyScannedPayload(manualInput, products, bills);
+    const res = classifyScannedPayload(manualInput, products, bills, language);
     setClassification(res);
   };
 
@@ -320,7 +373,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
       <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
         <div className="flex items-center gap-2.5">
           <Camera className="w-5 h-5 text-[#1D4ED8]" />
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+          <h3 className="text-base font-semibold text-slate-900">{resolvedTitle}</h3>
         </div>
         <div className="flex items-center gap-2">
           {cameras.length > 1 && (
@@ -330,7 +383,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              Switch
+              {tr(language, 'Switch', 'కెమెరా మార్చు')}
             </button>
           )}
           {onClose && (
@@ -367,7 +420,11 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
               type="text"
               value={manualInput}
               onChange={(e) => setManualInput(e.target.value)}
-              placeholder="Enter verification barcode, bill #, product code, or upi://pay?..."
+              placeholder={tr(
+                language,
+                'Enter verification barcode, bill #, product code, or upi://pay?...',
+                'ధృవీకరణ బార్‌కోడ్, బిల్ నంబర్, ఉత్పత్తి కోడ్ లేదా యూపీఐ లింక్ నమోదు చేయండి'
+              )}
               className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
@@ -375,7 +432,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
             type="submit"
             className="px-4 py-2.5 rounded-xl bg-[#0B1F44] text-white text-sm font-medium hover:bg-[#13326b] whitespace-nowrap"
           >
-            Verify
+            {tr(language, 'Verify', 'తనిఖీ చేయి')}
           </button>
         </form>
 
@@ -386,25 +443,31 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                 {classification.kind === 'bill_barcode' && (
                   <>
                     <ReceiptText className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700">BILL VERIFIED</span>
+                    <span className="text-emerald-700">{tr(language, 'BILL VERIFIED', 'బిల్ నిర్ధారించబడింది')}</span>
                   </>
                 )}
                 {classification.kind === 'product_barcode' && (
                   <>
                     <Barcode className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700">Product Barcode Matched</span>
+                    <span className="text-emerald-700">
+                      {tr(language, 'Product Barcode Matched', 'ఉత్పత్తి బార్‌కోడ్ సరిపోయింది')}
+                    </span>
                   </>
                 )}
                 {classification.kind === 'upi' && (
                   <>
                     <QrCode className="w-4 h-4 text-sky-600" />
-                    <span className="text-sky-700">UPI Payment QR Detected</span>
+                    <span className="text-sky-700">
+                      {tr(language, 'UPI Payment QR Detected', 'యూపీఐ చెల్లింపు క్యూఆర్ గుర్తించబడింది')}
+                    </span>
                   </>
                 )}
                 {classification.kind === 'unsupported' && (
                   <>
                     <ShieldAlert className="w-4 h-4 text-amber-600" />
-                    <span className="text-amber-700">Unmatched / Unsupported Content</span>
+                    <span className="text-amber-700">
+                      {tr(language, 'Unmatched / Unsupported Content', 'సరిపోలని / మద్దతు లేని వివరాలు')}
+                    </span>
                   </>
                 )}
               </div>
@@ -423,11 +486,12 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                       {classification.matchedBill.billNumber}
                     </div>
                     <div className="text-[11px] font-mono text-emerald-700">
-                      Verify Code: {getBillVerificationBarcode(classification.matchedBill)}
+                      {tr(language, 'Verify Code:', 'ధృవీకరణ కోడ్:')}{' '}
+                      {getBillVerificationBarcode(classification.matchedBill)}
                     </div>
                     <div className="text-slate-500">
-                      {classification.matchedBill.customerName} ·{' '}
-                      {formatTimestamp(classification.matchedBill.createdAt).toLocaleDateString('en-IN')}
+                      {translateCustomerName(classification.matchedBill.customerName, language)} ·{' '}
+                      {formatAppDate(formatTimestamp(classification.matchedBill.createdAt), language)}
                     </div>
                   </div>
                   <span
@@ -440,23 +504,23 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                   >
                     {classification.matchedBill.pendingBalance <= 0 &&
                     classification.matchedBill.billStatus === 'active'
-                      ? 'AMOUNT PAID'
-                      : `DUE ₹${classification.matchedBill.pendingBalance.toFixed(2)}`}
+                      ? tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')
+                      : `${tr(language, 'DUE', 'బాకీ')} ₹${classification.matchedBill.pendingBalance.toFixed(2)}`}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 font-mono">
                   <div>
-                    <span className="text-slate-400 block text-[10px]">TOTAL</span>
+                    <span className="text-slate-400 block text-[10px]">{tr(language, 'TOTAL', 'మొత్తం')}</span>
                     <span className="font-bold">₹{classification.matchedBill.grandTotal.toFixed(2)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">PAID</span>
+                    <span className="text-slate-400 block text-[10px]">{tr(language, 'PAID', 'చెల్లించినది')}</span>
                     <span className="font-bold text-emerald-600">
                       ₹{classification.matchedBill.amountPaid.toFixed(2)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">BALANCE</span>
+                    <span className="text-slate-400 block text-[10px]">{tr(language, 'BALANCE', 'బాకీ')}</span>
                     <span className="font-bold text-amber-600">
                       ₹{classification.matchedBill.pendingBalance.toFixed(2)}
                     </span>
@@ -472,7 +536,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                     className="w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Open Bill &amp; Share Receipt
+                    {tr(language, 'Open Bill & Share Receipt', 'బిల్ తెరవండి & రసీదు షేర్ చేయండి')}
                   </button>
                 )}
               </div>
@@ -481,15 +545,15 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
             {classification.kind === 'upi' && classification.upiDetails && (
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs">
                 <div>
-                  <span className="text-slate-500">UPI ID:</span>{' '}
+                  <span className="text-slate-500">{tr(language, 'UPI ID:', 'యూపీఐ ఐడి:')}</span>{' '}
                   <span className="font-mono font-medium text-slate-900">
-                    {classification.upiDetails.pa || 'N/A'}
+                    {classification.upiDetails.pa || tr(language, 'N/A', 'లేదు')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Payee Name:</span>{' '}
+                  <span className="text-slate-500">{tr(language, 'Payee Name:', 'చెల్లింపుదారు పేరు:')}</span>{' '}
                   <span className="font-medium text-slate-900">
-                    {classification.upiDetails.pn || 'N/A'}
+                    {classification.upiDetails.pn || tr(language, 'N/A', 'లేదు')}
                   </span>
                 </div>
               </div>
@@ -499,11 +563,11 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
               <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">
-                    {classification.matchedProduct.name}
+                    {translateProductName(classification.matchedProduct, language)}
                   </p>
                   <p className="text-xs text-slate-500">
-                    ₹{classification.matchedProduct.sellingPrice.toFixed(2)} · Stock:{' '}
-                    {classification.matchedProduct.stock}
+                    ₹{classification.matchedProduct.sellingPrice.toFixed(2)} ·{' '}
+                    {tr(language, 'Stock:', 'స్టాక్:')} {classification.matchedProduct.stock}
                   </p>
                 </div>
                 {onProductFound && (
@@ -516,7 +580,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Use Product
+                    {tr(language, 'Use Product', 'ఉత్పత్తిని జోడించు')}
                   </button>
                 )}
               </div>
@@ -535,7 +599,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   bills = [],
   onProductFound,
   onBillFound,
-  title = 'QR & Barcode Scanner',
+  title,
 }) => {
   if (!open) return null;
 

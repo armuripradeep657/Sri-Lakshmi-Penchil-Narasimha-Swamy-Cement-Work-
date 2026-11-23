@@ -3,12 +3,15 @@ import { ScanBarcode, ShieldCheck } from 'lucide-react';
 import { ScannerPanel } from '../components/ScannerModal';
 import { PostBillActionsModal } from '../components/InvoiceViews';
 import { useBillingData } from '../context/BillingDataContext';
+import { useAuth } from '../context/AuthContext';
 import { Bill } from '../types/billing';
+import { tr } from '../lib/i18n';
 
 export const VerifyScannerPage: React.FC<{
   onQuickAddProduct?: (productId: string) => void;
 }> = ({ onQuickAddProduct }) => {
   const { products, bills, billItems } = useBillingData();
+  const { language } = useAuth();
   const [verifiedBill, setVerifiedBill] = useState<Bill | null>(null);
 
   return (
@@ -19,15 +22,19 @@ export const VerifyScannerPage: React.FC<{
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm sm:text-base font-bold text-[#0B1F44] flex items-center gap-2">
-            Bill &amp; Barcode Verification Scanner
+            {tr(language, 'Bill & Barcode Verification Scanner', 'బిల్ & బార్‌కోడ్ ధృవీకరణ స్కానర్')}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-            Scan a printed or WhatsApp bill Code 128 barcode, or type the unique verification code / bill number below to confirm bill authenticity, paid amount, and due balance.
+            {tr(
+              language,
+              'Scan a printed or WhatsApp bill Code 128 barcode, or type the unique verification code / bill number below to confirm bill authenticity, paid amount, and due balance.',
+              'బిల్ అసలైనదా కాదా, చెల్లించిన మొత్తం మరియు బాకీ వివరాలను నిర్ధారించుకోవడానికి ప్రింటెడ్ లేదా వాట్సాప్ బిల్ కోడ్ 128 బార్‌కోడ్‌ను స్కాన్ చేయండి లేదా ధృవీకరణ కోడ్ / బిల్ నంబర్‌ను కింద నమోదు చేయండి.'
+            )}
           </p>
         </div>
         <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold shrink-0">
           <ShieldCheck className="w-3.5 h-3.5" />
-          Live Cloud Check
+          {tr(language, 'Live Cloud Check', 'లైవ్ క్లౌడ్ తనిఖీ')}
         </span>
       </div>
 
@@ -36,7 +43,7 @@ export const VerifyScannerPage: React.FC<{
         active
         products={products}
         bills={bills}
-        title="Verify Bill Barcode / Product Code"
+        title={tr(language, 'Verify Bill Barcode / Product Code', 'బిల్ బార్‌కోడ్ / ఉత్పత్తి కోడ్ తనిఖీ')}
         onBillFound={(b) => setVerifiedBill(b)}
         onProductFound={(p) => {
           onQuickAddProduct?.(p.id);

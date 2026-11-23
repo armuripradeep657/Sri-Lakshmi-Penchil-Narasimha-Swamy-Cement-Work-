@@ -18,6 +18,15 @@ import { parseVariants } from '../lib/seedData';
 import { formatCurrency } from '../lib/upiAndExport';
 import { generateSafeId } from '../lib/firebase';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
+import {
+  tr,
+  translateCartProductName,
+  translateCategory,
+  translateGstType,
+  translateProductName,
+  translateUnit,
+  translateVariantLabel,
+} from '../lib/i18n';
 import { Bill, BillItem, GstType, PaymentMethod, Product } from '../types/billing';
 import { PostBillActionsModal } from '../components/InvoiceViews';
 import { AnimatedNumber } from '../components/MotionPrimitives';
@@ -47,7 +56,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   onAddToCart,
   viewCartNonce,
 }) => {
-  const { business, products, customers, createBillAtomic, saveCustomer, billItems } = useBillingData();
+  const { business, categories, products, customers, createBillAtomic, saveCustomer, billItems } = useBillingData();
   const { language } = useAuth();
 
   const [search, setSearch] = useState('');
@@ -58,9 +67,19 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const cart = externalCart ?? localCart;
   const setCart = externalSetCart ?? setLocalCart;
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [customerName, setCustomerName] = useState('Walk-in Customer');
+  const [customerName, setCustomerName] = useState(() =>
+    language === 'te' ? 'సాధారణ కస్టమర్' : 'Walk-in Customer'
+  );
   const [customerMobile, setCustomerMobile] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+
+  useEffect(() => {
+    setCustomerName((prev) => {
+      if (language === 'te' && prev === 'Walk-in Customer') return 'సాధారణ కస్టమర్';
+      if (language === 'en' && prev === 'సాధారణ కస్టమర్') return 'Walk-in Customer';
+      return prev;
+    });
+  }, [language]);
 
   const [overallDiscount, setOverallDiscount] = useState(0);
   const [gstType, setGstType] = useState<GstType>(business?.taxEnabled ? 'CGST_SGST' : 'NONE');
@@ -75,7 +94,6 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const [savedBill, setSavedBill] = useState<Bill | null>(null);
   const [quickCustModal, setQuickCustModal] = useState(false);
 
-  // Size-press animation state
   const [pressedChip, setPressedChip] = useState<{ key: string; productId: string; nonce: number } | null>(null);
   const cartPanelRef = useRef<HTMLDivElement | null>(null);
   const chipTimerRef = useRef<number | null>(null);
@@ -129,7 +147,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
         {
           productId: product.id,
           productCode: product.productCode,
-          productName: language === 'te' && product.nameTe ? `${product.name} (${product.nameTe})` : product.name,
+          productName: translateProductName(product, language),
           variantLabel,
           barcode: product.barcode,
           imageUrl: product.imageUrl || '',
@@ -214,7 +232,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const handleSelectCustomer = (custId: string) => {
     setSelectedCustomerId(custId);
     if (!custId) {
-      setCustomerName('Walk-in Customer');
+      setCustomerName(language === 'te' ? 'సాధారణ కస్టమర్' : 'Walk-in Customer');
       setCustomerMobile('');
       setCustomerAddress('');
       return;
@@ -230,20 +248,22 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const handleSaveBill = async () => {
     setError(null);
     if (cart.length === 0) {
-      setError('Add at least one product to the bill.');
+      setError(tr(language, 'Add at least one product to the bill.', 'బిల్‌లో కనీసం ఒక ఉత్పత్తిని జోడించండి.'));
       return;
     }
     if (!customerName.trim()) {
-      setError('Customer name is required.');
+      setError(tr(language, 'Customer name is required.', 'కస్టమర్ పేరు తప్పనిసరి.'));
       return;
     }
 
     setSaving(true);
     try {
+      const normalizedCustName =
+        customerName.trim() === 'సాధారణ కస్టమర్' ? 'Walk-in Customer' : customerName.trim();
       const created = await createBillAtomic({
         idempotencyKey,
         customerId: selectedCustomerId || undefined,
-        customerName: customerName.trim(),
+        customerName: normalizedCustName,
         customerMobile: customerMobile.trim(),
         customerAddress: customerAddress.trim(),
         items: cart,
@@ -263,7 +283,11 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
       setIdempotencyKey(generateSafeId('idem'));
       setMobilePane('products');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save bill to cloud.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr(language, 'Failed to save bill to cloud.', 'క్లౌడ్‌లో బిల్ సేవ్ చేయడం విఫలమైంది.')
+      );
     } finally {
       setSaving(false);
     }
@@ -279,17 +303,24 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 
   return (
     <div className="space-y-4 animate-slp-in pb-24 lg:pb-0">
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Left: Product Catalog Selector */}
-        <div className={`lg:col-span-7 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3.5 shadow-sm shadow-blue-900/5 ${mobilePane === 'cart' ? 'hidden lg:block' : 'block'}`}>
+        <div
+          className={`lg:col-span-7 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3.5 shadow-sm shadow-blue-900/5 ${
+            mobilePane === 'cart' ? 'hidden lg:block' : 'block'
+          }`}
+        >
           <div className="relative">
             <Search className="w-4 h-4 text-[#1D4ED8] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products in English, తెలుగు, code, or barcode..."
+              placeholder={tr(
+                language,
+                'Search products in English, తెలుగు, code, or barcode...',
+                'ఉత్పత్తి పేరు, కోడ్ లేదా బార్‌కోడ్‌తో వెతకండి...'
+              )}
               className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/40 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
@@ -297,6 +328,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
             {categoriesList.map((cat) => {
               const active = selectedCategory === cat;
+              const catLabel = translateCategory(cat, categories, language);
               return (
                 <motion.button
                   key={cat}
@@ -315,7 +347,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                       className="absolute inset-0 rounded-xl bg-[#1D4ED8] shadow-sm shadow-blue-600/20"
                     />
                   )}
-                  <span className="relative z-10">{cat}</span>
+                  <span className="relative z-10">{catLabel}</span>
                 </motion.button>
               );
             })}
@@ -326,6 +358,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               const variants = parseVariants(product.variantsSummary);
               const thumbSrc = resolveProductImage(product);
               const isCardPressed = pressedChip?.productId === product.id;
+              const displayName = translateProductName(product, language);
+              const displayUnit = translateUnit(product.unit, language);
 
               return (
                 <motion.div
@@ -341,7 +375,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   <div className="flex items-start gap-3">
                     <img
                       src={thumbSrc}
-                      alt={product.name}
+                      alt={displayName}
                       referrerPolicy="no-referrer"
                       onError={(e) => {
                         const fallback = getDefaultProductImage(product.name, product.category);
@@ -353,9 +387,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="text-sm font-semibold text-[#0B1F44] dark:text-white leading-snug truncate">
-                            {product.name}
+                            {displayName}
                           </h3>
-                          {product.nameTe && (
+                          {language === 'en' && product.nameTe && (
                             <div className="text-xs text-[#1D4ED8] dark:text-sky-400 font-medium mt-0.5 truncate">
                               {product.nameTe}
                             </div>
@@ -368,8 +402,12 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                       <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
                         <span className="font-mono">{product.productCode}</span>
                         <span>·</span>
-                        <span className={product.stock <= (product.lowStockThreshold ?? 10) ? 'text-rose-600 font-semibold' : ''}>
-                          Stock: {product.stock} {product.unit}
+                        <span
+                          className={
+                            product.stock <= (product.lowStockThreshold ?? 10) ? 'text-rose-600 font-semibold' : ''
+                          }
+                        >
+                          {tr(language, 'Stock:', 'స్టాక్:')} {product.stock} {displayUnit}
                         </span>
                       </div>
                     </div>
@@ -383,6 +421,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                         const inCartQty =
                           cart.find((c) => c.productId === product.id && (c.variantLabel || '') === v.label)
                             ?.quantity || 0;
+                        const variantText = translateVariantLabel(v.label, language);
 
                         return (
                           <motion.button
@@ -417,11 +456,11 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                                   transition={{ duration: 0.48, ease: [0.16, 1, 0.3, 1] }}
                                   className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#0B1F44] text-white text-[10px] font-bold whitespace-nowrap shadow-md z-10"
                                 >
-                                  +1 Added
+                                  {tr(language, '+1 Added', '+1 జోడించబడింది')}
                                 </motion.span>
                               )}
                             </AnimatePresence>
-                            <span>{v.label}:</span>
+                            <span>{variantText}:</span>
                             <span className="font-mono font-bold">₹{v.price}</span>
                             {inCartQty > 0 && (
                               <motion.span
@@ -430,9 +469,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                                 animate={{ scale: 1 }}
                                 transition={{ type: 'spring', stiffness: 600, damping: 18 }}
                                 className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
-                                  isPressed
-                                    ? 'bg-white text-[#1D4ED8]'
-                                    : 'bg-[#1D4ED8] text-white'
+                                  isPressed ? 'bg-white text-[#1D4ED8]' : 'bg-[#1D4ED8] text-white'
                                 }`}
                               >
                                 ×{inCartQty}
@@ -461,7 +498,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                               : 'bg-[#0B1F44] hover:bg-[#1D4ED8] text-white'
                           }`}
                         >
-                          <span>+ Add to Bill</span>
+                          <span>{tr(language, '+ Add to Bill', '+ బిల్‌లో చేర్చండి')}</span>
                           {inCartQty > 0 && (
                             <motion.span
                               key={inCartQty}
@@ -483,7 +520,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 
           <div className="hidden lg:flex items-center justify-between pt-3 border-t border-blue-100">
             <div className="text-xs text-[#0B1F44] font-medium">
-              <span className="font-bold">{totalUnitsInCart}</span> items selected ·{' '}
+              <span className="font-bold">{totalUnitsInCart}</span>{' '}
+              {tr(language, 'items selected', 'వస్తువులు ఎంచుకోబడ్డాయి')} ·{' '}
               <span className="font-mono font-bold text-[#1D4ED8]">{formatCurrency(totals.grandTotal)}</span>
             </div>
             <button
@@ -492,7 +530,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] text-white text-xs font-bold shadow-sm hover:opacity-95 transition"
             >
               <ReceiptText className="w-3.5 h-3.5" />
-              <span>View Bill →</span>
+              <span>{tr(language, 'View Bill →', 'బిల్ చూడండి →')}</span>
             </button>
           </div>
         </div>
@@ -500,7 +538,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
         {/* Right: Customer, Cart & Payment */}
         <div
           ref={cartPanelRef}
-          className={`lg:col-span-5 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm shadow-blue-900/5 ${mobilePane === 'products' ? 'hidden lg:block' : 'block'}`}
+          className={`lg:col-span-5 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm shadow-blue-900/5 ${
+            mobilePane === 'products' ? 'hidden lg:block' : 'block'
+          }`}
         >
           {/* Back to Product Selection (Mobile) */}
           <div className="lg:hidden flex items-center justify-between pb-3 border-b border-blue-100">
@@ -510,23 +550,25 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-[#0B1F44] text-xs font-bold hover:bg-blue-100 transition"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              Select Products
+              {tr(language, 'Select Products', 'ఉత్పత్తులు ఎంచుకోండి')}
             </button>
             <span className="text-xs font-mono font-bold text-[#1D4ED8]">
-              {totalUnitsInCart} items · {formatCurrency(totals.grandTotal)}
+              {totalUnitsInCart} {tr(language, 'items', 'వస్తువులు')} · {formatCurrency(totals.grandTotal)}
             </span>
           </div>
 
           {/* Customer Selection */}
           <div className="space-y-2.5 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">Customer</label>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                {tr(language, 'Customer', 'కస్టమర్')}
+              </label>
               <button
                 type="button"
                 onClick={() => setQuickCustModal(true)}
                 className="inline-flex items-center gap-1 text-xs font-medium text-[#1D4ED8] dark:text-sky-400 hover:underline"
               >
-                <UserPlus className="w-3.5 h-3.5" /> Save New Customer
+                <UserPlus className="w-3.5 h-3.5" /> {tr(language, 'Save New Customer', 'కొత్త కస్టమర్‌ను సేవ్ చేయండి')}
               </button>
             </div>
             <select
@@ -534,7 +576,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               onChange={(e) => handleSelectCustomer(e.target.value)}
               className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
             >
-              <option value="">Walk-in / Custom Customer</option>
+              <option value="">{tr(language, 'Walk-in / Custom Customer', 'సాధారణ / కొత్త కస్టమర్')}</option>
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name} {c.mobile ? `(${c.mobile})` : ''}
@@ -546,14 +588,14 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 type="text"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Customer Name *"
+                placeholder={tr(language, 'Customer Name *', 'కస్టమర్ పేరు *')}
                 className="px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
               />
               <input
                 type="tel"
                 value={customerMobile}
                 onChange={(e) => setCustomerMobile(e.target.value)}
-                placeholder="WhatsApp / Mobile"
+                placeholder={tr(language, 'WhatsApp / Mobile', 'వాట్సాప్ / మొబైల్')}
                 className="px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
               />
             </div>
@@ -561,7 +603,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               type="text"
               value={customerAddress}
               onChange={(e) => setCustomerAddress(e.target.value)}
-              placeholder="Delivery Address / Site (Optional)"
+              placeholder={tr(language, 'Delivery Address / Site (Optional)', 'డెలివరీ చిరునామా / సైట్ (ఐచ్ఛికం)')}
               className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
             />
           </div>
@@ -570,13 +612,24 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           <div className="space-y-2.5 max-h-72 overflow-y-auto">
             {cart.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                Select products or size variants to build a bill.
+                {tr(
+                  language,
+                  'Select products or size variants to build a bill.',
+                  'బిల్ తయారు చేయడానికి ఉత్పత్తులు లేదా సైజులను ఎంచుకోండి.'
+                )}
               </div>
             ) : (
               <AnimatePresence initial={false}>
                 {cart.map((item, idx) => {
                   const matchedProd = products.find((p) => p.id === item.productId);
                   const imgSrc = item.imageUrl || resolveProductImage(matchedProd, item.productName);
+                  const cartItemTitle = translateCartProductName(
+                    item.productName,
+                    item.productId,
+                    products,
+                    language
+                  );
+                  const cartVariantText = translateVariantLabel(item.variantLabel, language);
                   return (
                     <motion.div
                       key={`${item.productId}-${item.variantLabel || 'BASE'}`}
@@ -587,84 +640,96 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                       transition={{ duration: 0.2 }}
                       className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2"
                     >
-                    <div className="flex items-start justify-between gap-2.5">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <img
-                          src={imgSrc}
-                          alt={item.productName}
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            const fallback = getDefaultProductImage(item.productName);
-                            if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
-                          }}
-                          className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                            {item.productName} {item.variantLabel ? `(${item.variantLabel})` : ''}
-                          </div>
-                          <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono text-slate-600">
-                            <span>Rate ₹</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              aria-label={`Price for ${item.productName}`}
-                              value={item.unitPrice}
-                              onChange={(e) =>
-                                updateCartItem(idx, {
-                                  unitPrice: Math.max(0, Number(e.target.value) || 0),
-                                })
-                              }
-                              className="w-20 px-1.5 py-0.5 font-mono text-xs font-semibold rounded-md border border-blue-200 bg-white text-[#0B1F44] focus:outline-none focus:ring-1 focus:ring-[#1D4ED8]"
-                            />
-                            {item.taxRate > 0 && <span className="text-slate-400">· Tax {item.taxRate}%</span>}
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={imgSrc}
+                            alt={cartItemTitle}
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              const fallback = getDefaultProductImage(item.productName);
+                              if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                            }}
+                            className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                              {cartItemTitle} {cartVariantText ? `(${cartVariantText})` : ''}
+                            </div>
+                            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono text-slate-600">
+                              <span>{tr(language, 'Rate ₹', 'ధర ₹')}</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                aria-label={tr(language, `Price for ${cartItemTitle}`, `${cartItemTitle} ధర`)}
+                                value={item.unitPrice}
+                                onChange={(e) =>
+                                  updateCartItem(idx, {
+                                    unitPrice: Math.max(0, Number(e.target.value) || 0),
+                                  })
+                                }
+                                className="w-20 px-1.5 py-0.5 font-mono text-xs font-semibold rounded-md border border-blue-200 bg-white text-[#0B1F44] focus:outline-none focus:ring-1 focus:ring-[#1D4ED8]"
+                              />
+                              {item.taxRate > 0 && (
+                                <span className="text-slate-400">
+                                  · {tr(language, 'Tax', 'పన్ను')} {item.taxRate}%
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <button onClick={() => removeCartItem(idx)} className="text-slate-400 hover:text-rose-600 p-1">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1">
                         <button
-                          onClick={() => updateCartItem(idx, { quantity: Math.max(1, item.quantity - 1) })}
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          onClick={() => removeCartItem(idx)}
+                          className="text-slate-400 hover:text-rose-600 p-1"
+                          aria-label={tr(language, 'Remove item', 'తొలగించండి')}
                         >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) => updateCartItem(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })}
-                          className="w-12 text-center font-mono text-xs py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                        />
-                        <button
-                          onClick={() => updateCartItem(idx, { quantity: item.quantity + 1 })}
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                        >
-                          <Plus className="w-3 h-3" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-slate-500">Disc ₹</span>
-                        <input
-                          type="number"
-                          min={0}
-                          value={item.discount}
-                          onChange={(e) => updateCartItem(idx, { discount: Math.max(0, Number(e.target.value) || 0) })}
-                          className="w-16 text-right font-mono py-1 px-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                        />
-                        <span className="font-mono font-bold tabular-nums text-slate-900 dark:text-white w-20 text-right">
-                          ₹{Math.max(0, item.quantity * item.unitPrice - item.discount).toFixed(2)}
-                        </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => updateCartItem(idx, { quantity: Math.max(1, item.quantity - 1) })}
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) =>
+                              updateCartItem(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })
+                            }
+                            className="w-12 text-center font-mono text-xs py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          />
+                          <button
+                            onClick={() => updateCartItem(idx, { quantity: item.quantity + 1 })}
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-slate-500">{tr(language, 'Disc ₹', 'డిస్కౌంట్ ₹')}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={item.discount}
+                            onChange={(e) =>
+                              updateCartItem(idx, { discount: Math.max(0, Number(e.target.value) || 0) })
+                            }
+                            className="w-16 text-right font-mono py-1 px-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          />
+                          <span className="font-mono font-bold tabular-nums text-slate-900 dark:text-white w-20 text-right">
+                            ₹{Math.max(0, item.quantity * item.unitPrice - item.discount).toFixed(2)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
+                    </motion.div>
+                  );
+                })}
               </AnimatePresence>
             )}
           </div>
@@ -673,7 +738,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800 text-xs">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-500 mb-1">Extra Discount (₹)</label>
+                <label className="block text-slate-500 mb-1">
+                  {tr(language, 'Extra Discount (₹)', 'అదనపు డిస్కౌంట్ (₹)')}
+                </label>
                 <input
                   type="number"
                   min={0}
@@ -683,37 +750,41 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-slate-500 mb-1">GST Mode</label>
+                <label className="block text-slate-500 mb-1">{tr(language, 'GST Mode', 'జీఎస్టీ రకం')}</label>
                 <select
                   value={business?.taxEnabled ? gstType : 'NONE'}
                   disabled={!business?.taxEnabled}
                   onChange={(e) => setGstType(e.target.value as GstType)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 disabled:opacity-60"
                 >
-                  <option value="NONE">No GST / Exempt</option>
-                  <option value="CGST_SGST">CGST + SGST</option>
-                  <option value="IGST">IGST (Inter-State)</option>
+                  <option value="NONE">{tr(language, 'No GST / Exempt', 'జీఎస్టీ లేదు / మినహాయింపు')}</option>
+                  <option value="CGST_SGST">{tr(language, 'CGST + SGST', 'సీజీఎస్టీ + ఎస్‌జీఎస్టీ')}</option>
+                  <option value="IGST">{tr(language, 'IGST (Inter-State)', 'ఐజీఎస్టీ (అంతర్-రాష్ట్ర)')}</option>
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-500 mb-1">Payment Method</label>
+                <label className="block text-slate-500 mb-1">
+                  {tr(language, 'Payment Method', 'చెల్లింపు విధానం')}
+                </label>
                 <select
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
                 >
-                  <option value="Cash">Cash</option>
-                  <option value="UPI">UPI (PhonePe / GPay)</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Other">Other</option>
-                  <option value="Unpaid">Credit / Due Later</option>
+                  <option value="Cash">{tr(language, 'Cash', 'నగదు')}</option>
+                  <option value="UPI">{tr(language, 'UPI (PhonePe / GPay)', 'యూపీఐ (ఫోన్‌పే / జీపే)')}</option>
+                  <option value="Bank Transfer">{tr(language, 'Bank Transfer', 'బ్యాంక్ బదిలీ')}</option>
+                  <option value="Other">{tr(language, 'Other', 'ఇతర')}</option>
+                  <option value="Unpaid">{tr(language, 'Credit / Due Later', 'అప్పు / తర్వాత చెల్లింపు')}</option>
                 </select>
               </div>
               <div>
-                <label className="block text-slate-500 mb-1">Amount Paid (₹)</label>
+                <label className="block text-slate-500 mb-1">
+                  {tr(language, 'Amount Paid (₹)', 'చెల్లించిన మొత్తం (₹)')}
+                </label>
                 <input
                   type="number"
                   min={0}
@@ -731,7 +802,11 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 type="text"
                 value={paymentReference}
                 onChange={(e) => setPaymentReference(e.target.value)}
-                placeholder="UPI / PhonePe / Bank Transaction Reference"
+                placeholder={tr(
+                  language,
+                  'UPI / PhonePe / Bank Transaction Reference',
+                  'యూపీఐ / ఫోన్‌పే / బ్యాంక్ లావాదేవీ నంబర్'
+                )}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
               />
             )}
@@ -740,7 +815,11 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Bill remarks or delivery note (Optional)"
+              placeholder={tr(
+                language,
+                'Bill remarks or delivery note (Optional)',
+                'బిల్ గమనికలు లేదా డెలివరీ నోట్ (ఐచ్ఛికం)'
+              )}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
             />
           </div>
@@ -748,33 +827,47 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           {/* Totals Box */}
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-mono">
             <div className="flex justify-between text-slate-600 dark:text-slate-400">
-              <span className="font-sans">Subtotal</span>
+              <span className="font-sans">{tr(language, 'Subtotal', 'ఉప మొత్తం')}</span>
               <span className="tabular-nums">{formatCurrency(totals.subtotal)}</span>
             </div>
             {totals.totalDiscount > 0 && (
               <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
-                <span className="font-sans">Discount</span>
+                <span className="font-sans">{tr(language, 'Discount', 'డిస్కౌంట్')}</span>
                 <span className="tabular-nums">-{formatCurrency(totals.totalDiscount)}</span>
               </div>
             )}
             {totals.totalTax > 0 && (
               <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span className="font-sans">GST ({gstType})</span>
+                <span className="font-sans">
+                  {tr(language, `GST (${gstType})`, `జీఎస్టీ (${translateGstType(gstType, language)})`)}
+                </span>
                 <span className="tabular-nums">{formatCurrency(totals.totalTax)}</span>
               </div>
             )}
             <div className="flex justify-between text-base font-bold text-[#0B1F44] dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
-              <span className="font-sans">Grand Total</span>
+              <span className="font-sans">{tr(language, 'Grand Total', 'మొత్తం బిల్')}</span>
               <AnimatedNumber value={totals.grandTotal} format={(n) => formatCurrency(n)} />
             </div>
             <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
-              <span className="font-sans">Paying Now</span>
+              <span className="font-sans">{tr(language, 'Paying Now', 'ఇప్పుడు చెల్లిస్తున్నది')}</span>
               <AnimatedNumber value={totals.paidNum} format={(n) => formatCurrency(n)} />
             </div>
-            <div className={`flex justify-between font-semibold ${totals.pendingBalance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
-              <span className="font-sans">{totals.pendingBalance > 0 ? 'Due Balance (Shows QR)' : 'Status'}</span>
+            <div
+              className={`flex justify-between font-semibold ${
+                totals.pendingBalance > 0
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-emerald-700 dark:text-emerald-400'
+              }`}
+            >
+              <span className="font-sans">
+                {totals.pendingBalance > 0
+                  ? tr(language, 'Due Balance (Shows QR)', 'బాకీ మొత్తం (QR చూపిస్తుంది)')
+                  : tr(language, 'Status', 'స్థితి')}
+              </span>
               <span className="tabular-nums">
-                {totals.pendingBalance > 0 ? formatCurrency(totals.pendingBalance) : 'AMOUNT PAID'}
+                {totals.pendingBalance > 0
+                  ? formatCurrency(totals.pendingBalance)
+                  : tr(language, 'AMOUNT PAID', 'చెల్లింపు పూర్తయింది')}
               </span>
             </div>
           </div>
@@ -792,7 +885,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
             className="w-full py-3.5 px-4 rounded-xl bg-[#0B1F44] hover:bg-[#13326b] text-white text-sm font-semibold flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            {saving ? 'Confirming with Cloud Server...' : 'Save & Generate Bill'}
+            {saving
+              ? tr(language, 'Confirming with Cloud Server...', 'క్లౌడ్ సర్వర్‌లో సేవ్ అవుతోంది...')
+              : tr(language, 'Save & Generate Bill', 'సేవ్ చేసి బిల్ తయారు చేయండి')}
           </button>
         </div>
       </div>
@@ -827,15 +922,15 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               </motion.span>
               <div>
                 <div className="text-xs font-bold">
-                  {cart.length > 0 ? `${cart.length} Products Selected` : 'Select Items for Bill'}
+                  {cart.length > 0
+                    ? tr(language, `${cart.length} Products Selected`, `${cart.length} ఉత్పత్తులు ఎంచుకోబడ్డాయి`)
+                    : tr(language, 'Select Items for Bill', 'బిల్ కోసం వస్తువులను ఎంచుకోండి')}
                 </div>
-                <div className="text-[10px] text-blue-100">
-                  {formatCurrency(totals.grandTotal)}
-                </div>
+                <div className="text-[10px] text-blue-100">{formatCurrency(totals.grandTotal)}</div>
               </div>
             </div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-[#0B1F44] text-xs font-bold shadow-sm">
-              <span>View Bill</span>
+              <span>{tr(language, 'View Bill', 'బిల్ చూడండి')}</span>
               <span>→</span>
             </div>
           </button>
@@ -844,7 +939,10 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 
       {quickCustModal && (
         <QuickCustomerModal
-          initialName={customerName === 'Walk-in Customer' ? '' : customerName}
+          language={language}
+          initialName={
+            customerName === 'Walk-in Customer' || customerName === 'సాధారణ కస్టమర్' ? '' : customerName
+          }
           initialMobile={customerMobile}
           initialAddress={customerAddress}
           onClose={() => setQuickCustModal(false)}
@@ -871,12 +969,13 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 };
 
 const QuickCustomerModal: React.FC<{
+  language: 'en' | 'te';
   initialName: string;
   initialMobile: string;
   initialAddress: string;
   onClose: () => void;
   onSave: (data: { name: string; mobile?: string; address?: string }) => Promise<void>;
-}> = ({ initialName, initialMobile, initialAddress, onClose, onSave }) => {
+}> = ({ language, initialName, initialMobile, initialAddress, onClose, onSave }) => {
   const [name, setName] = useState(initialName);
   const [mobile, setMobile] = useState(initialMobile);
   const [address, setAddress] = useState(initialAddress);
@@ -895,36 +994,45 @@ const QuickCustomerModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4">
-        <h3 className="text-base font-semibold text-slate-900 dark:text-white">Register Customer</h3>
+      <form
+        onSubmit={submit}
+        className="w-full max-w-sm rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4"
+      >
+        <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+          {tr(language, 'Register Customer', 'కొత్త కస్టమర్ నమోదు')}
+        </h3>
         <input
           required
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Customer Full Name *"
+          placeholder={tr(language, 'Customer Full Name *', 'కస్టమర్ పూర్తి పేరు *')}
           className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
         />
         <input
           type="tel"
           value={mobile}
           onChange={(e) => setMobile(e.target.value)}
-          placeholder="Mobile Number (Optional)"
+          placeholder={tr(language, 'Mobile Number (Optional)', 'మొబైల్ నంబర్ (ఐచ్ఛికం)')}
           className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
         />
         <input
           type="text"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
-          placeholder="Address (Optional)"
+          placeholder={tr(language, 'Address (Optional)', 'చిరునామా (ఐచ్ఛికం)')}
           className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
         />
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700">
-            Cancel
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700"
+          >
+            {tr(language, 'Cancel', 'రద్దు')}
           </button>
           <button type="submit" disabled={busy} className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#0B1F44] text-white">
-            {busy ? 'Saving...' : 'Save Customer'}
+            {busy ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...') : tr(language, 'Save Customer', 'కస్టమర్‌ను సేవ్ చేయండి')}
           </button>
         </div>
       </form>

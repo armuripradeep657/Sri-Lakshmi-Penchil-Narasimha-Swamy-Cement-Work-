@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Download, Smartphone } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { useAuth } from '../context/AuthContext';
+import { tr } from '../lib/i18n';
 
 interface PWAInstallButtonProps {
   variant?: 'header' | 'light-header' | 'drawer' | 'card';
@@ -8,6 +10,7 @@ interface PWAInstallButtonProps {
 
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'header' }) => {
   const { isInstallable, isInstalled, isInIframe, install } = usePWAInstall();
+  const { language } = useAuth();
   const [installing, setInstalling] = useState(false);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
 
@@ -17,9 +20,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
     try {
       const result = await install();
       if (result === 'installed') {
-        setStatusLabel('Installed');
+        setStatusLabel(tr(language, 'Installed', 'ఇన్‌స్టాల్ అయింది'));
       } else if (result === 'unavailable') {
-        setStatusLabel('Use Chrome / Safari');
+        setStatusLabel(tr(language, 'Use Chrome / Safari', 'క్రోమ్ / సఫారీ వాడండి'));
         window.setTimeout(() => setStatusLabel(null), 2600);
       }
     } finally {
@@ -37,10 +40,18 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
           </div>
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44]">
-              Sri Lakshmi Penchil Narasimha Swamy Cement Work App Active
+              {tr(
+                language,
+                'Sri Lakshmi Penchil Narasimha Swamy Cement Work App Active',
+                'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్ యాప్ సక్రియంగా ఉంది'
+              )}
             </h3>
             <p className="text-xs text-slate-500">
-              Installed on this device in standalone full-screen mode with offline sync enabled.
+              {tr(
+                language,
+                'Installed on this device in standalone full-screen mode with offline sync enabled.',
+                'ఆఫ్‌లైన్ సింక్‌తో ఫుల్-స్క్రీన్ మోడ్‌లో ఈ పరికరంలో ఇన్‌స్టాల్ చేయబడింది.'
+              )}
             </p>
           </div>
         </div>
@@ -48,11 +59,11 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
     );
   }
 
-  // If previewed inside an embedded iframe where browser suppresses beforeinstallprompt,
-  // direct click opens the standalone URL in the main browser so one-tap install triggers immediately.
   const openStandaloneFallback = !isInstallable && isInIframe;
 
-  const buttonLabel = statusLabel || (installing ? 'Installing...' : 'Install App');
+  const buttonLabel =
+    statusLabel ||
+    (installing ? tr(language, 'Installing...', 'ఇన్‌స్టాల్ అవుతోంది...') : tr(language, 'Install App', 'యాప్ ఇన్‌స్టాల్ చేయండి'));
 
   if (variant === 'card') {
     return (
@@ -62,9 +73,13 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
             <Smartphone className="w-5 h-5 text-cyan-300" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-bold">Install Mobile App</h3>
+            <h3 className="text-sm font-bold">{tr(language, 'Install Mobile App', 'మొబైల్ యాప్ ఇన్‌స్టాల్ చేయండి')}</h3>
             <p className="text-xs text-blue-100">
-              Download Sri Lakshmi Penchil Narasimha Swamy Cement Work directly to your phone with offline sync.
+              {tr(
+                language,
+                'Download Sri Lakshmi Penchil Narasimha Swamy Cement Work directly to your phone with offline sync.',
+                'ఆఫ్‌లైన్ సింక్‌తో మీ ఫోన్‌లో నేరుగా శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్‌ను డౌన్‌లోడ్ చేసుకోండి.'
+              )}
             </p>
           </div>
         </div>
@@ -77,7 +92,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
               className="inline-flex items-center gap-1.5 rounded-xl bg-white text-[#0B1F44] hover:bg-blue-50 px-4 py-2 text-xs font-bold shadow-sm transition"
             >
               <Download className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              Install App
+              {tr(language, 'Install App', 'యాప్ ఇన్‌స్టాల్ చేయండి')}
             </a>
           ) : (
             <button
@@ -105,7 +120,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white text-[#0B1F44] hover:bg-blue-50 text-xs font-bold shadow-sm transition"
         >
           <Download className="w-4 h-4 text-[#1D4ED8]" />
-          Install App
+          {tr(language, 'Install App', 'యాప్ ఇన్‌స్టాల్ చేయండి')}
         </a>
       );
     }
@@ -129,8 +144,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
         href={window.location.origin}
         target="_blank"
         rel="noopener noreferrer"
-        title="Install Mobile App"
-        aria-label="Install Mobile App"
+        title={tr(language, 'Install Mobile App', 'మొబైల్ యాప్ ఇన్‌స్టాల్ చేయండి')}
+        aria-label={tr(language, 'Install Mobile App', 'మొబైల్ యాప్ ఇన్‌స్టాల్ చేయండి')}
         className={
           variant === 'light-header'
             ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF] transition-colors whitespace-nowrap shrink-0 shadow-sm'
@@ -144,7 +159,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
               : 'w-3.5 h-3.5 text-cyan-300 lg:text-white'
           }
         />
-        <span>Install App</span>
+        <span>{tr(language, 'Install App', 'యాప్ ఇన్‌స్టాల్')}</span>
       </a>
     );
   }
@@ -154,8 +169,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
       type="button"
       onClick={handleDirectInstall}
       disabled={installing}
-      title="Install Mobile App"
-      aria-label="Install Mobile App"
+      title={tr(language, 'Install Mobile App', 'మొబైల్ యాప్ ఇన్‌స్టాల్ చేయండి')}
+      aria-label={tr(language, 'Install Mobile App', 'మొబైల్ యాప్ ఇన్‌స్టాల్ చేయండి')}
       className={
         variant === 'light-header'
           ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF] transition-colors whitespace-nowrap shrink-0 shadow-sm disabled:opacity-60'

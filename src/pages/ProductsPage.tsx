@@ -20,6 +20,13 @@ import { parseVariants } from '../lib/seedData';
 import { Product } from '../types/billing';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
 import {
+  tr,
+  translateCategory,
+  translateProductName,
+  translateUnit,
+  translateVariantLabel,
+} from '../lib/i18n';
+import {
   deriveMixedVerificationCode,
   downloadCode128Png,
   generateCode128SvgDataUrl,
@@ -32,7 +39,7 @@ interface ProductsPageProps {
 
 export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) => {
   const { products, categories, saveProduct, deleteProduct, saveCategory } = useBillingData();
-  const { isAdmin, userAccount } = useAuth();
+  const { isAdmin, userAccount, language } = useAuth();
 
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('All');
@@ -89,7 +96,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
             }
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-bold hover:bg-[#1E40AF] shadow-sm"
           >
-            <Plus className="w-4 h-4" /> Add Product
+            <Plus className="w-4 h-4" /> {tr(language, 'Add Product', 'కొత్త ఉత్పత్తి చేర్చండి')}
           </motion.button>
         </div>
       )}
@@ -108,7 +115,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search products in English, తెలుగు, code, or barcode..."
+            placeholder={tr(
+              language,
+              'Search products in English, తెలుగు, code, or barcode...',
+              'ఉత్పత్తి పేరు, కోడ్ లేదా బార్‌కోడ్ ద్వారా వెతకండి...'
+            )}
             className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
           />
         </div>
@@ -117,10 +128,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
           onChange={(e) => setCatFilter(e.target.value)}
           className="px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
         >
-          <option value="All">All Categories</option>
+          <option value="All">{tr(language, 'All Categories', 'అన్ని వర్గాలు')}</option>
           {categories.map((c) => (
             <option key={c.id} value={c.name}>
-              {c.name} {c.nameTe ? `(${c.nameTe})` : ''}
+              {language === 'te'
+                ? translateCategory(c.name, categories, 'te')
+                : `${c.name}${c.nameTe ? ` (${c.nameTe})` : ''}`}
             </option>
           ))}
         </select>
@@ -176,14 +189,17 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white truncate">{product.name}</h3>
-                    {product.nameTe && (
+                    <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white truncate">
+                      {translateProductName(product, language)}
+                    </h3>
+                    {language !== 'te' && product.nameTe && (
                       <div className="text-xs font-medium text-[#1D4ED8] dark:text-sky-400 truncate">
                         {product.nameTe}
                       </div>
                     )}
                     <div className="text-[11px] text-slate-500 mt-0.5">
-                      {product.category} · <span className="font-mono">{product.productCode}</span>
+                      {translateCategory(product.category, categories, language)} ·{' '}
+                      <span className="font-mono">{product.productCode}</span>
                     </div>
                   </div>
                   {canManage && (
@@ -198,7 +214,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                         <button
                           type="button"
                           onClick={() => setDeleteConfirmProduct(product)}
-                          title="Move Product to Removed Bills & Products (10-Day Recovery)"
+                          title={tr(
+                            language,
+                            'Move Product to Removed Bills & Products (10-Day Recovery)',
+                            'ఉత్పత్తిని తొలగించిన జాబితాకు తరలించండి (10 రోజుల పునరుద్ధరణ)'
+                          )}
                           className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -234,7 +254,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                               className="pointer-events-none absolute inset-0 rounded-lg border-2 border-[#1D4ED8] animate-slp-ring"
                             />
                           )}
-                          {v.label}: ₹{v.price}
+                          {translateVariantLabel(v.label, language)}: ₹{v.price}
                         </motion.button>
                       );
                     })
@@ -252,16 +272,16 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
 
                 <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500">
                   <span>
-                    Stock:{' '}
+                    {tr(language, 'Stock:', 'స్టాక్:')}{' '}
                     <strong className={`font-mono ${isLow ? 'text-rose-600' : 'text-slate-800 dark:text-slate-200'}`}>
-                      {product.stock} {product.unit}
+                      {product.stock} {translateUnit(product.unit, language)}
                     </strong>
                   </span>
                   <button
                     type="button"
                     onClick={() => setBarcodePreviewProduct(product)}
                     className="inline-flex items-center gap-1 font-mono text-[#1D4ED8] hover:underline"
-                    title="View / Download Code 128 Barcode"
+                    title={tr(language, 'View / Download Code 128 Barcode', 'కోడ్ 128 బార్‌కోడ్ చూడండి / డౌన్‌లోడ్ చేయండి')}
                   >
                     <Barcode className="w-3.5 h-3.5" />
                     {product.barcode || deriveMixedVerificationCode(product.id || product.productCode)}
@@ -277,6 +297,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
         <ProductEditorModal
           initial={editing}
           categories={categories.map((c) => c.name)}
+          language={language}
           onClose={() => setEditing(null)}
           onSave={async (data) => {
             if (data.category && !categories.some((c) => c.name === data.category)) {
@@ -294,9 +315,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white">
-                  Code 128 Product Barcode
+                  {tr(language, 'Code 128 Product Barcode', 'కోడ్ 128 ఉత్పత్తి బార్‌కోడ్')}
                 </h3>
-                <p className="text-xs text-slate-500 truncate">{barcodePreviewProduct.name}</p>
+                <p className="text-xs text-slate-500 truncate">
+                  {translateProductName(barcodePreviewProduct, language)}
+                </p>
               </div>
               <button
                 type="button"
@@ -312,10 +335,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                   barcodePreviewProduct.barcode ||
                     deriveMixedVerificationCode(barcodePreviewProduct.id || barcodePreviewProduct.productCode)
                 )}
-                alt={`Code 128 barcode for ${barcodePreviewProduct.name}`}
+                alt={translateProductName(barcodePreviewProduct, language)}
                 className="h-16 w-auto object-contain"
               />
-              <span className="text-[11px] text-slate-500 mt-1">Symbology: Code 128</span>
+              <span className="text-[11px] text-slate-500 mt-1">
+                {tr(language, 'Symbology: Code 128', 'రకం: కోడ్ 128')}
+              </span>
             </div>
             <button
               type="button"
@@ -329,7 +354,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
               className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
             >
               <Download className="w-3.5 h-3.5" />
-              Download Code 128 Label (PNG)
+              {tr(language, 'Download Code 128 Label (PNG)', 'కోడ్ 128 లేబుల్ డౌన్‌లోడ్ (పీఎన్‌జీ)')}
             </button>
           </div>
         </div>
@@ -341,7 +366,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="text-base font-bold text-[#0B1F44] dark:text-white">
-                  Remove Product · {deleteConfirmProduct.name}?
+                  {tr(language, 'Remove Product', 'ఉత్పత్తిని తొలగించు')} · {translateProductName(deleteConfirmProduct, language)}?
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5 font-mono">
                   {deleteConfirmProduct.productCode} · ₹{deleteConfirmProduct.sellingPrice}
@@ -356,9 +381,17 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
               </button>
             </div>
             <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 leading-relaxed">
-              &quot;{deleteConfirmProduct.name}&quot; will be moved to{' '}
-              <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept for{' '}
-              <strong>10 days</strong> before permanent removal.
+              {language === 'te' ? (
+                <>
+                  &quot;{translateProductName(deleteConfirmProduct, 'te')}&quot; <strong>సెట్టింగ్స్ &rarr; తొలగించిన బిల్లులు &amp; ఉత్పత్తులు</strong> లోకి తరలించబడుతుంది మరియు శాశ్వత తొలగింపుకు ముందు <strong>10 రోజులు</strong> ఉంచబడుతుంది.
+                </>
+              ) : (
+                <>
+                  &quot;{deleteConfirmProduct.name}&quot; will be moved to{' '}
+                  <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept for{' '}
+                  <strong>10 days</strong> before permanent removal.
+                </>
+              )}
             </div>
             <div className="flex justify-end gap-2">
               <button
@@ -367,7 +400,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                 onClick={() => setDeleteConfirmProduct(null)}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
               >
-                Cancel
+                {tr(language, 'Cancel', 'రద్దు')}
               </button>
               <button
                 type="button"
@@ -375,14 +408,18 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                 onClick={async () => {
                   setDeletingProd(true);
                   try {
-                    const removedName = deleteConfirmProduct.name;
+                    const removedName = translateProductName(deleteConfirmProduct, language);
                     await deleteProduct(deleteConfirmProduct.id);
                     setDeleteConfirmProduct(null);
                     setStatusMsg(
-                      `Moved "${removedName}" to Settings → Removed Bills & Products (kept for 10 days).`
+                      tr(
+                        language,
+                        `Moved "${removedName}" to Settings → Removed Bills & Products (kept for 10 days).`,
+                        `"${removedName}" సెట్టింగ్స్ → తొలగించిన బిల్లులు & ఉత్పత్తులలోకి తరలించబడింది (10 రోజులు ఉంటుంది).`
+                      )
                     );
                   } catch (err) {
-                    setStatusMsg(err instanceof Error ? err.message : 'Failed to remove product.');
+                    setStatusMsg(err instanceof Error ? err.message : tr(language, 'Failed to remove product.', 'ఉత్పత్తిని తొలగించడం విఫలమైంది.'));
                     setDeleteConfirmProduct(null);
                   } finally {
                     setDeletingProd(false);
@@ -391,7 +428,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                {deletingProd ? 'Removing...' : 'Move to Removed Products'}
+                {deletingProd
+                  ? tr(language, 'Removing...', 'తొలగిస్తోంది...')
+                  : tr(language, 'Move to Removed Products', 'తొలగించిన జాబితాకు తరలించు')}
               </button>
             </div>
           </div>
@@ -404,9 +443,10 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onQuickAddToBill }) 
 const ProductEditorModal: React.FC<{
   initial: Partial<Product>;
   categories: string[];
+  language: 'en' | 'te';
   onClose: () => void;
   onSave: (data: Partial<Product> & { name: string; category: string; purchasePrice: number; sellingPrice: number; stock: number; taxRate: number }) => Promise<void>;
-}> = ({ initial, categories, onClose, onSave }) => {
+}> = ({ initial, categories, language, onClose, onSave }) => {
   const [form, setForm] = useState({
     id: initial.id,
     productCode: initial.productCode || '',
@@ -444,7 +484,7 @@ const ProductEditorModal: React.FC<{
       if (!res.ok) throw new Error(data.error);
       setForm((f) => ({ ...f, nameTe: data.text }));
     } catch (err) {
-      setAiError(err instanceof Error ? err.message : 'Translation unavailable.');
+      setAiError(err instanceof Error ? err.message : tr(language, 'Translation unavailable.', 'అనువాదం అందుబాటులో లేదు.'));
     } finally {
       setTranslating(false);
     }
@@ -468,7 +508,11 @@ const ProductEditorModal: React.FC<{
       if (!res.ok) throw new Error(data.error);
       setForm((f) => ({ ...f, imageUrl: data.imageDataUrl }));
     } catch (err) {
-      setAiError(err instanceof Error ? err.message : 'Image generation requires a billing-enabled Gemini key in Secrets.');
+      setAiError(
+        err instanceof Error
+          ? err.message
+          : tr(language, 'Image generation requires a billing-enabled Gemini key in Secrets.', 'చిత్రం తయారీకి సర్వర్ కీ అవసరం.')
+      );
     } finally {
       setGeneratingImg(false);
     }
@@ -492,7 +536,7 @@ const ProductEditorModal: React.FC<{
       >
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-            {form.id ? 'Edit Product' : 'Add Product'}
+            {form.id ? tr(language, 'Edit Product', 'ఉత్పత్తిని సవరించండి') : tr(language, 'Add Product', 'కొత్త ఉత్పత్తి చేర్చండి')}
           </h3>
           <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700">
             <X className="w-5 h-5" />
@@ -501,7 +545,9 @@ const ProductEditorModal: React.FC<{
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Product Name (English) *</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Product Name (English) *', 'ఉత్పత్తి పేరు (ఇంగ్లీష్) *')}
+            </label>
             <input
               required
               value={form.name}
@@ -511,14 +557,17 @@ const ProductEditorModal: React.FC<{
           </div>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="font-medium text-slate-600 dark:text-slate-300">Telugu Name (తెలుగు)</label>
+              <label className="font-medium text-slate-600 dark:text-slate-300">
+                {tr(language, 'Telugu Name (తెలుగు)', 'తెలుగు పేరు *')}
+              </label>
               <button
                 type="button"
                 onClick={handleTranslateTe}
                 disabled={translating}
                 className="inline-flex items-center gap-1 text-[11px] text-[#1D4ED8] hover:underline"
               >
-                <Languages className="w-3 h-3" /> {translating ? 'Translating...' : 'Auto-Translate'}
+                <Languages className="w-3 h-3" />{' '}
+                {translating ? tr(language, 'Translating...', 'అనువదిస్తోంది...') : tr(language, 'Auto-Translate', 'స్వయంచాలక అనువాదం')}
               </button>
             </div>
             <input
@@ -529,7 +578,9 @@ const ProductEditorModal: React.FC<{
           </div>
 
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Category *</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Category *', 'వర్గం *')}
+            </label>
             <input
               required
               list="slp-categories"
@@ -546,7 +597,7 @@ const ProductEditorModal: React.FC<{
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="font-medium text-slate-600 dark:text-slate-300">
-                Product Code / Code 128 Barcode
+                {tr(language, 'Product Code / Code 128 Barcode', 'ఉత్పత్తి కోడ్ / కోడ్ 128 బార్‌కోడ్')}
               </label>
               <button
                 type="button"
@@ -558,7 +609,7 @@ const ProductEditorModal: React.FC<{
                 }
                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1D4ED8] hover:underline"
               >
-                <Barcode className="w-3 h-3" /> Generate Code 128
+                <Barcode className="w-3 h-3" /> {tr(language, 'Generate Code 128', 'కోడ్ 128 తయారు చేయి')}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -571,7 +622,7 @@ const ProductEditorModal: React.FC<{
               <input
                 value={form.barcode}
                 onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-                placeholder="Code 128 Barcode"
+                placeholder={tr(language, 'Code 128 Barcode', 'కోడ్ 128 బార్‌కోడ్')}
                 className="px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
               />
             </div>
@@ -582,7 +633,7 @@ const ProductEditorModal: React.FC<{
                 <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white p-2">
                   <img
                     src={generateCode128SvgDataUrl(previewCode)}
-                    alt="Code 128 Barcode Preview"
+                    alt={tr(language, 'Code 128 Barcode Preview', 'కోడ్ 128 బార్‌కోడ్')}
                     className="h-11 w-auto object-contain"
                   />
                   <button
@@ -595,7 +646,7 @@ const ProductEditorModal: React.FC<{
                     }
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 text-[11px] font-semibold text-[#1D4ED8] hover:bg-blue-50 shrink-0"
                   >
-                    <Download className="w-3 h-3" /> PNG
+                    <Download className="w-3 h-3" /> {tr(language, 'PNG', 'పీఎన్‌జీ')}
                   </button>
                 </div>
               );
@@ -603,7 +654,9 @@ const ProductEditorModal: React.FC<{
           </div>
 
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Purchase Price (₹)</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Purchase Price (₹)', 'కొనుగోలు ధర (₹)')}
+            </label>
             <input
               type="number"
               min={0}
@@ -613,7 +666,9 @@ const ProductEditorModal: React.FC<{
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Default Selling Price (₹) *</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Default Selling Price (₹) *', 'అమ్మకం ధర (₹) *')}
+            </label>
             <input
               required
               type="number"
@@ -625,7 +680,9 @@ const ProductEditorModal: React.FC<{
           </div>
 
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Stock &amp; Low Threshold</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Stock & Low Threshold', 'స్టాక్ & కనీస పరిమితి')}
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <input
                 type="number"
@@ -643,7 +700,9 @@ const ProductEditorModal: React.FC<{
             </div>
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">GST % &amp; Unit</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'GST % & Unit', 'జీఎస్టీ % & యూనిట్')}
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <input
                 type="number"
@@ -663,12 +722,20 @@ const ProductEditorModal: React.FC<{
 
           <div className="sm:col-span-2">
             <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
-              Size Variants (Format: <code className="font-mono">6FT:620|6½FT:620</code>)
+              {language === 'te' ? (
+                <>
+                  సైజు రకాలు (ఉదా: <code className="font-mono">6FT:620|6½FT:620</code>)
+                </>
+              ) : (
+                <>
+                  Size Variants (Format: <code className="font-mono">6FT:620|6½FT:620</code>)
+                </>
+              )}
             </label>
             <input
               value={form.variantsSummary}
               onChange={(e) => setForm({ ...form, variantsSummary: e.target.value })}
-              placeholder="Small:220|Medium:320|Large:420"
+              placeholder={tr(language, 'Small:220|Medium:320|Large:420', 'చిన్నది:220|మధ్యస్థం:320|పెద్దది:420')}
               className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
             />
           </div>
@@ -677,7 +744,8 @@ const ProductEditorModal: React.FC<{
           <div className="sm:col-span-2 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-medium text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                <ImageIcon className="w-4 h-4 text-[#1D4ED8]" /> Product Image URL or Studio Generator
+                <ImageIcon className="w-4 h-4 text-[#1D4ED8]" />{' '}
+                {tr(language, 'Product Image URL or Studio Generator', 'ఉత్పత్తి చిత్రం లింక్ లేదా ఫోటో తయారీ')}
               </span>
               <div className="flex items-center gap-2">
                 <select
@@ -695,14 +763,17 @@ const ProductEditorModal: React.FC<{
                   disabled={generatingImg}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0B1F44] text-white text-xs font-medium disabled:opacity-50"
                 >
-                  <Sparkles className="w-3 h-3" /> {generatingImg ? 'Generating...' : 'Generate Studio Photo'}
+                  <Sparkles className="w-3 h-3" />{' '}
+                  {generatingImg
+                    ? tr(language, 'Generating...', 'తయారవుతోంది...')
+                    : tr(language, 'Generate Studio Photo', 'ఫోటో తయారు చేయి')}
                 </button>
               </div>
             </div>
             <input
               value={form.imageUrl}
               onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-              placeholder="https://... or generated image"
+              placeholder={tr(language, 'https://... or generated image', 'చిత్రం లింక్...')}
               className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
             />
             {aiError && <p className="text-[11px] text-amber-700 dark:text-amber-400">{aiError}</p>}
@@ -711,10 +782,10 @@ const ProductEditorModal: React.FC<{
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700">
-            Cancel
+            {tr(language, 'Cancel', 'రద్దు')}
           </button>
           <button type="submit" disabled={saving} className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#1D4ED8] text-white">
-            {saving ? 'Saving...' : 'Save Product'}
+            {saving ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...') : tr(language, 'Save Product', 'ఉత్పత్తిని సేవ్ చేయి')}
           </button>
         </div>
       </form>

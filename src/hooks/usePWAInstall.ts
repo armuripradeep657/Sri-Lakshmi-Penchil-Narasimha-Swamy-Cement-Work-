@@ -91,9 +91,14 @@ export function usePWAInstall() {
 
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
+        const isTe = typeof localStorage !== 'undefined' && localStorage.getItem('slp_lang') === 'te';
         await navigator.share({
-          title: 'Sri Lakshmi Penchil Narasimha Swamy Cement Work',
-          text: 'Install Sri Lakshmi Penchil Narasimha Swamy Cement Work App',
+          title: isTe
+            ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్'
+            : 'Sri Lakshmi Penchil Narasimha Swamy Cement Work',
+          text: isTe
+            ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్ యాప్ ఇన్‌స్టాల్ చేయండి'
+            : 'Install Sri Lakshmi Penchil Narasimha Swamy Cement Work App',
           url: window.location.origin,
         });
         return 'shared';

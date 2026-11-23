@@ -187,6 +187,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const saved = localStorage.getItem('slp_lang');
     return saved === 'te' ? 'te' : 'en';
   });
+  const languageRef = useRef<Language>(language);
+  languageRef.current = language;
+
+  const pickMsg = useCallback((en: string, te: string) => {
+    return languageRef.current === 'te' ? te : en;
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -196,6 +202,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     localStorage.setItem('slp_lang', language);
+    document.documentElement.lang = language === 'te' ? 'te' : 'en';
+    document.title =
+      language === 'te'
+        ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్'
+        : 'Sri Lakshmi Penchil Narasimha Swamy Cement Work';
   }, [language]);
 
   const toggleTheme = useCallback(() => {}, []);
@@ -217,44 +228,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             code,
             unauthorizedHost: host || null,
-            message: host
-              ? `Domain "${host}" is not authorized in Firebase Authentication yet. Add it to Firebase Console → Authentication → Settings → Authorized domains.`
-              : 'This domain is not authorized in Firebase Authentication yet. Add it to Authorized domains in Firebase Console.',
+            message: pickMsg(
+              host
+                ? `Domain "${host}" is not authorized in Firebase Authentication yet. Add it to Firebase Console → Authentication → Settings → Authorized domains.`
+                : 'This domain is not authorized in Firebase Authentication yet. Add it to Authorized domains in Firebase Console.',
+              host
+                ? `"${host}" డొమైన్ ఫైర్‌బేస్‌లో అనుమతించబడలేదు. దయచేసి ఆథరైజ్డ్ డొమైన్స్‌లో చేర్చండి.`
+                : 'ఈ డొమైన్ ఫైర్‌బేస్‌లో అనుమతించబడలేదు.'
+            ),
           };
         case 'auth/popup-blocked':
           return {
             code,
             unauthorizedHost: null,
-            message: 'Sign-in popup was blocked by your browser. Switching to Google Redirect Sign-In...',
+            message: pickMsg(
+              'Sign-in popup was blocked by your browser. Switching to Google Redirect Sign-In...',
+              'బ్రౌజర్ సైన్-ఇన్ పాప్-అప్‌ను అడ్డుకుంది. రీడైరెక్ట్ సైన్-ఇన్‌కు మారుతోంది...'
+            ),
           };
         case 'auth/popup-closed-by-user':
         case 'auth/cancelled-popup-request':
           return {
             code,
             unauthorizedHost: null,
-            message: 'Google sign-in popup was closed before finishing login. Please try again or use Username & Password.',
+            message: pickMsg(
+              'Google sign-in popup was closed before finishing login. Please try again or use Username & Password.',
+              'లాగిన్ పూర్తయ్యేలోపే పాప్-అప్ మూసివేయబడింది. మళ్లీ ప్రయత్నించండి లేదా యూజర్‌నేమ్ & పాస్‌వర్డ్ వాడండి.'
+            ),
           };
         case 'auth/operation-not-allowed':
           return {
             code,
             unauthorizedHost: null,
-            message: 'Sign-In provider is not enabled in Firebase Authentication providers.',
+            message: pickMsg(
+              'Sign-In provider is not enabled in Firebase Authentication providers.',
+              'సైన్-ఇన్ ప్రొవైడర్ ప్రారంభించబడలేదు.'
+            ),
           };
         case 'auth/network-request-failed':
           return {
             code,
             unauthorizedHost: null,
-            message: 'Network error during Google Sign-In. Check your internet connection or unlock offline with Username & Password / MPIN.',
+            message: pickMsg(
+              'Network error during Google Sign-In. Check your internet connection or unlock offline with Username & Password / MPIN.',
+              'నెట్‌వర్క్ లోపం. ఇంటర్నెట్ తనిఖీ చేయండి లేదా యూజర్‌నేమ్ & పాస్‌వర్డ్ / ఎంపిన్‌తో ఆఫ్‌లైన్‌లో తెరవండి.'
+            ),
           };
         default:
           return {
             code,
             unauthorizedHost: null,
-            message: err instanceof Error ? err.message : 'Sign-In failed.',
+            message:
+              err instanceof Error
+                ? err.message
+                : pickMsg('Sign-In failed.', 'సైన్-ఇన్ విఫలమైంది.'),
           };
       }
     },
-    []
+    [pickMsg]
   );
 
   useEffect(() => {
@@ -392,7 +423,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const isPasswordProvider = user.providerData.some((p) => p.providerId === 'password');
       if (!user.email || (!user.emailVerified && !isPasswordProvider)) {
-        setAccessDeniedReason('Please sign in with a verified Google account or authorized Username & Password.');
+        setAccessDeniedReason(
+          pickMsg(
+            'Please sign in with a verified Google account or authorized Username & Password.',
+            'దయచేసి ధృవీకరించబడిన గూగుల్ ఖాతా లేదా అనుమతించబడిన యూజర్‌నేమ్ & పాస్‌వర్డ్‌తో సైన్ ఇన్ చేయండి.'
+          )
+        );
         setUserAccount(null);
         setAuthReady(true);
         return;
@@ -563,7 +599,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!accountData) {
           setAccessDeniedReason(
-            `Account "${emailLower}" is not yet authorized for Sri Lakshmi Penchil Narasimha Swamy Cement Work. Ask the business administrator (${BOOT_ADMIN_EMAIL}) to create your Username & Password or invite your email under User Management.`
+            pickMsg(
+              `Account "${emailLower}" is not yet authorized for Sri Lakshmi Penchil Narasimha Swamy Cement Work. Ask the business administrator (${BOOT_ADMIN_EMAIL}) to create your Username & Password or invite your email under User Management.`,
+              `ఖాతా "${emailLower}"కు ఇంకా శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్ యాక్సెస్ అనుమతి లేదు. దయచేసి వ్యాపార యజమానిని (${BOOT_ADMIN_EMAIL}) యూజర్‌నేమ్ & పాస్‌వర్డ్ క్రియేట్ చేయమని అడగండి.`
+            )
           );
           setUserAccount(null);
           setAuthReady(true);
@@ -572,7 +611,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (accountData.status !== 'active') {
           setAccessDeniedReason(
-            `Your account status is "${accountData.status}". Contact the business administrator to restore access.`
+            pickMsg(
+              `Your account status is "${accountData.status}". Contact the business administrator to restore access.`,
+              `మీ ఖాతా ప్రస్తుతం నిలిపివేయబడింది. యాక్సెస్ కోసం వ్యాపార యజమానిని సంప్రదించండి.`
+            )
           );
           setUserAccount(accountData);
           setAuthReady(true);
@@ -589,7 +631,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userRef,
           (snap) => {
             if (!snap.exists()) {
-              setAccessDeniedReason('Your user profile was removed by an administrator.');
+              setAccessDeniedReason(
+                pickMsg(
+                  'Your user profile was removed by an administrator.',
+                  'మీ యూజర్ ప్రొఫైల్ అడ్మినిస్ట్రేటర్ ద్వారా తొలగించబడింది.'
+                )
+              );
               setUserAccount(null);
               return;
             }
@@ -623,7 +670,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return next;
             });
             if (next.status !== 'active') {
-              setAccessDeniedReason(`Your account has been ${next.status} by the administrator.`);
+              setAccessDeniedReason(
+                pickMsg(
+                  `Your account has been ${next.status} by the administrator.`,
+                  'మీ ఖాతా అడ్మినిస్ట్రేటర్ ద్వారా నిలిపివేయబడింది.'
+                )
+              );
             } else {
               setAccessDeniedReason(null);
             }
@@ -667,7 +719,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setMpinLocked(getMpinLockUid() === user.uid);
           setAuthReady(true);
         } else {
-          setAuthError(err instanceof Error ? err.message : 'Failed to initialize user session.');
+          setAuthError(
+            err instanceof Error
+              ? err.message
+              : pickMsg('Failed to initialize user session.', 'యూజర్ సెషన్ ప్రారంభించడం విఫలమైంది.')
+          );
           setAuthReady(true);
         }
       }
@@ -679,7 +735,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (userUnsub) userUnsub();
       if (onlineHandler) window.removeEventListener('online', onlineHandler);
     };
-  }, [syncSavedCredentialsFromAccount]);
+  }, [syncSavedCredentialsFromAccount, pickMsg]);
 
   const signInWithGoogleRedirect = useCallback(
     async (rememberMe = true, loginHint?: string) => {
@@ -710,8 +766,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUnauthorizedDomainHost(null);
       setEmailPasswordDisabled(false);
       if (!navigator.onLine) {
-        const offlineMsg =
-          'No internet connection for Google Sign-In. Use Username & Password or 4-Digit MPIN to unlock offline.';
+        const offlineMsg = pickMsg(
+          'No internet connection for Google Sign-In. Use Username & Password or 4-Digit MPIN to unlock offline.',
+          'గూగుల్ సైన్-ఇన్ కోసం ఇంటర్నెట్ లేదు. ఆఫ్‌లైన్‌లో యూజర్‌నేమ్ & పాస్‌వర్డ్ లేదా 4-అంకెల ఎంపిన్ వాడండి.'
+        );
         setAuthError(offlineMsg);
         throw new Error(offlineMsg);
       }
@@ -745,7 +803,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw err;
       }
     },
-    [formatGoogleAuthError]
+    [formatGoogleAuthError, pickMsg]
   );
 
   const signInWithUsernamePassword = useCallback(
@@ -756,10 +814,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const identifier = normalizeUsername(usernameOrEmail);
       if (!identifier) {
-        throw new Error('Enter your username or email.');
+        throw new Error(pickMsg('Enter your username or email.', 'మీ యూజర్‌నేమ్ లేదా ఇమెయిల్ నమోదు చేయండి.'));
       }
       if (!isValidSecretPassword(password)) {
-        throw new Error('Password must be at least 4 characters.');
+        throw new Error(pickMsg('Password must be at least 4 characters.', 'పాస్‌వర్డ్ కనీసం 4 అక్షరాలు ఉండాలి.'));
       }
 
       // Offline authentication path using locally verified PBKDF2-SHA256 credential profiles
@@ -767,16 +825,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const savedProfile = findSavedPasswordProfileByIdentifier(identifier);
         if (!savedProfile) {
           throw new Error(
-            'This username has not been synced to this device yet. Connect to the internet once to sign in, then offline login works automatically.'
+            pickMsg(
+              'This username has not been synced to this device yet. Connect to the internet once to sign in, then offline login works automatically.',
+              'ఈ యూజర్‌నేమ్ ఇంకా ఈ పరికరంలో సింక్ కాలేదు. ఒకసారి ఇంటర్నెట్‌తో లాగిన్ అవ్వండి, ఆ తర్వాత ఆఫ్‌లైన్ లాగిన్ పనిచేస్తుంది.'
+            )
           );
         }
         const ok = await verifySecretPassword(password, savedProfile.passwordSalt, savedProfile.passwordHash);
         if (!ok) {
-          throw new Error('Incorrect username or password.');
+          throw new Error(pickMsg('Incorrect username or password.', 'తప్పు యూజర్‌నేమ్ లేదా పాస్‌వర్డ్.'));
         }
         const cachedAccount = getCachedUserAccount(savedProfile.uid);
         if (!cachedAccount || cachedAccount.status !== 'active') {
-          throw new Error('Cached business account unavailable or inactive on this device.');
+          throw new Error(
+            pickMsg(
+              'Cached business account unavailable or inactive on this device.',
+              'ఈ పరికరంలో ఖాతా అందుబాటులో లేదు లేదా నిలిపివేయబడింది.'
+            )
+          );
         }
 
         // If Firebase already holds this user's session in IndexedDB, just unlock immediately
@@ -808,7 +874,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (idxSnap && idxSnap.exists()) {
           const idxData = idxSnap.data() as { authEmail?: string; active?: boolean };
           if (idxData.active === false) {
-            throw new Error('This username has been disabled by the administrator.');
+            throw new Error(
+              pickMsg(
+                'This username has been disabled by the administrator.',
+                'ఈ యూజర్‌నేమ్ అడ్మినిస్ట్రేటర్ ద్వారా నిలిపివేయబడింది.'
+              )
+            );
           }
           resolvedAuthEmail = (idxData.authEmail || '').toLowerCase();
         }
@@ -821,7 +892,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           resolvedAuthEmail = savedLocal.authEmail.toLowerCase();
         } else {
           throw new Error(
-            `Username "${identifier}" not found. Check spelling or ask the business owner to set up your username.`
+            pickMsg(
+              `Username "${identifier}" not found. Check spelling or ask the business owner to set up your username.`,
+              `యూజర్‌నేమ్ "${identifier}" కనుగొనబడలేదు. దయచేసి తనిఖీ చేయండి.`
+            )
           );
         }
       }
@@ -860,8 +934,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : '';
         if (code === 'auth/operation-not-allowed') {
           setEmailPasswordDisabled(true);
-          const msg =
-            'Email/Password sign-in needs to be enabled once in Firebase Console → Authentication → Sign-in method → Email/Password.';
+          const msg = pickMsg(
+            'Email/Password sign-in needs to be enabled once in Firebase Console → Authentication → Sign-in method → Email/Password.',
+            'ఫైర్‌బేస్ కన్సోల్‌లో ఇమెయిల్/పాస్‌వర్డ్ సైన్-ఇన్ ప్రారంభించాలి.'
+          );
           setAuthError(msg);
           throw new Error(msg);
         }
@@ -871,44 +947,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           code === 'auth/user-not-found' ||
           code === 'auth/invalid-email'
         ) {
-          const msg = 'Incorrect username or password.';
+          const msg = pickMsg('Incorrect username or password.', 'తప్పు యూజర్‌నేమ్ లేదా పాస్‌వర్డ్.');
           setAuthError(msg);
           throw new Error(msg);
         }
         if (code === 'auth/too-many-requests') {
-          const msg = 'Too many failed sign-in attempts. Please wait a minute and retry.';
+          const msg = pickMsg(
+            'Too many failed sign-in attempts. Please wait a minute and retry.',
+            'చాలా సార్లు తప్పు ప్రయత్నాలు జరిగాయి. ఒక నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.'
+          );
           setAuthError(msg);
           throw new Error(msg);
         }
-        const msg = err instanceof Error ? err.message : 'Sign-in failed.';
+        const msg = err instanceof Error ? err.message : pickMsg('Sign-in failed.', 'సైన్-ఇన్ విఫలమైంది.');
         setAuthError(msg);
         throw new Error(msg);
       }
     },
-    [firebaseUser, userAccount]
+    [firebaseUser, userAccount, pickMsg]
   );
 
   const setupMyUsernamePassword = useCallback(
     async (usernameRaw: string, passwordInput: string) => {
       if (!firebaseUser || !userAccount) {
-        throw new Error('Please connect to the internet and sign in to set Username & Password.');
+        throw new Error(
+          pickMsg(
+            'Please connect to the internet and sign in to set Username & Password.',
+            'యూజర్‌నేమ్ & పాస్‌వర్డ్ సెట్ చేయడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేసి సైన్ ఇన్ చేయండి.'
+          )
+        );
       }
       if (!navigator.onLine) {
-        throw new Error('Internet connection required to create or update Username & Password.');
+        throw new Error(
+          pickMsg(
+            'Internet connection required to create or update Username & Password.',
+            'యూజర్‌నేమ్ & పాస్‌వర్డ్ సృష్టించడానికి లేదా మార్చడానికి ఇంటర్నెట్ కనెక్షన్ అవసరం.'
+          )
+        );
       }
       const username = normalizeUsername(usernameRaw);
       if (!isValidUsername(username)) {
-        throw new Error('Username must be 3-40 characters (letters, numbers, dot, underscore, or hyphen).');
+        throw new Error(
+          pickMsg(
+            'Username must be 3-40 characters (letters, numbers, dot, underscore, or hyphen).',
+            'యూజర్‌నేమ్ 3-40 అక్షరాలు ఉండాలి (అక్షరాలు, సంఖ్యలు, డాట్, అండర్‌స్కోర్ లేదా హైఫన్).'
+          )
+        );
       }
       if (!isValidSecretPassword(passwordInput)) {
-        throw new Error('Password must be at least 4 characters long.');
+        throw new Error(pickMsg('Password must be at least 4 characters long.', 'పాస్‌వర్డ్ కనీసం 4 అక్షరాలు ఉండాలి.'));
       }
 
       const existingIdx = await getDoc(doc(db, 'usernameIndex', username));
       if (existingIdx.exists()) {
         const idxData = existingIdx.data() as { uid?: string; active?: boolean };
         if (idxData.uid !== firebaseUser.uid && idxData.active !== false) {
-          throw new Error(`Username "@${username}" is already taken by another account.`);
+          throw new Error(
+            pickMsg(
+              `Username "@${username}" is already taken by another account.`,
+              `యూజర్‌నేమ్ "@${username}" ఇప్పటికే మరొక ఖాతాలో వాడుకలో ఉంది.`
+            )
+          );
         }
       }
 
@@ -953,12 +1052,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await reauthenticateWithPopup(firebaseUser, googleProvider);
             await applyFirebasePassword();
           } else {
-            throw new Error('For security, please sign out and sign back in, then update your password.');
+            throw new Error(
+              pickMsg(
+                'For security, please sign out and sign back in, then update your password.',
+                'భద్రత కోసం, దయచేసి సైన్ అవుట్ చేసి మళ్లీ సైన్ ఇన్ అయిన తర్వాత పాస్‌వర్డ్ మార్చండి.'
+              )
+            );
           }
         } else if (code === 'auth/operation-not-allowed') {
           setEmailPasswordDisabled(true);
           throw new Error(
-            'Enable Email/Password in Firebase Console → Authentication → Sign-in method so you can log in with Username & Password from any device.'
+            pickMsg(
+              'Enable Email/Password in Firebase Console → Authentication → Sign-in method so you can log in with Username & Password from any device.',
+              'ఏ పరికరం నుండైనా యూజర్‌నేమ్ & పాస్‌వర్డ్‌తో లాగిన్ అవ్వడానికి ఫైర్‌బేస్ కన్సోల్‌లో ఇమెయిల్/పాస్‌వర్డ్‌ను ప్రారంభించండి.'
+            )
           );
         } else {
           throw err;
@@ -1004,15 +1111,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCachedUserAccount(firebaseUser.uid, nextAccount);
       syncSavedCredentialsFromAccount(nextAccount);
     },
-    [firebaseUser, userAccount, syncSavedCredentialsFromAccount]
+    [firebaseUser, userAccount, syncSavedCredentialsFromAccount, pickMsg]
   );
 
   const resetPasswordByUsernameOrEmail = useCallback(async (usernameOrEmail: string): Promise<string> => {
     if (!navigator.onLine) {
-      throw new Error('Connect to the internet to send a password reset email.');
+      throw new Error(
+        pickMsg(
+          'Connect to the internet to send a password reset email.',
+          'పాస్‌వర్డ్ రీసెట్ ఇమెయిల్ పంపడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'
+        )
+      );
     }
     const clean = normalizeUsername(usernameOrEmail);
-    if (!clean) throw new Error('Enter your username or email address first.');
+    if (!clean) {
+      throw new Error(
+        pickMsg('Enter your username or email address first.', 'ముందుగా మీ యూజర్‌నేమ్ లేదా ఇమెయిల్ నమోదు చేయండి.')
+      );
+    }
 
     let targetEmail = '';
     if (isValidUsername(clean)) {
@@ -1025,22 +1141,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       targetEmail = clean;
     }
     if (!targetEmail) {
-      throw new Error('Username or email not found.');
+      throw new Error(pickMsg('Username or email not found.', 'యూజర్‌నేమ్ లేదా ఇమెయిల్ కనుగొనబడలేదు.'));
     }
     if (targetEmail.endsWith('@slpstaff.local')) {
       throw new Error(
-        'This staff login uses a store username without a personal email. Ask the business owner in User Management to set a new password.'
+        pickMsg(
+          'This staff login uses a store username without a personal email. Ask the business owner in User Management to set a new password.',
+          'ఈ సిబ్బంది లాగిన్‌కు వ్యక్తిగత ఇమెయిల్ లేదు. యూజర్ మేనేజ్‌మెంట్‌లో కొత్త పాస్‌వర్డ్ సెట్ చేయమని వ్యాపార యజమానిని అడగండి.'
+        )
       );
     }
     await sendPasswordResetEmail(auth, targetEmail);
     return targetEmail;
-  }, []);
+  }, [pickMsg]);
 
   const signInWithMpin = useCallback(
     async (uid: string, pin: string) => {
       setAuthError(null);
       if (!isValidFourDigitMpin(pin)) {
-        throw new Error('Please enter all 4 numeric digits.');
+        throw new Error(pickMsg('Please enter all 4 numeric digits.', 'దయచేసి 4 అంకెలను నమోదు చేయండి.'));
       }
 
       const profiles = loadSavedMpinProfiles();
@@ -1056,15 +1175,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : target?.mpinSalt;
 
       if (!target && !((firebaseUser?.uid === uid || offlineUnlockedUidState === uid) && userAccount?.mpinEnabled)) {
-        throw new Error('MPIN is not configured for this device yet. Sign in first.');
+        throw new Error(
+          pickMsg(
+            'MPIN is not configured for this device yet. Sign in first.',
+            'ఈ పరికరానికి ఇంకా ఎంపిన్ సెట్ చేయబడలేదు. ముందుగా సైన్ ఇన్ చేయండి.'
+          )
+        );
       }
 
       if (target?.lockedUntilGoogle) {
-        throw new Error('MPIN temporarily locked after 5 failed attempts. Sign in with Username & Password or Google to unlock.');
+        throw new Error(
+          pickMsg(
+            'MPIN temporarily locked after 5 failed attempts. Sign in with Username & Password or Google to unlock.',
+            '5 తప్పు ప్రయత్నాల తర్వాత ఎంపిన్ తాత్కాలికంగా లాక్ చేయబడింది. యూజర్‌నేమ్ & పాస్‌వర్డ్ లేదా గూగుల్‌తో అన్‌లాక్ చేయండి.'
+          )
+        );
       }
 
       if (!expectedHash || !expectedSalt) {
-        throw new Error('MPIN credentials missing. Sign in with Username & Password or Google.');
+        throw new Error(
+          pickMsg(
+            'MPIN credentials missing. Sign in with Username & Password or Google.',
+            'ఎంపిన్ వివరాలు లేవు. యూజర్‌నేమ్ & పాస్‌వర్డ్ లేదా గూగుల్‌తో సైన్ ఇన్ చేయండి.'
+          )
+        );
       }
 
       const ok = await verifyMpinHash(pin, expectedSalt, expectedHash);
@@ -1072,9 +1206,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const attemptResult = recordMpinAttempt(uid, false);
         setSavedMpinProfiles(attemptResult.profiles);
         if (attemptResult.locked) {
-          throw new Error('Too many wrong attempts. Use Username & Password or Google to unlock.');
+          throw new Error(
+            pickMsg(
+              'Too many wrong attempts. Use Username & Password or Google to unlock.',
+              'చాలా తప్పు ప్రయత్నాలు జరిగాయి. యూజర్‌నేమ్ & పాస్‌వర్డ్ లేదా గూగుల్‌తో అన్‌లాక్ చేయండి.'
+            )
+          );
         }
-        throw new Error(`Incorrect 4-digit MPIN. ${attemptResult.remainingAttempts} attempt(s) left.`);
+        throw new Error(
+          pickMsg(
+            `Incorrect 4-digit MPIN. ${attemptResult.remainingAttempts} attempt(s) left.`,
+            `తప్పు 4-అంకెల ఎంపిన్. ఇంకా ${attemptResult.remainingAttempts} ప్రయత్నాలు మిగిలి ఉన్నాయి.`
+          )
+        );
       }
 
       const attemptResult = recordMpinAttempt(uid, true);
@@ -1100,7 +1244,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (!navigator.onLine) {
         throw new Error(
-          'Please connect to the internet once to complete account verification on this device.'
+          pickMsg(
+            'Please connect to the internet once to complete account verification on this device.',
+            'ఈ పరికరంలో ఖాతా ధృవీకరణ కోసం ఒకసారి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'
+          )
         );
       }
 
@@ -1109,9 +1256,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      throw new Error('Please sign in once with your Username & Password to activate MPIN on this device.');
+      throw new Error(
+        pickMsg(
+          'Please sign in once with your Username & Password to activate MPIN on this device.',
+          'ఈ పరికరంలో ఎంపిన్‌ను యాక్టివేట్ చేయడానికి ఒకసారి యూజర్‌నేమ్ & పాస్‌వర్డ్‌తో సైన్ ఇన్ చేయండి.'
+        )
+      );
     },
-    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, signInWithGoogle]
+    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, signInWithGoogle, pickMsg]
   );
 
   const lockWithMpin = useCallback(() => {
@@ -1148,10 +1300,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (updates: { displayName: string; phoneNumber?: string; photoDataUrl?: string }) => {
       const uid = firebaseUser?.uid || offlineUnlockedUidState;
       if (!uid || !userAccount) {
-        throw new Error('Sign in required to update profile.');
+        throw new Error(pickMsg('Sign in required to update profile.', 'ప్రొఫైల్ నవీకరించడానికి సైన్ ఇన్ అవసరం.'));
       }
       const cleanName = updates.displayName.trim().slice(0, 120);
-      if (!cleanName) throw new Error('Full name cannot be empty.');
+      if (!cleanName) throw new Error(pickMsg('Full name cannot be empty.', 'పూర్తి పేరు ఖాళీగా ఉండకూడదు.'));
       const cleanPhone = (updates.phoneNumber || '').trim().slice(0, 30);
       const cleanPhoto = (updates.photoDataUrl || '').slice(0, 120000);
 
@@ -1174,24 +1326,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCachedUserAccount(uid, nextAccount);
       syncSavedCredentialsFromAccount(nextAccount);
     },
-    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount]
+    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount, pickMsg]
   );
 
   const changeMyEmail = useCallback(
     async (newEmailRaw: string) => {
       const uid = firebaseUser?.uid;
       if (!uid || !userAccount) {
-        throw new Error('Online sign-in required to change authorized email.');
+        throw new Error(pickMsg('Online sign-in required to change authorized email.', 'ఇమెయిల్ మార్చడానికి ఆన్‌లైన్ సైన్-ఇన్ అవసరం.'));
       }
       if (!navigator.onLine) {
-        throw new Error('Please connect to the internet to update your authorized email.');
+        throw new Error(pickMsg('Please connect to the internet to update your authorized email.', 'మీ ఇమెయిల్ మార్చడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'));
       }
       const cleanEmail = newEmailRaw.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanEmail.length > 160) {
-        throw new Error('Enter a valid email address.');
+        throw new Error(pickMsg('Enter a valid email address.', 'సరైన ఇమెయిల్ చిరునామా నమోదు చేయండి.'));
       }
       if (cleanEmail === userAccount.email.toLowerCase()) {
-        throw new Error('This email is already active on your profile.');
+        throw new Error(pickMsg('This email is already active on your profile.', 'ఈ ఇమెయిల్ ఇప్పటికే మీ ప్రొఫైల్‌లో ఉంది.'));
       }
 
       const businessId = userAccount.businessId || DEFAULT_BUSINESS_ID;
@@ -1245,17 +1397,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCachedUserAccount(uid, nextAccount);
       syncSavedCredentialsFromAccount(nextAccount);
     },
-    [firebaseUser?.uid, userAccount, syncSavedCredentialsFromAccount]
+    [firebaseUser?.uid, userAccount, syncSavedCredentialsFromAccount, pickMsg]
   );
 
   const setupMyMpin = useCallback(
     async (pin: string) => {
       const uid = firebaseUser?.uid || offlineUnlockedUidState;
       if (!uid || !userAccount) {
-        throw new Error('Sign in required to create MPIN.');
+        throw new Error(pickMsg('Sign in required to create MPIN.', 'ఎంపిన్ సెట్ చేయడానికి సైన్ ఇన్ అవసరం.'));
       }
       if (!isValidFourDigitMpin(pin)) {
-        throw new Error('MPIN must be exactly 4 numeric digits.');
+        throw new Error(pickMsg('MPIN must be exactly 4 numeric digits.', 'ఎంపిన్ ఖచ్చితంగా 4 అంకెలు ఉండాలి.'));
       }
       const salt = generateMpinSalt();
       const hash = await hashMpin(pin, salt);
@@ -1280,7 +1432,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCachedUserAccount(uid, nextAccount);
       syncSavedCredentialsFromAccount(nextAccount, true);
     },
-    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount]
+    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount, pickMsg]
   );
 
   const disableMyMpin = useCallback(async () => {

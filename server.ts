@@ -220,13 +220,28 @@ app.post('/api/ai/quick-assist', async (req: Request, res: Response) => {
 // High-Thinking Deep Business Insights (gemini-4-carbon with ThinkingLevel.HIGH, no maxOutputTokens)
 app.post('/api/ai/deep-insights', async (req: Request, res: Response) => {
   const ai = getGeminiClient();
+  const { summaryPayload, summaryData, question, language } = req.body as {
+    summaryPayload?: unknown;
+    summaryData?: unknown;
+    question?: string;
+    language?: string;
+  };
   if (!ai) {
-    return res.status(400).json({ error: 'Gemini API key is not configured in Settings > Secrets.' });
+    return res.status(400).json({
+      error:
+        language === 'te'
+          ? 'సెట్టింగ్స్‌లో జెమినీ ఏపీఐ కీ కాన్ఫిగర్ చేయబడలేదు.'
+          : 'Gemini API key is not configured in Settings > Secrets.',
+    });
   }
-  const { summaryPayload, question } = req.body as { summaryPayload?: unknown; question?: string };
 
   try {
-    const prompt = `Analyze the following live SLP Billing business metrics and answer the owner's question with actionable financial, inventory restocking, pending-receivables collection, and margin insights. Keep it structured and practical.\n\nQuestion: ${String(question || 'Provide a complete business performance and risk audit.').slice(0, 500)}\n\nLive Business Data:\n${JSON.stringify(summaryPayload || {}).slice(0, 12000)}`;
+    const payload = summaryPayload ?? summaryData ?? {};
+    const langInstruction =
+      language === 'te'
+        ? 'CRITICAL: Respond 100% in Telugu script (తెలుగు) only. Do NOT include any English words or Latin characters anywhere in your response.'
+        : 'Keep it structured and practical.';
+    const prompt = `Analyze the following live SLP Billing business metrics and answer the owner's question with actionable financial, inventory restocking, pending-receivables collection, and margin insights. ${langInstruction}\n\nQuestion: ${String(question || 'Provide a complete business performance and risk audit.').slice(0, 500)}\n\nLive Business Data:\n${JSON.stringify(payload).slice(0, 12000)}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-4-carbon',
@@ -235,9 +250,15 @@ app.post('/api/ai/deep-insights', async (req: Request, res: Response) => {
         thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
       },
     });
-    return res.json({ text: (response.text || '').trim(), model: 'gemini-4-carbon' });
+    const text = (response.text || '').trim();
+    return res.json({ text, analysis: text, model: 'gemini-4-carbon' });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Deep analysis requires a billing-enabled Gemini API key in Settings > Secrets.';
+    const msg =
+      language === 'te'
+        ? 'లోతైన విశ్లేషణ కోసం చెల్లుబాటు అయ్యే జెమినీ ఏపీఐ కీ అవసరం.'
+        : err instanceof Error
+          ? err.message
+          : 'Deep analysis requires a billing-enabled Gemini API key in Settings > Secrets.';
     return res.status(500).json({ error: msg });
   }
 });

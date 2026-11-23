@@ -338,7 +338,10 @@ function calculateBillTotalsLocal(params: {
 }
 
 export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { firebaseUser, activeUid, userAccount, deviceRevoked, accessDeniedReason, authReady, isAdmin } = useAuth();
+  const { firebaseUser, activeUid, userAccount, deviceRevoked, accessDeniedReason, authReady, isAdmin, language } = useAuth();
+  const languageRef = useRef(language);
+  languageRef.current = language;
+  const pickMsg = useCallback((en: string, te: string) => (languageRef.current === 'te' ? te : en), []);
   const isOnline = useOnlineStatus();
 
   const businessId = userAccount?.businessId || DEFAULT_BUSINESS_ID;
@@ -459,7 +462,11 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setPendingSyncCount(0);
             setSyncState('connected');
             setLastSyncedAt(new Date());
-            showNotice('synced', 'Offline changes synced to cloud', 3200);
+            showNotice(
+              'synced',
+              pickMsg('Offline changes synced to cloud', 'ఆఫ్‌లైన్ మార్పులు క్లౌడ్‌కు సింక్ అయ్యాయి'),
+              3200
+            );
           })
           .catch(() => {
             setSyncState('connected');
@@ -470,7 +477,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } else {
       setSyncState((prev) => (prev === 'offline' ? 'connected' : prev));
     }
-  }, [isOnline, showNotice]);
+  }, [isOnline, showNotice, pickMsg]);
 
   useEffect(() => {
     if (!authReady || !userUid || accountStatus !== 'active' || accessDeniedReason || deviceRevoked) {
@@ -654,10 +661,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const createBillAtomic = useCallback(
     async (payload: CreateBillPayload): Promise<Bill> => {
       if (!actorUser || !userAccount || !business) {
-        throw new Error('Authentication and business profile required.');
+        throw new Error(pickMsg('Authentication and business profile required.', 'లాగిన్ మరియు వ్యాపార ప్రొఫైల్ అవసరం.'));
       }
       if (submittedKeysRef.current.has(payload.idempotencyKey)) {
-        throw new Error('Duplicate bill submission blocked.');
+        throw new Error(pickMsg('Duplicate bill submission blocked.', 'డూప్లికేట్ బిల్ సమర్పణ నిలిపివేయబడింది.'));
       }
       submittedKeysRef.current.add(payload.idempotencyKey);
 
@@ -682,7 +689,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             const json = await calcRes.json();
             if (!calcRes.ok) {
               submittedKeysRef.current.delete(payload.idempotencyKey);
-              throw new Error(json.error || 'Server financial validation failed.');
+              throw new Error(json.error || pickMsg('Server financial validation failed.', 'సర్వర్ లెక్కల నిర్ధారణ విఫలమైంది.'));
             }
             calcData = json;
           } catch (fetchErr) {
@@ -991,13 +998,19 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (!navigator.onLine) {
           await runOfflineBatchBill();
           setSyncState('offline');
-          showNotice('offline', `Bill ${createdBillNumber} saved offline · Will sync to cloud`);
+          showNotice(
+            'offline',
+            pickMsg(
+              `Bill ${createdBillNumber} saved offline · Will sync to cloud`,
+              `బిల్ ${createdBillNumber} ఆఫ్‌లైన్‌లో సేవ్ అయింది · క్లౌడ్‌కు సింక్ అవుతుంది`
+            )
+          );
         } else {
           try {
             await runTransaction(db, async (tx) => {
           const bizRef = doc(db, 'businesses', businessId);
           const bizSnap = await tx.get(bizRef);
-          if (!bizSnap.exists()) throw new Error('Central business document not found.');
+          if (!bizSnap.exists()) throw new Error(pickMsg('Central business document not found.', 'ప్రధాన వ్యాపార వివరాలు కనుగొనబడలేదు.'));
           const bizData = bizSnap.data() as Business;
 
           const seq = bizData.nextBillNumber || 1001;
@@ -1312,7 +1325,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             if (!navigator.onLine || msg.includes('offline') || msg.includes('unavailable') || msg.includes('network')) {
               await runOfflineBatchBill();
               setSyncState('offline');
-              showNotice('offline', `Bill ${createdBillNumber} saved offline · Will sync to database`);
+              showNotice(
+                'offline',
+                pickMsg(
+                  `Bill ${createdBillNumber} saved offline · Will sync to database`,
+                  `బిల్ ${createdBillNumber} ఆఫ్‌లైన్‌లో సేవ్ అయింది · డేటాబేస్‌కు సింక్ అవుతుంది`
+                )
+              );
             } else {
               throw txErr;
             }
@@ -1371,18 +1390,18 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       referenceId?: string;
       notes?: string;
     }) => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
-      if (params.amount <= 0) throw new Error('Payment amount must be greater than zero.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
+      if (params.amount <= 0) throw new Error(pickMsg('Payment amount must be greater than zero.', 'చెల్లింపు మొత్తం సున్నా కంటే ఎక్కువగా ఉండాలి.'));
 
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
       const creatorName = userAccount.displayName || actorUser.email || 'Staff';
 
       const runOfflinePayment = async () => {
         const cachedBill = bills.find((b) => b.id === params.billId);
-        if (!cachedBill) throw new Error('Bill not found in offline cache.');
-        if (cachedBill.billStatus !== 'active') throw new Error('Cannot record payment on a cancelled or refunded bill.');
+        if (!cachedBill) throw new Error(pickMsg('Bill not found in offline cache.', 'ఆఫ్‌లైన్ క్యాష్‌లో బిల్ కనుగొనబడలేదు.'));
+        if (cachedBill.billStatus !== 'active') throw new Error(pickMsg('Cannot record payment on a cancelled or refunded bill.', 'రద్దు చేసిన లేదా వాపసు చేసిన బిల్‌పై చెల్లింపు నమోదు చేయలేరు.'));
         const payAmount = Math.min(cachedBill.pendingBalance, Math.round(params.amount * 100) / 100);
-        if (payAmount <= 0) throw new Error('Bill has no pending balance.');
+        if (payAmount <= 0) throw new Error(pickMsg('Bill has no pending balance.', 'బిల్‌లో బాకీ మొత్తం లేదు.'));
 
         const nextPaid = Math.round((cachedBill.amountPaid + payAmount) * 100) / 100;
         const nextPending = Math.max(0, Math.round((cachedBill.grandTotal - nextPaid) * 100) / 100);
@@ -1439,7 +1458,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         });
         await commitWithOfflineSupport(batch.commit());
         setSyncState('offline');
-        showNotice('offline', `Payment ₹${payAmount.toFixed(0)} saved offline · Will sync to database`);
+        showNotice(
+          'offline',
+          pickMsg(
+            `Payment ₹${payAmount.toFixed(0)} saved offline · Will sync to database`,
+            `చెల్లింపు ₹${payAmount.toFixed(0)} ఆఫ్‌లైన్‌లో సేవ్ అయింది · డేటాబేస్‌కు సింక్ అవుతుంది`
+          )
+        );
       };
 
       if (!navigator.onLine) {
@@ -1451,12 +1476,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         await runTransaction(db, async (tx) => {
         const billRef = doc(db, 'bills', params.billId);
         const billSnap = await tx.get(billRef);
-        if (!billSnap.exists()) throw new Error('Bill not found.');
+        if (!billSnap.exists()) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
         const billData = billSnap.data() as Bill;
-        if (billData.billStatus !== 'active') throw new Error('Cannot record payment on a cancelled or refunded bill.');
+        if (billData.billStatus !== 'active') throw new Error(pickMsg('Cannot record payment on a cancelled or refunded bill.', 'రద్దు చేసిన లేదా వాపసు చేసిన బిల్‌పై చెల్లింపు నమోదు చేయలేరు.'));
 
         const payAmount = Math.min(billData.pendingBalance, Math.round(params.amount * 100) / 100);
-        if (payAmount <= 0) throw new Error('Bill has no pending balance.');
+        if (payAmount <= 0) throw new Error(pickMsg('Bill has no pending balance.', 'బిల్‌లో బాకీ మొత్తం లేదు.'));
 
         const nextPaid = Math.round((billData.amountPaid + payAmount) * 100) / 100;
         const nextPending = Math.max(0, Math.round((billData.grandTotal - nextPaid) * 100) / 100);
@@ -1571,16 +1596,16 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const cancelBillAtomic = useCallback(
     async (billId: string, reason: string) => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       setSyncState('synchronizing');
       const creatorName = userAccount.displayName || actorUser.email || 'Admin';
 
       await runTransaction(db, async (tx) => {
         const billRef = doc(db, 'bills', billId);
         const billSnap = await tx.get(billRef);
-        if (!billSnap.exists()) throw new Error('Bill not found.');
+        if (!billSnap.exists()) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
         const billData = billSnap.data() as Bill;
-        if (billData.billStatus === 'cancelled') throw new Error('Bill is already cancelled.');
+        if (billData.billStatus === 'cancelled') throw new Error(pickMsg('Bill is already cancelled.', 'ఈ బిల్ ఇప్పటికే రద్దు చేయబడింది.'));
 
         const itemsForBill = billItems.filter((bi) => bi.billId === billId);
         const prodSnaps = await Promise.all(itemsForBill.map((bi) => tx.get(doc(db, 'products', bi.productId))));
@@ -1703,17 +1728,17 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       method: 'Cash' | 'UPI' | 'Bank Transfer' | 'Other';
       reason: string;
     }) => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       setSyncState('synchronizing');
       const creatorName = userAccount.displayName || actorUser.email || 'Admin';
 
       await runTransaction(db, async (tx) => {
         const billRef = doc(db, 'bills', params.billId);
         const billSnap = await tx.get(billRef);
-        if (!billSnap.exists()) throw new Error('Bill not found.');
+        if (!billSnap.exists()) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
         const billData = billSnap.data() as Bill;
         const refundAmt = Math.min(billData.amountPaid, Math.round(params.amount * 100) / 100);
-        if (refundAmt <= 0) throw new Error('No paid amount available to refund.');
+        if (refundAmt <= 0) throw new Error(pickMsg('No paid amount available to refund.', 'వాపసు చేయడానికి చెల్లించిన మొత్తం లేదు.'));
 
         const nextPaid = Math.max(0, Math.round((billData.amountPaid - refundAmt) * 100) / 100);
         const nextPending = Math.round((billData.grandTotal - nextPaid) * 100) / 100;
@@ -1811,16 +1836,16 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const editBillAtomic = useCallback(
     async (payload: EditBillPayload) => {
       if (!actorUser || !userAccount || !business) {
-        throw new Error('Authentication and business profile required.');
+        throw new Error(pickMsg('Authentication and business profile required.', 'లాగిన్ మరియు వ్యాపార ప్రొఫైల్ అవసరం.'));
       }
       if (!isAdmin) {
-        throw new Error('Only business administrators can edit saved bills.');
+        throw new Error(pickMsg('Only business administrators can edit saved bills.', 'సేవ్ చేసిన బిల్లులను యజమాని మాత్రమే సవరించగలరు.'));
       }
       if (!payload.items.length) {
-        throw new Error('Bill must contain at least one item.');
+        throw new Error(pickMsg('Bill must contain at least one item.', 'బిల్‌లో కనీసం ఒక వస్తువు ఉండాలి.'));
       }
       if (!payload.customerName.trim()) {
-        throw new Error('Customer name is required.');
+        throw new Error(pickMsg('Customer name is required.', 'కస్టమర్ పేరు తప్పనిసరి.'));
       }
 
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
@@ -1841,7 +1866,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           });
           const json = await calcRes.json();
           if (!calcRes.ok) {
-            throw new Error(json.error || 'Server financial validation failed.');
+            throw new Error(json.error || pickMsg('Server financial validation failed.', 'సర్వర్ లెక్కల నిర్ధారణ విఫలమైంది.'));
           }
           calcData = json;
         } catch (fetchErr) {
@@ -2072,9 +2097,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       const runOfflineEdit = async () => {
         const cachedBill = bills.find((b) => b.id === payload.billId);
-        if (!cachedBill) throw new Error('Bill not found.');
+        if (!cachedBill) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
         if (cachedBill.billStatus !== 'active') {
-          throw new Error('Only active bills can be edited.');
+          throw new Error(pickMsg('Only active bills can be edited.', 'సక్రియ బిల్లులను మాత్రమే సవరించగలరు.'));
         }
         const productLookup = new Map<string, Product>();
         products.forEach((p) => productLookup.set(p.id, p));
@@ -2093,7 +2118,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         );
         await commitWithOfflineSupport(batch.commit());
         setSyncState('offline');
-        showNotice('offline', `Edited ${cachedBill.billNumber} offline · Will sync to database`);
+        showNotice(
+          'offline',
+          pickMsg(
+            `Edited ${cachedBill.billNumber} offline · Will sync to database`,
+            `${cachedBill.billNumber} ఆఫ్‌లైన్‌లో సవరించబడింది · డేటాబేస్‌కు సింక్ అవుతుంది`
+          )
+        );
       };
 
       if (!navigator.onLine) {
@@ -2105,10 +2136,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         await runTransaction(db, async (tx) => {
           const billRef = doc(db, 'bills', payload.billId);
           const billSnap = await tx.get(billRef);
-          if (!billSnap.exists()) throw new Error('Bill not found.');
+          if (!billSnap.exists()) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
           const billData = billSnap.data() as Bill;
           if (billData.billStatus !== 'active') {
-            throw new Error('Only active bills can be edited.');
+            throw new Error(pickMsg('Only active bills can be edited.', 'సక్రియ బిల్లులను మాత్రమే సవరించగలరు.'));
           }
 
           const prodSnaps = await Promise.all(
@@ -2214,7 +2245,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         taxRate: number;
       }
     ): Promise<string> => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       setSyncState('synchronizing');
       const isEdit = Boolean(product.id);
       const id = product.id || generateSafeId('prod');
@@ -2280,11 +2311,11 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const softDeleteBillAtomic = useCallback(
     async (billId: string) => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       const target = rawBills.find((b) => b.id === billId);
-      if (!target) throw new Error('Bill not found.');
+      if (!target) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
       if (!isAdmin && target.createdByUid !== actorUser.uid) {
-        throw new Error('You can only delete bills created by your account.');
+        throw new Error(pickMsg('You can only delete bills created by your account.', 'మీరు సృష్టించిన బిల్లులను మాత్రమే తొలగించగలరు.'));
       }
       const nowMs = Date.now();
       const expiresAtMs = nowMs + TEN_DAYS_MS;
@@ -2336,15 +2367,21 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       await commitWithOfflineSupport(batch.commit());
       if (!navigator.onLine) {
         setSyncState('offline');
-        showNotice('offline', `Bill ${target.billNumber} moved to Removed bin offline · Auto-syncs later`);
+        showNotice(
+          'offline',
+          pickMsg(
+            `Bill ${target.billNumber} moved to Removed bin offline · Auto-syncs later`,
+            `బిల్ ${target.billNumber} ఆఫ్‌లైన్‌లో తొలగించిన జాబితాకు తరలించబడింది · తర్వాత సింక్ అవుతుంది`
+          )
+        );
       }
     },
-    [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice]
+    [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice, pickMsg]
   );
 
   const softDeleteBillsBulkAtomic = useCallback(
     async (billIds: string[]): Promise<number> => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       const uniqueIds = Array.from(new Set(billIds.filter(Boolean)));
       if (uniqueIds.length === 0) return 0;
 
@@ -2353,13 +2390,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         .filter((b): b is Bill => Boolean(b && !b.isDeleted));
 
       if (targets.length === 0) {
-        throw new Error('No eligible active bills found to delete.');
+        throw new Error(pickMsg('No eligible active bills found to delete.', 'తొలగించడానికి అర్హమైన సక్రియ బిల్లులు లేవు.'));
       }
 
       if (!isAdmin) {
         const unauthorized = targets.find((b) => b.createdByUid !== actorUser.uid);
         if (unauthorized) {
-          throw new Error('You can only delete bills created by your account.');
+          throw new Error(pickMsg('You can only delete bills created by your account.', 'మీరు సృష్టించిన బిల్లులను మాత్రమే తొలగించగలరు.'));
         }
       }
 
@@ -2424,21 +2461,27 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       if (!navigator.onLine) {
         setSyncState('offline');
-        showNotice('offline', `${targets.length} bills moved to Removed bin offline · Auto-syncs later`);
+        showNotice(
+          'offline',
+          pickMsg(
+            `${targets.length} bills moved to Removed bin offline · Auto-syncs later`,
+            `${targets.length} బిల్లులు ఆఫ్‌లైన్‌లో తొలగించిన జాబితాకు తరలించబడ్డాయి · తర్వాత సింక్ అవుతాయి`
+          )
+        );
       }
 
       return targets.length;
     },
-    [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice]
+    [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice, pickMsg]
   );
 
   const restoreDeletedBillAtomic = useCallback(
     async (billId: string) => {
       if (!actorUser || !userAccount || !isAdmin) {
-        throw new Error('Only business administrators can restore deleted bills.');
+        throw new Error(pickMsg('Only business administrators can restore deleted bills.', 'తొలగించిన బిల్లులను యజమాని మాత్రమే పునరుద్ధరించగలరు.'));
       }
       const target = rawBills.find((b) => b.id === billId);
-      if (!target) throw new Error('Removed bill not found.');
+      if (!target) throw new Error(pickMsg('Removed bill not found.', 'తొలగించిన బిల్ కనుగొనబడలేదు.'));
       const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
 
       const batch = writeBatch(db);
@@ -2466,13 +2509,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       await commitWithOfflineSupport(batch.commit());
     },
-    [actorUser, userAccount, isAdmin, rawBills, businessId, accessContext]
+    [actorUser, userAccount, isAdmin, rawBills, businessId, accessContext, pickMsg]
   );
 
   const permanentlyDeleteBillAtomic = useCallback(
     async (billId: string) => {
       if (!actorUser || !userAccount || !isAdmin) {
-        throw new Error('Only business administrators can permanently delete bills.');
+        throw new Error(pickMsg('Only business administrators can permanently delete bills.', 'బిల్లులను శాశ్వతంగా యజమాని మాత్రమే తొలగించగలరు.'));
       }
       const target = rawBills.find((b) => b.id === billId);
       if (!target) return;
@@ -2520,7 +2563,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const deleteProduct = useCallback(
     async (productId: string) => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       const target = rawProducts.find((p) => p.id === productId);
       const nowMs = Date.now();
       const expiresAtMs = nowMs + TEN_DAYS_MS;
@@ -2556,16 +2599,16 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       await commitWithOfflineSupport(batch.commit());
     },
-    [actorUser, userAccount, rawProducts, businessId, accessContext]
+    [actorUser, userAccount, rawProducts, businessId, accessContext, pickMsg]
   );
 
   const restoreDeletedProduct = useCallback(
     async (productId: string) => {
       if (!actorUser || !userAccount || !isAdmin) {
-        throw new Error('Only business administrators can restore deleted products.');
+        throw new Error(pickMsg('Only business administrators can restore deleted products.', 'తొలగించిన ఉత్పత్తులను యజమాని మాత్రమే పునరుద్ధరించగలరు.'));
       }
       const target = rawProducts.find((p) => p.id === productId);
-      if (!target) throw new Error('Removed product not found.');
+      if (!target) throw new Error(pickMsg('Removed product not found.', 'తొలగించిన ఉత్పత్తి కనుగొనబడలేదు.'));
       const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
 
       const batch = writeBatch(db);
@@ -2593,13 +2636,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       await commitWithOfflineSupport(batch.commit());
     },
-    [actorUser, userAccount, isAdmin, rawProducts, businessId, accessContext]
+    [actorUser, userAccount, isAdmin, rawProducts, businessId, accessContext, pickMsg]
   );
 
   const permanentlyDeleteProduct = useCallback(
     async (productId: string) => {
       if (!actorUser || !userAccount || !isAdmin) {
-        throw new Error('Only business administrators can permanently delete products.');
+        throw new Error(pickMsg('Only business administrators can permanently delete products.', 'ఉత్పత్తులను శాశ్వతంగా యజమాని మాత్రమే తొలగించగలరు.'));
       }
       const target = rawProducts.find((p) => p.id === productId);
       const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
@@ -2660,12 +2703,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const adjustStockAtomic = useCallback(
     async (productId: string, quantityChange: number, type: 'restock' | 'adjustment' | 'return', note: string) => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
 
       const runOfflineStockAdjust = async () => {
         const cached = products.find((p) => p.id === productId);
-        if (!cached) throw new Error('Product not found.');
+        if (!cached) throw new Error(pickMsg('Product not found.', 'ఉత్పత్తి కనుగొనబడలేదు.'));
         const prevStock = Number(cached.stock || 0);
         const newStock = prevStock + quantityChange;
         const batch = writeBatch(db);
@@ -2692,7 +2735,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         });
         await commitWithOfflineSupport(batch.commit());
         setSyncState('offline');
-        showNotice('offline', 'Stock adjustment saved offline · Will sync to database');
+        showNotice(
+          'offline',
+          pickMsg(
+            'Stock adjustment saved offline · Will sync to database',
+            'స్టాక్ మార్పు ఆఫ్‌లైన్‌లో సేవ్ అయింది · డేటాబేస్‌కు సింక్ అవుతుంది'
+          )
+        );
       };
 
       if (!navigator.onLine) {
@@ -2704,7 +2753,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         await runTransaction(db, async (tx) => {
           const prodRef = doc(db, 'products', productId);
           const snap = await tx.get(prodRef);
-          if (!snap.exists()) throw new Error('Product not found.');
+          if (!snap.exists()) throw new Error(pickMsg('Product not found.', 'ఉత్పత్తి కనుగొనబడలేదు.'));
           const p = snap.data() as Product;
           const prevStock = Number(p.stock || 0);
           const newStock = prevStock + quantityChange;
@@ -2771,7 +2820,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const saveCustomer = useCallback(
     async (customer: Partial<Customer> & { name: string }): Promise<string> => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
       const isEdit = Boolean(customer.id);
       const id = customer.id || generateSafeId('cust');
@@ -2820,7 +2869,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (navigator.onLine) setLastSyncedAt(new Date());
       return id;
     },
-    [actorUser, userAccount, businessId, accessContext]
+    [actorUser, userAccount, businessId, accessContext, pickMsg]
   );
 
   const saveLabourWork = useCallback(
@@ -2833,12 +2882,17 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       paymentMethod: 'Cash' | 'UPI' | 'Bank Transfer' | 'Unpaid';
       note?: string;
     }): Promise<string> => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       const cleanName = entry.workerName.trim().slice(0, 160);
       const cleanWork = entry.workDone.trim().slice(0, 300);
       const cleanDate = entry.workDate.trim().slice(0, 10);
       if (!cleanName || !cleanWork || !/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
-        throw new Error('Worker name, work done, and valid date (YYYY-MM-DD) are required.');
+        throw new Error(
+          pickMsg(
+            'Worker name, work done, and valid date (YYYY-MM-DD) are required.',
+            'పనివారి పేరు, చేసిన పని మరియు సరైన తేదీ తప్పనిసరి.'
+          )
+        );
       }
 
       setSyncState('synchronizing');
@@ -2917,12 +2971,17 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       paymentMethod: 'Cash' | 'UPI' | 'Bank Transfer' | 'Other';
       note?: string;
     }): Promise<string> => {
-      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
       const cleanTitle = entry.title.trim().slice(0, 160);
       const cleanDate = entry.entryDate.trim().slice(0, 10);
       const amount = Math.round(Number(entry.amount || 0) * 100) / 100;
       if (!cleanTitle || !/^\d{4}-\d{2}-\d{2}$/.test(cleanDate) || amount <= 0) {
-        throw new Error('Title, valid date (YYYY-MM-DD), and amount greater than 0 are required.');
+        throw new Error(
+          pickMsg(
+            'Title, valid date (YYYY-MM-DD), and amount greater than 0 are required.',
+            'వివరం, సరైన తేదీ మరియు సున్నా కంటే ఎక్కువ మొత్తం తప్పనిసరి.'
+          )
+        );
       }
 
       setSyncState(navigator.onLine ? 'synchronizing' : 'offline');
@@ -3187,25 +3246,35 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       canManageProducts: boolean;
     }) => {
       if (!actorUser || !userAccount || !isAdmin) {
-        throw new Error('Administrator sign-in required.');
+        throw new Error(pickMsg('Administrator sign-in required.', 'అడ్మినిస్ట్రేటర్ సైన్-ఇన్ అవసరం.'));
       }
       if (!navigator.onLine) {
-        throw new Error('Internet connection required to create a new staff login.');
+        throw new Error(pickMsg('Internet connection required to create a new staff login.', 'కొత్త సిబ్బంది లాగిన్ సృష్టించడానికి ఇంటర్నెట్ కనెక్షన్ అవసరం.'));
       }
 
       const username = normalizeUsername(params.username);
       if (!isValidUsername(username)) {
-        throw new Error('Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).');
+        throw new Error(
+          pickMsg(
+            'Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).',
+            'యూజర్‌నేమ్ 3-40 అక్షరాలు ఉండాలి (అక్షరాలు, సంఖ్యలు, డాట్, అండర్‌స్కోర్, హైఫన్).'
+          )
+        );
       }
       if (!isValidSecretPassword(params.password)) {
-        throw new Error('Password must be at least 4 characters.');
+        throw new Error(pickMsg('Password must be at least 4 characters.', 'పాస్‌వర్డ్ కనీసం 4 అక్షరాలు ఉండాలి.'));
       }
       const cleanName = params.displayName.trim().slice(0, 120);
-      if (!cleanName) throw new Error('Staff full name is required.');
+      if (!cleanName) throw new Error(pickMsg('Staff full name is required.', 'సిబ్బంది పూర్తి పేరు తప్పనిసరి.'));
 
       const existingIdx = await getDoc(doc(db, 'usernameIndex', username));
       if (existingIdx.exists()) {
-        throw new Error(`Username "@${username}" already exists. Choose a different username.`);
+        throw new Error(
+          pickMsg(
+            `Username "@${username}" already exists. Choose a different username.`,
+            `యూజర్‌నేమ్ "@${username}" ఇప్పటికే ఉంది. వేరే యూజర్‌నేమ్ ఎంచుకోండి.`
+          )
+        );
       }
 
       const rawEmail = (params.email || '').trim().toLowerCase();
@@ -3228,12 +3297,18 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             : '';
         if (code === 'auth/operation-not-allowed') {
           throw new Error(
-            'Email/Password sign-in is disabled in Firebase Console. Open Firebase Console → Authentication → Sign-in method → enable Email/Password first.'
+            pickMsg(
+              'Email/Password sign-in is disabled in Firebase Console. Open Firebase Console → Authentication → Sign-in method → enable Email/Password first.',
+              'ఫైర్‌బేస్ కన్సోల్‌లో ఇమెయిల్/పాస్‌వర్డ్ సైన్-ఇన్ నిలిపివేయబడింది. ముందుగా దాన్ని ప్రారంభించండి.'
+            )
           );
         }
         if (code === 'auth/email-already-in-use') {
           throw new Error(
-            `The email "${authEmail}" is already registered. Use a different username or email, or ask that staff member to set their password in My Profile.`
+            pickMsg(
+              `The email "${authEmail}" is already registered. Use a different username or email, or ask that staff member to set their password in My Profile.`,
+              `ఇమెయిల్ "${authEmail}" ఇప్పటికే నమోదైంది. వేరే యూజర్‌నేమ్ లేదా ఇమెయిల్ వాడండి.`
+            )
           );
         }
         throw err;
@@ -3313,19 +3388,29 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const adminUpdateUserCredentials = useCallback(
     async (uid: string, params: { username?: string }) => {
       if (!actorUser || !userAccount || !isAdmin) {
-        throw new Error('Administrator sign-in required.');
+        throw new Error(pickMsg('Administrator sign-in required.', 'అడ్మినిస్ట్రేటర్ సైన్-ఇన్ అవసరం.'));
       }
       const target = users.find((u) => u.uid === uid);
-      if (!target) throw new Error('User not found.');
+      if (!target) throw new Error(pickMsg('User not found.', 'వినియోగదారు కనుగొనబడలేదు.'));
       if (!params.username) return;
 
       const nextUname = normalizeUsername(params.username);
       if (!isValidUsername(nextUname)) {
-        throw new Error('Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).');
+        throw new Error(
+          pickMsg(
+            'Username must be 3-40 characters (letters, numbers, dot, underscore, hyphen).',
+            'యూజర్‌నేమ్ 3-40 అక్షరాలు ఉండాలి (అక్షరాలు, సంఖ్యలు, డాట్, అండర్‌స్కోర్, హైఫన్).'
+          )
+        );
       }
       const idxSnap = await getDoc(doc(db, 'usernameIndex', nextUname));
       if (idxSnap.exists() && idxSnap.data().uid !== uid) {
-        throw new Error(`Username "@${nextUname}" is already in use.`);
+        throw new Error(
+          pickMsg(
+            `Username "@${nextUname}" is already in use.`,
+            `యూజర్‌నేమ్ "@${nextUname}" ఇప్పటికే వాడుకలో ఉంది.`
+          )
+        );
       }
       if (target.username && target.username !== nextUname) {
         await deleteDoc(doc(db, 'usernameIndex', target.username)).catch(() => {});

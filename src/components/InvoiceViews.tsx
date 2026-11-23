@@ -10,7 +10,7 @@ import {
   Smartphone,
   X,
 } from 'lucide-react';
-import { Bill, BillItem, Business, BusinessSettings, Product, UpiSetting } from '../types/billing';
+import { Bill, BillItem, Business, BusinessSettings, Language, Product, UpiSetting } from '../types/billing';
 import {
   buildPhonePeUri,
   buildUpiUri,
@@ -24,8 +24,23 @@ import {
 } from '../lib/barcodeAndBillImage';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
 import { formatTimestamp } from '../lib/firebase';
-import { getCopyrightNotice, resolveBusinessLogoUrl } from '../lib/seedData';
+import { resolveBusinessLogoUrl } from '../lib/seedData';
 import { useBillingData } from '../context/BillingDataContext';
+import { useAuth } from '../context/AuthContext';
+import {
+  formatAppDate,
+  getCopyrightNoticeLocalized,
+  tr,
+  translateAddress,
+  translateBusinessName,
+  translateCartProductName,
+  translateCustomerName,
+  translateFooterMessage,
+  translateGstType,
+  translatePaymentMethod,
+  translateProprietor,
+  translateVariantLabel,
+} from '../lib/i18n';
 
 interface PostBillActionsModalProps {
   bill: Bill | null;
@@ -35,6 +50,7 @@ interface PostBillActionsModalProps {
 
 export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill, items, onClose }) => {
   const { business, businessSettings, upiSetting, products, logMessageDispatch } = useBillingData();
+  const { language } = useAuth();
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [viewMode, setViewMode] = useState<'a4' | 'thermal'>('a4');
   const [thermalWidth, setThermalWidth] = useState<'58mm' | '80mm'>(businessSettings?.paperWidth || '80mm');
@@ -71,8 +87,11 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
 
   if (!bill || !business) return null;
 
-  const publicUrl = `${window.location.origin}/?invoice=${bill.publicToken}`;
+  const publicUrl = `${window.location.origin}/?invoice=${bill.publicToken}${language === 'te' ? '&lang=te' : ''}`;
   const isDue = bill.pendingBalance > 0 && bill.billStatus === 'active';
+  const bizDisplay = translateBusinessName(business.name, language);
+  const custDisplay = translateCustomerName(bill.customerName, language);
+  const methodDisplay = translatePaymentMethod(bill.paymentMethod, language);
   const upiPayUri =
     isDue && upiSetting?.upiId
       ? buildUpiUri({
@@ -102,18 +121,27 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
         business,
         upi: upiSetting,
         productImagesMap,
+        products,
+        language,
       });
 
       const statusNote = isDue
-        ? `Due Balance: ₹${bill.pendingBalance.toFixed(2)}\nPay using PhonePe / GPay / Any UPI on your bill link:`
-        : `Status: AMOUNT PAID (₹${bill.amountPaid.toFixed(2)} via ${bill.paymentMethod})`;
+        ? language === 'te'
+          ? `బాకీ మొత్తం: ₹${bill.pendingBalance.toFixed(2)}\nమీ బిల్ లింక్ ద్వారా ఫోన్‌పే / జీపే / యూపీఐతో చెల్లించండి:`
+          : `Due Balance: ₹${bill.pendingBalance.toFixed(2)}\nPay using PhonePe / GPay / Any UPI on your bill link:`
+        : language === 'te'
+          ? `స్థితి: పూర్తిగా చెల్లించబడింది (₹${bill.amountPaid.toFixed(2)} · ${methodDisplay})`
+          : `Status: AMOUNT PAID (₹${bill.amountPaid.toFixed(2)} via ${bill.paymentMethod})`;
 
-      const shareText = `${business.name}\nBill #${bill.billNumber} for ${bill.customerName}\nTotal: ₹${bill.grandTotal.toFixed(2)}\n${statusNote}\n${publicUrl}`;
+      const shareText =
+        language === 'te'
+          ? `${bizDisplay}\n${custDisplay} బిల్ #${bill.billNumber}\nమొత్తం: ₹${bill.grandTotal.toFixed(2)}\n${statusNote}\n${publicUrl}`
+          : `${business.name}\nBill #${bill.billNumber} for ${bill.customerName}\nTotal: ₹${bill.grandTotal.toFixed(2)}\n${statusNote}\n${publicUrl}`;
 
       const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
       if (nav.share && nav.canShare?.({ files: [file] })) {
         await nav.share({
-          title: `Bill ${bill.billNumber} - ${business.name}`,
+          title: `${tr(language, 'Bill', 'బిల్')} ${bill.billNumber} - ${bizDisplay}`,
           text: shareText,
           files: [file],
         });
@@ -127,11 +155,17 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
             status: 'opened_share_screen',
           });
         }
-        setStatusBanner({ type: 'success', text: 'Shared bill image via device share sheet (select WhatsApp).' });
+        setStatusBanner({
+          type: 'success',
+          text: tr(
+            language,
+            'Shared bill image via device share sheet (select WhatsApp).',
+            'పరికర షేర్ మెనూ ద్వారా బిల్ చిత్రం షేర్ చేయబడింది (వాట్సాప్ ఎంచుకోండి).'
+          ),
+        });
         return;
       }
 
-      // Desktop fallback: download PNG bill image + open WhatsApp Web/App with bill & PhonePe payment link
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = `${bill.billNumber}_Bill.png`;
@@ -156,29 +190,41 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
       }
       setStatusBanner({
         type: 'info',
-        text: `Saved ${bill.billNumber}_Bill.png and opened WhatsApp. Attach the downloaded bill image in WhatsApp!`,
+        text:
+          language === 'te'
+            ? `${bill.billNumber}_Bill.png సేవ్ చేయబడింది మరియు వాట్సాప్ తెరవబడింది. డౌన్‌లోడ్ చేసిన బిల్ చిత్రాన్ని వాట్సాప్‌లో జతచేయండి!`
+            : `Saved ${bill.billNumber}_Bill.png and opened WhatsApp. Attach the downloaded bill image in WhatsApp!`,
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      setStatusBanner({ type: 'error', text: err instanceof Error ? err.message : 'Unable to share bill image.' });
+      setStatusBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : tr(language, 'Unable to share bill image.', 'బిల్ చిత్రాన్ని షేర్ చేయడం సాధ్యం కాలేదు.'),
+      });
     } finally {
       setSharingImage(false);
     }
   };
 
   const handleSharePaymentLink = async () => {
-    const paymentMsg = `${business.name} - Payment Link for Bill #${bill.billNumber}\nCustomer: ${bill.customerName}\nTotal: ₹${bill.grandTotal.toFixed(2)} | Due Balance: ₹${bill.pendingBalance.toFixed(2)}\nPay via PhonePe / GPay / Any UPI & View Live Status:\n${publicUrl}`;
+    const paymentMsg =
+      language === 'te'
+        ? `${bizDisplay} - బిల్ #${bill.billNumber} చెల్లింపు లింక్\nకస్టమర్: ${custDisplay}\nమొత్తం: ₹${bill.grandTotal.toFixed(2)} | బాకీ: ₹${bill.pendingBalance.toFixed(2)}\nఫోన్‌పే / జీపే / యూపీఐ ద్వారా చెల్లించండి & ప్రత్యక్ష స్థితిని చూడండి:\n${publicUrl}`
+        : `${business.name} - Payment Link for Bill #${bill.billNumber}\nCustomer: ${bill.customerName}\nTotal: ₹${bill.grandTotal.toFixed(2)} | Due Balance: ₹${bill.pendingBalance.toFixed(2)}\nPay via PhonePe / GPay / Any UPI & View Live Status:\n${publicUrl}`;
     const cleanPhone = (bill.customerMobile || '').replace(/[^0-9]/g, '');
     const waTarget = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Pay Due ${formatCurrency(bill.pendingBalance)} · ${bill.billNumber}`,
+          title: `${tr(language, 'Pay Due', 'బాకీ చెల్లించండి')} ${formatCurrency(bill.pendingBalance)} · ${bill.billNumber}`,
           text: paymentMsg,
           url: publicUrl,
         });
-        setStatusBanner({ type: 'success', text: 'Shared customer payment link.' });
+        setStatusBanner({
+          type: 'success',
+          text: tr(language, 'Shared customer payment link.', 'కస్టమర్ చెల్లింపు లింక్ షేర్ చేయబడింది.'),
+        });
         return;
       } catch (e) {
         if (e instanceof Error && e.name === 'AbortError') return;
@@ -190,19 +236,30 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
       ? `https://wa.me/${waTarget}?text=${encodeURIComponent(paymentMsg)}`
       : `https://wa.me/?text=${encodeURIComponent(paymentMsg)}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
-    setStatusBanner({ type: 'success', text: 'Copied PhonePe/UPI payment link & opened WhatsApp.' });
+    setStatusBanner({
+      type: 'success',
+      text: tr(language, 'Copied PhonePe/UPI payment link & opened WhatsApp.', 'ఫోన్‌పే/యూపీఐ చెల్లింపు లింక్ కాపీ చేసి వాట్సాప్ తెరవబడింది.'),
+    });
   };
 
   const handleSmsSend = async () => {
     if (!bill.customerMobile) {
-      setStatusBanner({ type: 'error', text: 'Customer mobile number is required to send SMS.' });
+      setStatusBanner({
+        type: 'error',
+        text: tr(language, 'Customer mobile number is required to send SMS.', 'ఎస్‌ఎంఎస్ పంపడానికి కస్టమర్ మొబైల్ నంబర్ అవసరం.'),
+      });
       return;
     }
     setSendingSms(true);
     setStatusBanner(null);
-    const messageBody = `${business.name}: Bill ${bill.billNumber} · Total ₹${bill.grandTotal.toFixed(2)}${
-      bill.pendingBalance > 0 ? ` · Due ₹${bill.pendingBalance.toFixed(2)}` : ' · AMOUNT PAID'
-    }. View bill: ${publicUrl}`;
+    const messageBody =
+      language === 'te'
+        ? `${bizDisplay}: బిల్ ${bill.billNumber} · మొత్తం ₹${bill.grandTotal.toFixed(2)}${
+            bill.pendingBalance > 0 ? ` · బాకీ ₹${bill.pendingBalance.toFixed(2)}` : ' · పూర్తిగా చెల్లించబడింది'
+          }. బిల్ చూడండి: ${publicUrl}`
+        : `${business.name}: Bill ${bill.billNumber} · Total ₹${bill.grandTotal.toFixed(2)}${
+            bill.pendingBalance > 0 ? ` · Due ₹${bill.pendingBalance.toFixed(2)}` : ' · AMOUNT PAID'
+          }. View bill: ${publicUrl}`;
     try {
       const cleanPhone = bill.customerMobile.replace(/[^0-9+]/g, '');
       window.location.href = `sms:${cleanPhone}?body=${encodeURIComponent(messageBody)}`;
@@ -214,9 +271,15 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
         messageBody,
         status: 'opened_share_screen',
       });
-      setStatusBanner({ type: 'success', text: 'Opened device SMS app with bill details.' });
+      setStatusBanner({
+        type: 'success',
+        text: tr(language, 'Opened device SMS app with bill details.', 'బిల్ వివరాలతో ఎస్‌ఎంఎస్ యాప్ తెరవబడింది.'),
+      });
     } catch (err) {
-      setStatusBanner({ type: 'error', text: err instanceof Error ? err.message : 'Unable to open SMS app.' });
+      setStatusBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : tr(language, 'Unable to open SMS app.', 'ఎస్‌ఎంఎస్ యాప్ తెరవడం సాధ్యం కాలేదు.'),
+      });
     } finally {
       setSendingSms(false);
     }
@@ -234,10 +297,14 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
         {/* Header */}
         <div className="no-print flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-[#0B1F44] text-white">
           <div>
-            <h3 className="text-sm sm:text-base font-semibold">Invoice &amp; Receipt · {bill.billNumber}</h3>
+            <h3 className="text-sm sm:text-base font-semibold">
+              {tr(language, 'Invoice & Receipt', 'ఇన్వాయిస్ & రసీదు')} · {bill.billNumber}
+            </h3>
             <p className="text-xs text-slate-300 mt-0.5">
-              {bill.customerName} · {formatCurrency(bill.grandTotal)} ·{' '}
-              {isDue ? `DUE ${formatCurrency(bill.pendingBalance)}` : 'AMOUNT PAID'}
+              {custDisplay} · {formatCurrency(bill.grandTotal)} ·{' '}
+              {isDue
+                ? `${tr(language, 'DUE', 'బాకీ')} ${formatCurrency(bill.pendingBalance)}`
+                : tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10">
@@ -253,7 +320,9 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
           >
             <ImageIcon className="w-3.5 h-3.5" />
-            {sharingImage ? 'Rendering PNG...' : 'Share Bill Image (WhatsApp)'}
+            {sharingImage
+              ? tr(language, 'Rendering PNG...', 'చిత్రం తయారవుతోంది...')
+              : tr(language, 'Share Bill Image (WhatsApp)', 'బిల్ చిత్రాన్ని షేర్ చేయండి (వాట్సాప్)')}
           </button>
 
           {isDue && (
@@ -262,7 +331,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
             >
               <Smartphone className="w-3.5 h-3.5" />
-              Share PhonePe / UPI Pay Link
+              {tr(language, 'Share PhonePe / UPI Pay Link', 'ఫోన్‌పే / యూపీఐ చెల్లింపు లింక్ షేర్')}
             </button>
           )}
 
@@ -272,14 +341,14 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF] disabled:opacity-50"
           >
             <Send className="w-3.5 h-3.5" />
-            SMS
+            {tr(language, 'SMS', 'ఎస్‌ఎంఎస్')}
           </button>
         </div>
 
         {/* Public Invoice URL + Mode Switch */}
         <div className="no-print px-4 sm:px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-500">Customer Bill Link:</span>
+            <span className="text-slate-500">{tr(language, 'Customer Bill Link:', 'కస్టమర్ బిల్ లింక్:')}</span>
             <code className="font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded max-w-[210px] sm:max-w-[260px] truncate">
               {publicUrl}
             </code>
@@ -288,7 +357,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              {copiedLink ? 'Copied' : 'Copy'}
+              {copiedLink ? tr(language, 'Copied', 'కాపీ అయింది') : tr(language, 'Copy', 'కాపీ')}
             </button>
             <a
               href={publicUrl}
@@ -297,7 +366,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[#1D4ED8] dark:text-sky-400 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              Open
+              {tr(language, 'Open', 'తెరువు')}
             </a>
           </div>
 
@@ -309,7 +378,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
                   viewMode === 'a4' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
                 }`}
               >
-                A4 Invoice
+                {tr(language, 'A4 Invoice', 'ఏ4 ఇన్వాయిస్')}
               </button>
               <button
                 onClick={() => setViewMode('thermal')}
@@ -317,7 +386,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
                   viewMode === 'thermal' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
                 }`}
               >
-                Thermal Slip
+                {tr(language, 'Thermal Slip', 'థర్మల్ స్లిప్')}
               </button>
             </div>
 
@@ -329,7 +398,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
                     thermalWidth === '58mm' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
                   }`}
                 >
-                  58mm
+                  {language === 'te' ? '58 మి.మీ.' : '58mm'}
                 </button>
                 <button
                   onClick={() => setThermalWidth('80mm')}
@@ -337,7 +406,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
                     thermalWidth === '80mm' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
                   }`}
                 >
-                  80mm
+                  {language === 'te' ? '80 మి.మీ.' : '80mm'}
                 </button>
               </div>
             )}
@@ -372,6 +441,7 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
               upiId={upiSetting?.upiId}
               upiPayUri={upiPayUri}
               phonePeUri={phonePeUri}
+              language={language}
             />
           ) : (
             <ThermalReceiptPreview
@@ -381,6 +451,8 @@ export const PostBillActionsModal: React.FC<PostBillActionsModalProps> = ({ bill
               settings={businessSettings}
               paperWidth={thermalWidth}
               qrDataUrl={qrDataUrl}
+              products={products}
+              language={language}
             />
           )}
         </div>
@@ -399,10 +471,27 @@ export const A4InvoicePreview: React.FC<{
   upiId?: string;
   upiPayUri?: string;
   phonePeUri?: string;
-}> = ({ bill, items, business, settings, products = [], qrDataUrl, upiId, upiPayUri, phonePeUri }) => {
+  language?: Language;
+}> = ({
+  bill,
+  items,
+  business,
+  settings,
+  products = [],
+  qrDataUrl,
+  upiId,
+  upiPayUri,
+  phonePeUri,
+  language = 'en',
+}) => {
   const isDue = bill.pendingBalance > 0 && bill.billStatus === 'active';
   const verificationCode = useMemo(() => getBillVerificationBarcode(bill), [bill]);
   const barcodeDataUrl = useMemo(() => generateCode128SvgDataUrl(verificationCode), [verificationCode]);
+  const bizName = translateBusinessName(business.name, language);
+  const bizProp = translateProprietor(business.proprietor, language);
+  const bizAddress = translateAddress(business.address, language);
+  const custName = translateCustomerName(bill.customerName, language);
+  const payMethod = translatePaymentMethod(bill.paymentMethod, language);
 
   return (
     <div className="print-only-container w-full max-w-[780px] bg-white text-slate-900 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -411,32 +500,32 @@ export const A4InvoicePreview: React.FC<{
           {settings?.showLogo !== false && (
             <img
               src={resolveBusinessLogoUrl(business.logoUrl)}
-              alt={business.name}
+              alt={bizName}
               referrerPolicy="no-referrer"
               className="w-16 h-16 rounded-xl object-contain bg-white p-1 shrink-0"
             />
           )}
           <div>
-            <h2 className="text-lg font-bold tracking-tight">{business.name}</h2>
+            <h2 className="text-lg font-bold tracking-tight">{bizName}</h2>
             <p className="text-xs text-slate-300 mt-0.5">
               {[
-                business.proprietor ? `Prop: ${business.proprietor}` : '',
-                business.phone ? `Ph: ${business.phone}` : '',
-                business.gstin ? `GSTIN: ${business.gstin}` : '',
+                bizProp ? `${tr(language, 'Prop:', 'యజమాని:')} ${bizProp}` : '',
+                business.phone ? `${tr(language, 'Ph:', 'ఫోన్:')} ${business.phone}` : '',
+                business.gstin ? `${tr(language, 'GSTIN:', 'జీఎస్టీఐఎన్:')} ${business.gstin}` : '',
               ]
                 .filter(Boolean)
                 .join(' · ')}
             </p>
-            {business.address && <p className="text-xs text-slate-300 mt-0.5">{business.address}</p>}
+            {bizAddress && <p className="text-xs text-slate-300 mt-0.5">{bizAddress}</p>}
           </div>
         </div>
         <div className="text-right">
           <div className="text-sm font-bold tracking-wider uppercase text-sky-300">
-            {bill.totalTax > 0 ? 'Tax Invoice' : 'Invoice'}
+            {bill.totalTax > 0 ? tr(language, 'Tax Invoice', 'ట్యాక్స్ ఇన్వాయిస్') : tr(language, 'Invoice', 'ఇన్వాయిస్')}
           </div>
           <div className="font-mono text-base font-bold mt-0.5">{bill.billNumber}</div>
           <div className="text-xs text-slate-300 mt-0.5">
-            {formatTimestamp(bill.createdAt).toLocaleString('en-IN')}
+            {formatAppDate(formatTimestamp(bill.createdAt), language, true)}
           </div>
         </div>
       </div>
@@ -444,17 +533,26 @@ export const A4InvoicePreview: React.FC<{
       <div className="p-6 space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pb-4 border-b border-slate-200">
           <div>
-            <div className="text-xs font-semibold text-slate-500">Billed To</div>
-            <div className="text-sm font-bold text-slate-900 mt-1">{bill.customerName}</div>
-            {bill.customerMobile && <div className="text-xs text-slate-600 mt-0.5">Mobile: {bill.customerMobile}</div>}
+            <div className="text-xs font-semibold text-slate-500">{tr(language, 'Billed To', 'బిల్ చేయబడినవారు')}</div>
+            <div className="text-sm font-bold text-slate-900 mt-1">{custName}</div>
+            {bill.customerMobile && (
+              <div className="text-xs text-slate-600 mt-0.5">
+                {tr(language, 'Mobile:', 'మొబైల్:')} {bill.customerMobile}
+              </div>
+            )}
             {bill.customerAddress && <div className="text-xs text-slate-600 mt-0.5">{bill.customerAddress}</div>}
           </div>
           <div className="sm:text-right">
-            <div className="text-xs font-semibold text-slate-500">Payment Summary</div>
+            <div className="text-xs font-semibold text-slate-500">{tr(language, 'Payment Summary', 'చెల్లింపు సారాంశం')}</div>
             <div className={`text-sm font-bold mt-1 ${isDue ? 'text-amber-700' : 'text-emerald-700'}`}>
-              {isDue ? `DUE ${formatCurrency(bill.pendingBalance)}` : 'AMOUNT PAID'} · {bill.paymentMethod}
+              {isDue
+                ? `${tr(language, 'DUE', 'బాకీ')} ${formatCurrency(bill.pendingBalance)}`
+                : tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}{' '}
+              · {payMethod}
             </div>
-            <div className="text-xs text-slate-600 mt-0.5">Billed by: {bill.createdByName}</div>
+            <div className="text-xs text-slate-600 mt-0.5">
+              {tr(language, 'Billed by:', 'బిల్ చేసినవారు:')} {bill.createdByName}
+            </div>
           </div>
         </div>
 
@@ -463,18 +561,20 @@ export const A4InvoicePreview: React.FC<{
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500">
                 <th className="py-2.5 text-left font-semibold">#</th>
-                <th className="py-2.5 text-left font-semibold">Item &amp; Photo</th>
-                <th className="py-2.5 text-right font-semibold">Qty</th>
-                <th className="py-2.5 text-right font-semibold">Rate</th>
-                <th className="py-2.5 text-right font-semibold">Disc</th>
-                <th className="py-2.5 text-right font-semibold">Tax</th>
-                <th className="py-2.5 text-right font-semibold">Total</th>
+                <th className="py-2.5 text-left font-semibold">{tr(language, 'Item & Photo', 'వస్తువు & చిత్రం')}</th>
+                <th className="py-2.5 text-right font-semibold">{tr(language, 'Qty', 'పరిమాణం')}</th>
+                <th className="py-2.5 text-right font-semibold">{tr(language, 'Rate', 'ధర')}</th>
+                <th className="py-2.5 text-right font-semibold">{tr(language, 'Disc', 'తగ్గింపు')}</th>
+                <th className="py-2.5 text-right font-semibold">{tr(language, 'Tax', 'పన్ను')}</th>
+                <th className="py-2.5 text-right font-semibold">{tr(language, 'Total', 'మొత్తం')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-mono text-xs">
               {items.map((item, idx) => {
                 const matchedProd = products.find((p) => p.id === item.productId);
                 const imgSrc = item.imageUrl || resolveProductImage(matchedProd, item.productName);
+                const itemName = translateCartProductName(item.productName, item.productId, products, language);
+                const varLabel = translateVariantLabel(item.variantLabel, language);
                 return (
                   <tr key={item.id || idx}>
                     <td className="py-2.5 text-slate-500">{idx + 1}</td>
@@ -482,7 +582,7 @@ export const A4InvoicePreview: React.FC<{
                       <div className="flex items-center gap-2.5">
                         <img
                           src={imgSrc}
-                          alt={item.productName}
+                          alt={itemName}
                           referrerPolicy="no-referrer"
                           onError={(e) => {
                             const fallback = getDefaultProductImage(item.productName);
@@ -492,8 +592,8 @@ export const A4InvoicePreview: React.FC<{
                         />
                         <div>
                           <div>
-                            {item.productName}
-                            {item.variantLabel ? <span className="text-slate-500"> ({item.variantLabel})</span> : null}
+                            {itemName}
+                            {varLabel ? <span className="text-slate-500"> ({varLabel})</span> : null}
                           </div>
                           {item.productCode && (
                             <div className="text-[10px] font-mono text-slate-400">{item.productCode}</div>
@@ -522,11 +622,19 @@ export const A4InvoicePreview: React.FC<{
               <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50 space-y-3">
                 <div className="flex items-center gap-3">
                   {qrDataUrl && settings?.showQrCode !== false && (
-                    <img src={qrDataUrl} alt="UPI Payment QR" className="w-24 h-24 object-contain bg-white rounded-lg p-1 border border-amber-200" />
+                    <img
+                      src={qrDataUrl}
+                      alt={tr(language, 'UPI Payment QR', 'యూపీఐ చెల్లింపు క్యూఆర్')}
+                      className="w-24 h-24 object-contain bg-white rounded-lg p-1 border border-amber-200"
+                    />
                   )}
                   <div className="text-xs">
-                    <div className="font-bold text-amber-900">Due Balance: {formatCurrency(bill.pendingBalance)}</div>
-                    <div className="text-amber-800 mt-0.5">Scan QR with PhonePe / GPay / Any UPI</div>
+                    <div className="font-bold text-amber-900">
+                      {tr(language, 'Due Balance:', 'బాకీ మొత్తం:')} {formatCurrency(bill.pendingBalance)}
+                    </div>
+                    <div className="text-amber-800 mt-0.5">
+                      {tr(language, 'Scan QR with PhonePe / GPay / Any UPI', 'ఫోన్‌పే / జీపే / ఏదైనా యూపీఐతో క్యూఆర్ స్కాన్ చేయండి')}
+                    </div>
                     {upiId && <div className="font-mono text-slate-700 mt-1">{upiId}</div>}
                   </div>
                 </div>
@@ -536,13 +644,13 @@ export const A4InvoicePreview: React.FC<{
                       href={phonePeUri || upiPayUri}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5F259F] text-white text-xs font-semibold hover:opacity-90"
                     >
-                      Pay via PhonePe
+                      {tr(language, 'Pay via PhonePe', 'ఫోన్‌పే ద్వారా చెల్లించండి')}
                     </a>
                     <a
                       href={upiPayUri}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
                     >
-                      Pay Any UPI App
+                      {tr(language, 'Pay Any UPI App', 'ఏదైనా యూపీఐ యాప్')}
                     </a>
                   </div>
                 )}
@@ -551,11 +659,15 @@ export const A4InvoicePreview: React.FC<{
               <div className="inline-flex items-center gap-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50">
                 <CheckCircle2 className="w-8 h-8 text-emerald-600 shrink-0" />
                 <div>
-                  <div className="text-sm font-bold text-emerald-800">AMOUNT PAID</div>
-                  <div className="text-xs text-emerald-700 font-mono">
-                    {formatCurrency(bill.amountPaid)} · {bill.paymentMethod}
+                  <div className="text-sm font-bold text-emerald-800">
+                    {tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}
                   </div>
-                  <div className="text-[11px] text-emerald-600 mt-0.5">Settled in full · No due remaining</div>
+                  <div className="text-xs text-emerald-700 font-mono">
+                    {formatCurrency(bill.amountPaid)} · {payMethod}
+                  </div>
+                  <div className="text-[11px] text-emerald-600 mt-0.5">
+                    {tr(language, 'Settled in full · No due remaining', 'పూర్తిగా చెల్లించబడింది · బాకీ లేదు')}
+                  </div>
                 </div>
               </div>
             )}
@@ -563,50 +675,50 @@ export const A4InvoicePreview: React.FC<{
 
           <div className="w-full sm:w-64 space-y-2 text-xs font-mono">
             <div className="flex justify-between text-slate-600">
-              <span className="font-sans">Subtotal</span>
+              <span className="font-sans">{tr(language, 'Subtotal', 'ఉప మొత్తం')}</span>
               <span className="tabular-nums">{formatCurrency(bill.subtotal)}</span>
             </div>
             {bill.discountAmount > 0 && (
               <div className="flex justify-between text-emerald-700">
-                <span className="font-sans">Discount</span>
+                <span className="font-sans">{tr(language, 'Discount', 'తగ్గింపు')}</span>
                 <span className="tabular-nums">-{formatCurrency(bill.discountAmount)}</span>
               </div>
             )}
             {bill.totalTax > 0 && (
               <>
                 <div className="flex justify-between text-slate-600">
-                  <span className="font-sans">Taxable Amount</span>
+                  <span className="font-sans">{tr(language, 'Taxable Amount', 'పన్ను వర్తించే మొత్తం')}</span>
                   <span className="tabular-nums">{formatCurrency(bill.taxableAmount)}</span>
                 </div>
                 {bill.gstType === 'CGST_SGST' ? (
                   <>
                     <div className="flex justify-between text-slate-600">
-                      <span className="font-sans">CGST</span>
+                      <span className="font-sans">{tr(language, 'CGST', 'సీజీఎస్టీ')}</span>
                       <span className="tabular-nums">{formatCurrency(bill.cgstAmount || 0)}</span>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span className="font-sans">SGST</span>
+                      <span className="font-sans">{tr(language, 'SGST', 'ఎస్‌జీఎస్టీ')}</span>
                       <span className="tabular-nums">{formatCurrency(bill.sgstAmount || 0)}</span>
                     </div>
                   </>
                 ) : (
                   <div className="flex justify-between text-slate-600">
-                    <span className="font-sans">IGST</span>
+                    <span className="font-sans">{tr(language, 'IGST', 'ఐజీఎస్టీ')}</span>
                     <span className="tabular-nums">{formatCurrency(bill.igstAmount || 0)}</span>
                   </div>
                 )}
               </>
             )}
             <div className="flex justify-between text-base font-bold text-[#0B1F44] pt-2 border-t border-slate-200">
-              <span className="font-sans">Grand Total</span>
+              <span className="font-sans">{tr(language, 'Grand Total', 'మొత్తం విలువ')}</span>
               <span className="tabular-nums">{formatCurrency(bill.grandTotal)}</span>
             </div>
             <div className="flex justify-between text-emerald-700 font-semibold">
-              <span className="font-sans">Amount Paid</span>
+              <span className="font-sans">{tr(language, 'Amount Paid', 'చెల్లించిన మొత్తం')}</span>
               <span className="tabular-nums">{formatCurrency(bill.amountPaid)}</span>
             </div>
             <div className={`flex justify-between font-semibold ${isDue ? 'text-rose-700' : 'text-slate-500'}`}>
-              <span className="font-sans">Balance Due</span>
+              <span className="font-sans">{tr(language, 'Balance Due', 'బాకీ మొత్తం')}</span>
               <span className="tabular-nums">{formatCurrency(bill.pendingBalance)}</span>
             </div>
           </div>
@@ -614,13 +726,18 @@ export const A4InvoicePreview: React.FC<{
 
         {/* Scannable Code128 Bill Verification Barcode */}
         <div className="pt-4 border-t border-slate-200 flex flex-col items-center gap-1.5">
-          <img src={barcodeDataUrl} alt={`Verification Barcode ${verificationCode}`} className="h-14 w-auto object-contain" />
+          <img
+            src={barcodeDataUrl}
+            alt={`${tr(language, 'Verification Barcode', 'తనిఖీ బార్‌కోడ్')} ${verificationCode}`}
+            className="h-14 w-auto object-contain"
+          />
           <div className="text-[11px] text-slate-500">
-            Verify Code: <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> ·{' '}
-            {settings?.footerMessage || 'Thank you for your business!'}
+            {tr(language, 'Verify Code:', 'తనిఖీ కోడ్:')}{' '}
+            <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> ·{' '}
+            {translateFooterMessage(settings?.footerMessage, language)}
           </div>
           <div className="text-[10px] text-slate-400">
-            {getCopyrightNotice(business.name)}
+            {getCopyrightNoticeLocalized(business.name, language)}
           </div>
         </div>
       </div>
@@ -635,13 +752,19 @@ export const ThermalReceiptPreview: React.FC<{
   settings?: BusinessSettings | null;
   paperWidth: '58mm' | '80mm';
   qrDataUrl?: string;
-}> = ({ bill, items, business, settings, paperWidth, qrDataUrl }) => {
+  products?: Product[];
+  language?: Language;
+}> = ({ bill, items, business, settings, paperWidth, qrDataUrl, products = [], language = 'en' }) => {
   const widthClass = paperWidth === '58mm' ? 'w-[240px]' : 'w-[320px]';
   const fontSizeClass =
     settings?.fontSize === 'sm' ? 'text-[10px]' : settings?.fontSize === 'lg' ? 'text-[13px]' : 'text-[11px]';
   const isDue = bill.pendingBalance > 0 && bill.billStatus === 'active';
   const verificationCode = useMemo(() => getBillVerificationBarcode(bill), [bill]);
   const barcodeDataUrl = useMemo(() => generateCode128SvgDataUrl(verificationCode), [verificationCode]);
+  const bizName = translateBusinessName(business.name, language);
+  const bizAddress = translateAddress(business.address, language);
+  const custName = translateCustomerName(bill.customerName, language);
+  const payMethod = translatePaymentMethod(bill.paymentMethod, language);
 
   return (
     <div
@@ -651,95 +774,123 @@ export const ThermalReceiptPreview: React.FC<{
         {(settings?.showThermalLogo ?? settings?.showLogo) !== false && (
           <img
             src={resolveBusinessLogoUrl(business.logoUrl)}
-            alt={business.name}
+            alt={bizName}
             referrerPolicy="no-referrer"
             className="w-14 h-14 rounded-lg mx-auto object-contain grayscale"
           />
         )}
-        <div className="font-bold text-xs uppercase">{business.name}</div>
-        {business.address && <div className="text-[10px]">{business.address}</div>}
-        {business.phone && <div>Ph: {business.phone}</div>}
-        {business.gstin && <div>GSTIN: {business.gstin}</div>}
+        <div className="font-bold text-xs uppercase">{bizName}</div>
+        {bizAddress && <div className="text-[10px]">{bizAddress}</div>}
+        {business.phone && (
+          <div>
+            {tr(language, 'Ph:', 'ఫోన్:')} {business.phone}
+          </div>
+        )}
+        {business.gstin && (
+          <div>
+            {tr(language, 'GSTIN:', 'జీఎస్టీఐఎన్:')} {business.gstin}
+          </div>
+        )}
       </div>
 
       <div className="py-2 space-y-0.5 border-b border-dashed border-slate-400">
         <div className="flex justify-between">
-          <span>Bill:</span>
+          <span>{tr(language, 'Bill:', 'బిల్:')}</span>
           <span className="font-bold">{bill.billNumber}</span>
         </div>
         <div className="flex justify-between">
-          <span>Date:</span>
-          <span>{formatTimestamp(bill.createdAt).toLocaleString('en-IN')}</span>
+          <span>{tr(language, 'Date:', 'తేదీ:')}</span>
+          <span>{formatAppDate(formatTimestamp(bill.createdAt), language, true)}</span>
         </div>
-        <div>Cust: {bill.customerName}</div>
-        {bill.customerMobile && <div>Mob : {bill.customerMobile}</div>}
+        <div>
+          {tr(language, 'Cust:', 'కస్టమర్:')} {custName}
+        </div>
+        {bill.customerMobile && (
+          <div>
+            {tr(language, 'Mob :', 'మొబైల్:')} {bill.customerMobile}
+          </div>
+        )}
       </div>
 
       <div className="py-2 space-y-1.5 border-b border-dashed border-slate-400">
-        {items.map((item, idx) => (
-          <div key={item.id || idx}>
-            <div className="font-semibold break-words">
-              {item.productName}
-              {item.variantLabel ? ` (${item.variantLabel})` : ''}
+        {items.map((item, idx) => {
+          const itemName = translateCartProductName(item.productName, item.productId, products, language);
+          const varLabel = translateVariantLabel(item.variantLabel, language);
+          return (
+            <div key={item.id || idx}>
+              <div className="font-semibold break-words">
+                {itemName}
+                {varLabel ? ` (${varLabel})` : ''}
+              </div>
+              <div className="flex justify-between tabular-nums">
+                <span>
+                  {item.quantity} × {item.unitPrice.toFixed(2)}
+                </span>
+                <span>{item.lineTotal.toFixed(2)}</span>
+              </div>
             </div>
-            <div className="flex justify-between tabular-nums">
-              <span>
-                {item.quantity} x {item.unitPrice.toFixed(2)}
-              </span>
-              <span>{item.lineTotal.toFixed(2)}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="py-2 space-y-0.5 border-b border-dashed border-slate-400 tabular-nums">
         <div className="flex justify-between">
-          <span>Subtotal</span>
+          <span>{tr(language, 'Subtotal', 'ఉప మొత్తం')}</span>
           <span>{bill.subtotal.toFixed(2)}</span>
         </div>
         {bill.discountAmount > 0 && (
           <div className="flex justify-between">
-            <span>Discount</span>
+            <span>{tr(language, 'Discount', 'తగ్గింపు')}</span>
             <span>-{bill.discountAmount.toFixed(2)}</span>
           </div>
         )}
         {bill.totalTax > 0 && (
           <div className="flex justify-between">
-            <span>Tax ({bill.gstType})</span>
+            <span>
+              {tr(language, 'Tax', 'పన్ను')} ({translateGstType(bill.gstType, language)})
+            </span>
             <span>{bill.totalTax.toFixed(2)}</span>
           </div>
         )}
         <div className="flex justify-between font-bold text-sm pt-1 border-t border-dotted border-slate-400">
-          <span>GRAND TOTAL</span>
+          <span>{tr(language, 'GRAND TOTAL', 'మొత్తం విలువ')}</span>
           <span>₹{bill.grandTotal.toFixed(2)}</span>
         </div>
         <div className="flex justify-between pt-1">
-          <span>Paid ({bill.paymentMethod})</span>
+          <span>
+            {tr(language, 'Paid', 'చెల్లించినది')} ({payMethod})
+          </span>
           <span>₹{bill.amountPaid.toFixed(2)}</span>
         </div>
         <div className="flex justify-between font-semibold">
-          <span>Balance</span>
+          <span>{tr(language, 'Balance', 'బాకీ')}</span>
           <span>₹{bill.pendingBalance.toFixed(2)}</span>
         </div>
       </div>
 
       {isDue && qrDataUrl && settings?.showQrCode !== false ? (
         <div className="py-3 text-center border-b border-dashed border-slate-400">
-          <img src={qrDataUrl} alt="UPI QR" className="w-28 h-28 mx-auto object-contain" />
-          <div className="text-[10px] font-bold mt-1">Scan to Pay Due: ₹{bill.pendingBalance.toFixed(2)}</div>
+          <img src={qrDataUrl} alt={tr(language, 'UPI QR', 'యూపీఐ క్యూఆర్')} className="w-28 h-28 mx-auto object-contain" />
+          <div className="text-[10px] font-bold mt-1">
+            {tr(language, 'Scan to Pay Due:', 'బాకీ చెల్లించడానికి స్కాన్ చేయండి:')} ₹{bill.pendingBalance.toFixed(2)}
+          </div>
         </div>
       ) : (
         <div className="py-2.5 text-center border-b border-dashed border-slate-400 font-bold text-xs">
-          *** AMOUNT PAID ***
+          {tr(language, '*** AMOUNT PAID ***', '*** పూర్తిగా చెల్లించబడింది ***')}
         </div>
       )}
 
       <div className="py-2 text-center border-b border-dashed border-slate-400">
-        <img src={barcodeDataUrl} alt={`Verification Barcode ${verificationCode}`} className="h-11 mx-auto object-contain" />
+        <img
+          src={barcodeDataUrl}
+          alt={`${tr(language, 'Verification Barcode', 'తనిఖీ బార్‌కోడ్')} ${verificationCode}`}
+          className="h-11 mx-auto object-contain"
+        />
       </div>
 
       <div className="pt-2 text-center text-[10px]">
-        {settings?.footerMessage || 'Thank you for shopping with us!'}
+        {translateFooterMessage(settings?.footerMessage, language)}
       </div>
     </div>
   );

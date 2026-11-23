@@ -3,10 +3,17 @@ import { Laptop, ShieldAlert, ShieldCheck, Smartphone, Tablet } from 'lucide-rea
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
+import {
+  formatAppDate,
+  tr,
+  translateBusinessName,
+  translateDeviceName,
+  translateStatus,
+} from '../lib/i18n';
 
 export const DeviceManagementPage: React.FC = () => {
-  const { devices, setDeviceStatus } = useBillingData();
-  const { currentDevice, isAdmin } = useAuth();
+  const { devices, setDeviceStatus, business } = useBillingData();
+  const { currentDevice, isAdmin, language } = useAuth();
 
   const renderIcon = (type: string) => {
     if (type === 'mobile') return <Smartphone className="w-5 h-5 text-[#1D4ED8]" />;
@@ -19,14 +26,20 @@ export const DeviceManagementPage: React.FC = () => {
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
-            Connected Devices & Active Terminals
+            {tr(language, 'Connected Devices & Active Terminals', 'కనెక్ట్ అయిన పరికరాలు & టెర్మినల్స్')}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Every smartphone, tablet, and counter PC signed into Sri Lakshmi Penchil Narasimha Swamy Cement Work synchronizes in real time. Administrators can revoke any terminal immediately.
+            {tr(
+              language,
+              'Every smartphone, tablet, and counter PC signed into Sri Lakshmi Penchil Narasimha Swamy Cement Work synchronizes in real time. Administrators can revoke any terminal immediately.',
+              `${translateBusinessName(business?.name, 'te')} లో లాగిన్ అయిన ప్రతి ఫోన్, టాబ్లెట్ మరియు కౌంటర్ కంప్యూటర్ రియల్-టైమ్‌లో సింక్ అవుతాయి. అడ్మిన్ ఏ పరికరాన్నైనా వెంటనే రద్దు చేయవచ్చు.`
+            )}
           </p>
         </div>
         <div className="text-xs font-mono text-slate-500">
-          {devices.filter((d) => d.status === 'authorized').length} authorized · {devices.length} total
+          {devices.filter((d) => d.status === 'authorized').length}{' '}
+          {tr(language, 'authorized', 'అనుమతించబడినవి')} · {devices.length}{' '}
+          {tr(language, 'total', 'మొత్తం')}
         </div>
       </div>
 
@@ -52,10 +65,11 @@ export const DeviceManagementPage: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      {dev.deviceName}
+                      {translateDeviceName(dev.deviceName, language)}
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      {dev.userName || dev.userEmail} {isCurrent ? '· This Device' : ''}
+                      {dev.userName || dev.userEmail}{' '}
+                      {isCurrent ? `· ${tr(language, 'This Device', 'ఈ పరికరం')}` : ''}
                     </div>
                   </div>
                 </div>
@@ -67,13 +81,21 @@ export const DeviceManagementPage: React.FC = () => {
               </div>
 
               <div className="text-[11px] text-slate-500 space-y-1 font-mono">
-                <div>Email: {dev.userEmail}</div>
-                <div>Type: {dev.deviceType.toUpperCase()} · {dev.browser}</div>
-                <div>Last Active: {formatTimestamp(dev.lastActiveAt).toLocaleString('en-IN')}</div>
                 <div>
-                  Status:{' '}
+                  {tr(language, 'Email:', 'ఇమెయిల్:')} {dev.userEmail}
+                </div>
+                <div>
+                  {tr(language, 'Type:', 'రకం:')}{' '}
+                  {translateStatus(dev.deviceType, language)} · {translateDeviceName(dev.browser, language)}
+                </div>
+                <div>
+                  {tr(language, 'Last Active:', 'చివరి యాక్టివ్:')}{' '}
+                  {formatAppDate(formatTimestamp(dev.lastActiveAt), language, true)}
+                </div>
+                <div>
+                  {tr(language, 'Status:', 'స్థితి:')}{' '}
                   <strong className={isRevoked ? 'text-rose-600' : 'text-emerald-600'}>
-                    {dev.status.toUpperCase()}
+                    {language === 'te' ? translateStatus(dev.status, 'te') : dev.status.toUpperCase()}
                   </strong>
                 </div>
               </div>
@@ -85,14 +107,14 @@ export const DeviceManagementPage: React.FC = () => {
                       onClick={() => setDeviceStatus(dev.id, 'authorized')}
                       className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
                     >
-                      Restore Access
+                      {tr(language, 'Restore Access', 'అనుమతి పునరుద్ధరించు')}
                     </button>
                   ) : (
                     <button
                       onClick={() => setDeviceStatus(dev.id, 'revoked')}
                       className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700"
                     >
-                      Revoke Terminal
+                      {tr(language, 'Revoke Terminal', 'పరికరం రద్దు చేయి')}
                     </button>
                   )}
                 </div>

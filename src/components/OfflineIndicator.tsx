@@ -2,9 +2,12 @@ import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, CloudOff, RefreshCw, X } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
+import { useAuth } from '../context/AuthContext';
+import { tr } from '../lib/i18n';
 
 export const OfflineIndicator: React.FC = () => {
   const { cloudNotice, dismissCloudNotice, pendingSyncCount, syncState } = useBillingData();
+  const { language } = useAuth();
 
   const notice =
     cloudNotice ||
@@ -14,8 +17,16 @@ export const OfflineIndicator: React.FC = () => {
           status: 'offline' as const,
           message:
             pendingSyncCount > 0
-              ? `Offline Mode · ${pendingSyncCount} pending cloud sync`
-              : 'Offline Mode · Saves locally & auto-syncs',
+              ? tr(
+                  language,
+                  `Offline Mode · ${pendingSyncCount} pending cloud sync`,
+                  `ఆఫ్‌లైన్ మోడ్ · ${pendingSyncCount} క్లౌడ్ సింక్ పెండింగ్‌లో ఉన్నాయి`
+                )
+              : tr(
+                  language,
+                  'Offline Mode · Saves locally & auto-syncs',
+                  'ఆఫ్‌లైన్ మోడ్ · లోకల్‌గా సేవ్ అవుతుంది & ఆటోమేటిక్‌గా సింక్ అవుతుంది'
+                ),
         }
       : null);
 
@@ -47,7 +58,7 @@ export const OfflineIndicator: React.FC = () => {
               type="button"
               onClick={dismissCloudNotice}
               className="p-0.5 rounded-full hover:bg-white/20 shrink-0"
-              aria-label="Dismiss cloud status notification"
+              aria-label={tr(language, 'Dismiss cloud status notification', 'నోటిఫికేషన్‌ను మూసివేయండి')}
             >
               <X className="w-3 h-3" />
             </button>

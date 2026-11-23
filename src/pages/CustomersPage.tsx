@@ -11,13 +11,22 @@ import {
   X,
 } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
+import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
 import { formatCurrency } from '../lib/upiAndExport';
+import {
+  formatAppDate,
+  tr,
+  translateCustomerName,
+  translatePaymentMethod,
+  translateStatus,
+} from '../lib/i18n';
 import { AnimatedNumber } from '../components/MotionPrimitives';
 import { Customer } from '../types/billing';
 
 export const CustomersPage: React.FC = () => {
   const { customers, bills, saveCustomer, recordPaymentAtomic } = useBillingData();
+  const { language } = useAuth();
 
   const [search, setSearch] = useState('');
   const [filterPending, setFilterPending] = useState(false);
@@ -80,9 +89,15 @@ export const CustomersPage: React.FC = () => {
         billCount: editingCustomer.billCount || 0,
       });
       setEditingCustomer(null);
-      setFeedback('Customer profile saved and synchronized across devices.');
+      setFeedback(
+        tr(
+          language,
+          'Customer profile saved and synchronized across devices.',
+          'కస్టమర్ వివరాలు సేవ్ చేయబడి, అన్ని పరికరాలకు సింక్ చేయబడ్డాయి.'
+        )
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save customer.');
+      setError(err instanceof Error ? err.message : tr(language, 'Failed to save customer.', 'కస్టమర్ వివరాలు సేవ్ చేయడం విఫలమైంది.'));
     } finally {
       setSubmitting(false);
     }
@@ -101,12 +116,18 @@ export const CustomersPage: React.FC = () => {
         referenceId: settleRef,
         notes: 'Settled from Customer Ledger',
       });
-      setFeedback(`Payment of ${formatCurrency(settleAmount)} recorded and ledger updated.`);
+      setFeedback(
+        tr(
+          language,
+          `Payment of ${formatCurrency(settleAmount)} recorded and ledger updated.`,
+          `${formatCurrency(settleAmount)} చెల్లింపు నమోదై, ఖాతా నవీకరించబడింది.`
+        )
+      );
       setSettlingBillId('');
       setSettleAmount(0);
       setSettleRef('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Payment settlement failed.');
+      setError(err instanceof Error ? err.message : tr(language, 'Payment settlement failed.', 'చెల్లింపు నమోదు విఫలమైంది.'));
     } finally {
       setSubmitting(false);
     }
@@ -119,14 +140,14 @@ export const CustomersPage: React.FC = () => {
         <div className="flex items-center gap-6">
           <div>
             <div className="text-xs text-slate-500 flex items-center gap-1">
-              <Users className="w-3.5 h-3.5 text-[#1D4ED8]" /> Customers
+              <Users className="w-3.5 h-3.5 text-[#1D4ED8]" /> {tr(language, 'Customers', 'కస్టమర్లు')}
             </div>
             <div className="text-lg font-bold font-mono text-slate-900 dark:text-white">
               <AnimatedNumber value={customers.length} />
             </div>
           </div>
           <div>
-            <div className="text-xs text-slate-500">Pending Balances</div>
+            <div className="text-xs text-slate-500">{tr(language, 'Pending Balances', 'రావలసిన బాకీలు')}</div>
             <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400">
               <AnimatedNumber value={totalReceivables} format={(n) => formatCurrency(n)} />
             </div>
@@ -139,7 +160,7 @@ export const CustomersPage: React.FC = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, phone, area..."
+              placeholder={tr(language, 'Search name, phone, area...', 'పేరు, ఫోన్, ప్రాంతం ద్వారా వెతకండి...')}
               className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
             />
           </div>
@@ -150,13 +171,13 @@ export const CustomersPage: React.FC = () => {
               onChange={(e) => setFilterPending(e.target.checked)}
               className="rounded"
             />
-            Pending Only
+            {tr(language, 'Pending Only', 'బాకీ ఉన్నవారు మాత్రమే')}
           </label>
           <button
             onClick={() => setEditingCustomer({ name: '', mobile: '', email: '', address: '' })}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] transition"
           >
-            <Plus className="w-3.5 h-3.5" /> Add Customer
+            <Plus className="w-3.5 h-3.5" /> {tr(language, 'Add Customer', 'కొత్త కస్టమర్')}
           </button>
         </div>
       </div>
@@ -165,7 +186,7 @@ export const CustomersPage: React.FC = () => {
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2.5 text-xs text-emerald-700 dark:text-emerald-300 flex justify-between">
           <span>{feedback}</span>
           <button onClick={() => setFeedback(null)} className="underline">
-            Dismiss
+            {tr(language, 'Dismiss', 'మూసివేయి')}
           </button>
         </div>
       )}
@@ -176,12 +197,12 @@ export const CustomersPage: React.FC = () => {
           <table className="w-full text-xs text-left">
             <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th className="py-3 px-4 font-semibold">Customer</th>
-                <th className="py-3 px-4 font-semibold">Contact</th>
-                <th className="py-3 px-4 font-semibold text-right">Bills</th>
-                <th className="py-3 px-4 font-semibold text-right">Total Purchases</th>
-                <th className="py-3 px-4 font-semibold text-right">Pending</th>
-                <th className="py-3 px-4 font-semibold text-right">Edit</th>
+                <th className="py-3 px-4 font-semibold">{tr(language, 'Customer', 'కస్టమర్')}</th>
+                <th className="py-3 px-4 font-semibold">{tr(language, 'Contact', 'ఫోన్')}</th>
+                <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Bills', 'బిల్లులు')}</th>
+                <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Total Purchases', 'మొత్తం కొనుగోళ్లు')}</th>
+                <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Pending', 'బాకీ')}</th>
+                <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Edit', 'సవరించు')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -202,7 +223,9 @@ export const CustomersPage: React.FC = () => {
                     }`}
                   >
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-slate-900 dark:text-white">{c.name}</div>
+                      <div className="font-semibold text-slate-900 dark:text-white">
+                        {translateCustomerName(c.name, language)}
+                      </div>
                       {c.address && (
                         <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
                           <MapPin className="w-3 h-3" /> {c.address}
@@ -227,7 +250,7 @@ export const CustomersPage: React.FC = () => {
                       <button
                         onClick={() => setEditingCustomer(c)}
                         className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        title="Edit customer"
+                        title={tr(language, 'Edit customer', 'కస్టమర్‌ను సవరించు')}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
@@ -238,7 +261,7 @@ export const CustomersPage: React.FC = () => {
               {filteredCustomers.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-slate-400">
-                    No customers match your filter.
+                    {tr(language, 'No customers match your filter.', 'మీ ఫిల్టర్‌కు సరిపోయే కస్టమర్లు లేరు.')}
                   </td>
                 </tr>
               )}
@@ -253,7 +276,7 @@ export const CustomersPage: React.FC = () => {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    {selectedCustomer.name}
+                    {translateCustomerName(selectedCustomer.name, language)}
                   </h3>
                   <div className="text-xs text-slate-500 mt-0.5 space-y-0.5">
                     {selectedCustomer.mobile && (
@@ -273,13 +296,13 @@ export const CustomersPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950">
-                  <div className="text-slate-500">Lifetime Billed</div>
+                  <div className="text-slate-500">{tr(language, 'Lifetime Billed', 'మొత్తం కొనుగోళ్లు')}</div>
                   <div className="text-sm font-bold font-mono text-slate-900 dark:text-white mt-0.5">
                     {formatCurrency(selectedCustomer.totalPurchases || 0)}
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30">
-                  <div className="text-amber-700 dark:text-amber-300">Pending Balance</div>
+                  <div className="text-amber-700 dark:text-amber-300">{tr(language, 'Pending Balance', 'రావలసిన బాకీ')}</div>
                   <div className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300 mt-0.5">
                     {formatCurrency(selectedCustomer.outstandingBalance || 0)}
                   </div>
@@ -293,7 +316,7 @@ export const CustomersPage: React.FC = () => {
                   className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2.5 text-xs bg-slate-50/70 dark:bg-slate-950/60"
                 >
                   <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-[#1D4ED8]" /> Settle Pending Bill
+                    <CreditCard className="w-3.5 h-3.5 text-[#1D4ED8]" /> {tr(language, 'Settle Pending Bill', 'బాకీ బిల్ చెల్లింపు')}
                   </div>
                   {error && <div className="text-rose-600">{error}</div>}
                   <select
@@ -307,10 +330,10 @@ export const CustomersPage: React.FC = () => {
                     }}
                     className="w-full px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                   >
-                    <option value="">Select pending bill...</option>
+                    <option value="">{tr(language, 'Select pending bill...', 'బాకీ బిల్ ఎంచుకోండి...')}</option>
                     {pendingCustomerBills.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.billNumber} · Due {formatCurrency(b.pendingBalance)}
+                        {b.billNumber} · {tr(language, 'Due', 'బాకీ')} {formatCurrency(b.pendingBalance)}
                       </option>
                     ))}
                   </select>
@@ -325,7 +348,7 @@ export const CustomersPage: React.FC = () => {
                           required
                           value={settleAmount}
                           onChange={(e) => setSettleAmount(Number(e.target.value))}
-                          placeholder="Amount"
+                          placeholder={tr(language, 'Amount', 'మొత్తం')}
                           className="px-2.5 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                         />
                         <select
@@ -335,16 +358,16 @@ export const CustomersPage: React.FC = () => {
                           }
                           className="px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                         >
-                          <option value="Cash">Cash</option>
-                          <option value="UPI">UPI</option>
-                          <option value="Bank Transfer">Bank Transfer</option>
-                          <option value="Other">Other</option>
+                          <option value="Cash">{translatePaymentMethod('Cash', language)}</option>
+                          <option value="UPI">{translatePaymentMethod('UPI', language)}</option>
+                          <option value="Bank Transfer">{translatePaymentMethod('Bank Transfer', language)}</option>
+                          <option value="Other">{translatePaymentMethod('Other', language)}</option>
                         </select>
                       </div>
                       <input
                         value={settleRef}
                         onChange={(e) => setSettleRef(e.target.value)}
-                        placeholder="UPI / Bank reference (optional)"
+                        placeholder={tr(language, 'UPI / Bank reference (optional)', 'యూపీఐ / బ్యాంక్ రిఫరెన్స్ (ఐచ్ఛికం)')}
                         className="w-full px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                       />
                       <button
@@ -352,7 +375,7 @@ export const CustomersPage: React.FC = () => {
                         disabled={submitting}
                         className="w-full py-2 rounded-lg bg-[#0B1F44] text-white font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
                       >
-                        {submitting ? 'Recording...' : 'Record Payment'}
+                        {submitting ? tr(language, 'Recording...', 'నమోదవుతోంది...') : tr(language, 'Record Payment', 'చెల్లింపు నమోదు చేయి')}
                       </button>
                     </>
                   )}
@@ -361,7 +384,7 @@ export const CustomersPage: React.FC = () => {
 
               <div>
                 <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Invoice History ({customerBills.length})
+                  {tr(language, 'Invoice History', 'బిల్లుల చరిత్ర')} ({customerBills.length})
                 </h4>
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                   {customerBills.map((b) => (
@@ -374,7 +397,7 @@ export const CustomersPage: React.FC = () => {
                           {b.billNumber}
                         </div>
                         <div className="text-[11px] text-slate-500">
-                          {formatTimestamp(b.createdAt).toLocaleDateString('en-IN')} · {b.paymentStatus}
+                          {formatAppDate(formatTimestamp(b.createdAt), language)} · {translateStatus(b.paymentStatus, language)}
                         </div>
                       </div>
                       <div className="text-right font-mono">
@@ -382,20 +405,28 @@ export const CustomersPage: React.FC = () => {
                           {formatCurrency(b.grandTotal)}
                         </div>
                         {b.pendingBalance > 0 && (
-                          <div className="text-[11px] text-amber-600">Due {formatCurrency(b.pendingBalance)}</div>
+                          <div className="text-[11px] text-amber-600">
+                            {tr(language, 'Due', 'బాకీ')} {formatCurrency(b.pendingBalance)}
+                          </div>
                         )}
                       </div>
                     </div>
                   ))}
                   {customerBills.length === 0 && (
-                    <p className="text-xs text-slate-400">No invoices linked to this customer yet.</p>
+                    <p className="text-xs text-slate-400">
+                      {tr(language, 'No invoices linked to this customer yet.', 'ఈ కస్టమర్‌కు ఇంకా బిల్లులు లేవు.')}
+                    </p>
                   )}
                 </div>
               </div>
             </>
           ) : (
             <div className="py-12 text-center text-xs text-slate-400">
-              Select a customer from the directory to inspect their purchase ledger and settle pending balances.
+              {tr(
+                language,
+                'Select a customer from the directory to inspect their purchase ledger and settle pending balances.',
+                'కొనుగోలు వివరాలు చూడటానికి మరియు బాకీలు చెల్లించడానికి జాబితా నుండి కస్టమర్‌ను ఎంచుకోండి.'
+              )}
             </div>
           )}
         </div>
@@ -410,7 +441,9 @@ export const CustomersPage: React.FC = () => {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                {editingCustomer.id ? 'Edit Customer' : 'Register Customer'}
+                {editingCustomer.id
+                  ? tr(language, 'Edit Customer', 'కస్టమర్ వివరాలు సవరించు')
+                  : tr(language, 'Register Customer', 'కొత్త కస్టమర్ నమోదు')}
               </h3>
               <button type="button" onClick={() => setEditingCustomer(null)} className="text-slate-400">
                 <X className="w-5 h-5" />
@@ -422,30 +455,30 @@ export const CustomersPage: React.FC = () => {
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Customer Name *
+                  {tr(language, 'Customer Name *', 'కస్టమర్ పేరు *')}
                 </label>
                 <input
                   required
                   value={editingCustomer.name || ''}
                   onChange={(e) => setEditingCustomer({ ...editingCustomer, name: e.target.value })}
-                  placeholder="Full name or firm"
+                  placeholder={tr(language, 'Full name or firm', 'పూర్తి పేరు లేదా సంస్థ')}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
               </div>
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Mobile Number (Optional)
+                  {tr(language, 'Mobile Number (Optional)', 'మొబైల్ నంబర్ (ఐచ్ఛికం)')}
                 </label>
                 <input
                   value={editingCustomer.mobile || ''}
                   onChange={(e) => setEditingCustomer({ ...editingCustomer, mobile: e.target.value })}
-                  placeholder="10-digit mobile for WhatsApp/SMS"
+                  placeholder={tr(language, '10-digit mobile for WhatsApp/SMS', 'వాట్సాప్ / ఎస్‌ఎంఎస్ కోసం 10 అంకెల నంబర్')}
                   className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
               </div>
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Email (Optional)
+                  {tr(language, 'Email (Optional)', 'ఇమెయిల్ (ఐచ్ఛికం)')}
                 </label>
                 <input
                   type="email"
@@ -456,7 +489,7 @@ export const CustomersPage: React.FC = () => {
               </div>
               <div>
                 <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Village / Address (Optional)
+                  {tr(language, 'Village / Address (Optional)', 'గ్రామం / చిరునామా (ఐచ్ఛికం)')}
                 </label>
                 <textarea
                   rows={2}
@@ -473,14 +506,14 @@ export const CustomersPage: React.FC = () => {
                 onClick={() => setEditingCustomer(null)}
                 className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium"
               >
-                Cancel
+                {tr(language, 'Cancel', 'రద్దు')}
               </button>
               <button
                 type="submit"
                 disabled={submitting}
                 className="px-4 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
               >
-                {submitting ? 'Saving...' : 'Save Customer'}
+                {submitting ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...') : tr(language, 'Save Customer', 'కస్టమర్‌ను సేవ్ చేయి')}
               </button>
             </div>
           </form>

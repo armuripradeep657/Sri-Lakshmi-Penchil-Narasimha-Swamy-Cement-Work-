@@ -15,8 +15,16 @@ export function resolveBusinessLogoUrl(logoUrl?: string | null): string {
   return trimmed;
 }
 
-export function getCopyrightNotice(businessName?: string | null): string {
+export function getCopyrightNotice(businessName?: string | null, language: 'en' | 'te' = 'en'): string {
   const year = new Date().getFullYear();
+  if (language === 'te') {
+    const clean = (businessName || '').trim();
+    const owner =
+      !clean || clean.toLowerCase() === 'sri lakshmi penchil narasimha swamy cement work'
+        ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్'
+        : clean;
+    return `© ${year} ${owner}. సర్వ హక్కులు ప్రత్యేకించబడినవి.`;
+  }
   const owner = (businessName || '').trim() || 'Sri Lakshmi Penchil Narasimha Swamy Cement Work';
   return `© ${year} ${owner}. All Rights Reserved.`;
 }

@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   Copy,
   Check,
+  Globe,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -23,8 +24,19 @@ import {
   getPublicInvoiceVerificationBarcode,
 } from '../lib/barcodeAndBillImage';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
-import { DEFAULT_BUSINESS_LOGO, getCopyrightNotice, resolveBusinessLogoUrl } from '../lib/seedData';
-import { Bill, BillItem, Business, PublicInvoice, UpiSetting } from '../types/billing';
+import { DEFAULT_BUSINESS_LOGO, resolveBusinessLogoUrl } from '../lib/seedData';
+import { Bill, BillItem, Business, Language, PublicInvoice, UpiSetting } from '../types/billing';
+import {
+  formatAppDate,
+  getCopyrightNoticeLocalized,
+  tr,
+  translateAddress,
+  translateBusinessName,
+  translateCartProductName,
+  translateCustomerName,
+  translatePaymentMethod,
+  translateVariantLabel,
+} from '../lib/i18n';
 
 interface ParsedPublicItem {
   n: string;
@@ -35,7 +47,21 @@ interface ParsedPublicItem {
   img?: string;
 }
 
+function getInitialPortalLanguage(): Language {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlLang = params.get('lang');
+    if (urlLang === 'te' || urlLang === 'en') return urlLang;
+    const stored = localStorage.getItem('slp_lang');
+    if (stored === 'te' || stored === 'en') return stored;
+  } catch {
+    // ignore
+  }
+  return 'en';
+}
+
 export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
+  const [language, setLanguage] = useState<Language>(getInitialPortalLanguage);
   const [invoice, setInvoice] = useState<PublicInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,9 +69,29 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [sharingImage, setSharingImage] = useState(false);
 
+  const togglePortalLanguage = () => {
+    setLanguage((prev) => {
+      const next: Language = prev === 'te' ? 'en' : 'te';
+      try {
+        localStorage.setItem('slp_lang', next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    document.documentElement.lang = language === 'te' ? 'te' : 'en';
+  }, [language]);
+
   useEffect(() => {
     if (!/^[a-zA-Z0-9_-]{16,128}$/.test(token)) {
-      setError('Invalid invoice link format.');
+      setError(
+        language === 'te'
+          ? 'చెల్లని ఇన్వాయిస్ లింక్ ఫార్మాట్.'
+          : 'Invalid invoice link format.'
+      );
       setLoading(false);
       return;
     }
@@ -57,14 +103,22 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
       doc(db, 'publicInvoices', token),
       async (snap) => {
         if (!snap.exists()) {
-          setError('Invoice link not found or has been revoked by the business.');
+          setError(
+            language === 'te'
+              ? 'ఇన్వాయిస్ లింక్ కనుగొనబడలేదు లేదా వ్యాపారం ద్వారా రద్దు చేయబడింది.'
+              : 'Invoice link not found or has been revoked by the business.'
+          );
           setInvoice(null);
           setLoading(false);
           return;
         }
         const data = snap.data() as PublicInvoice;
         if (data.revoked) {
-          setError('This customer invoice link has been revoked by the administrator.');
+          setError(
+            language === 'te'
+              ? 'ఈ కస్టమర్ ఇన్వాయిస్ లింక్ అడ్మిన్ ద్వారా రద్దు చేయబడింది.'
+              : 'This customer invoice link has been revoked by the administrator.'
+          );
           setInvoice(null);
           setLoading(false);
           return;
@@ -86,13 +140,19 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
         }
       },
       (err) => {
-        setError(err instanceof Error ? err.message : 'Unable to load this invoice. It may have been revoked or expired.');
+        setError(
+          err instanceof Error
+            ? err.message
+            : language === 'te'
+            ? 'ఈ ఇన్వాయిస్‌ను లోడ్ చేయడం సాధ్యం కాలేదు.'
+            : 'Unable to load this invoice. It may have been revoked or expired.'
+        );
         setLoading(false);
       }
     );
 
     return () => unsub();
-  }, [token]);
+  }, [token, language]);
 
   const parsedItems: ParsedPublicItem[] = useMemo(() => {
     if (!invoice) return [];
@@ -158,8 +218,114 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
     });
   }, [invoice, isDue]);
 
+  const buildPseudoBillData = () => {
+    if (!invoice) return null;
+    const pseudoBill: Bill = {
+      id: invoice.token,
+      businessId: invoice.businessId,
+      ownerUid: invoice.ownerUid,
+      authorizedUids: [],
+      billNumber: invoice.invoiceNumber,
+      verificationBarcode: verificationCode || getPublicInvoiceVerificationBarcode(invoice),
+      customerName: invoice.customerName,
+      customerMobile: invoice.customerPhoneMasked,
+      customerAddress: invoice.customerAddress,
+      itemCount: parsedItems.length,
+      subtotal: invoice.subtotal || invoice.grandTotal,
+      discountAmount: invoice.discountAmount || 0,
+      taxableAmount: invoice.grandTotal - (invoice.totalTax || 0),
+      gstType: 'NONE',
+      totalTax: invoice.totalTax || 0,
+      grandTotal: invoice.grandTotal,
+      amountPaid: invoice.amountPaid || 0,
+      pendingBalance: invoice.pendingBalance || 0,
+      paymentMethod: (invoice.paymentMethod as Bill['paymentMethod']) || 'UPI',
+      paymentStatus: invoice.paymentStatus,
+      billStatus: 'active',
+      publicToken: invoice.token,
+      publicLinkRevoked: invoice.revoked,
+      createdByUid: invoice.ownerUid,
+      createdByName: invoice.businessName,
+      createdAt: invoice.issuedAtIso || new Date().toISOString(),
+    };
+    const pseudoItems: BillItem[] = parsedItems.map((it, idx) => ({
+      id: `pi_${idx}`,
+      billId: invoice.token,
+      businessId: invoice.businessId,
+      ownerUid: invoice.ownerUid,
+      authorizedUids: [],
+      productId: `p_${idx}`,
+      productName: it.n,
+      variantLabel: it.v,
+      imageUrl: it.img,
+      quantity: it.q,
+      unitPrice: it.p,
+      discount: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      lineTotal: it.t,
+    }));
+    const pseudoBiz: Business = {
+      id: invoice.businessId,
+      name: invoice.businessName,
+      phone: invoice.businessPhone,
+      address: invoice.businessAddress,
+      gstin: invoice.businessGstin,
+      logoUrl: invoice.businessLogoUrl,
+      ownerUid: invoice.ownerUid,
+      authorizedUids: [],
+    };
+    const pseudoUpi: UpiSetting | null = invoice.upiId
+      ? {
+          id: invoice.businessId,
+          businessId: invoice.businessId,
+          ownerUid: invoice.ownerUid,
+          authorizedUids: [],
+          upiId: invoice.upiId,
+          accountHolderName: invoice.upiName || invoice.businessName,
+          businessName: invoice.businessName,
+          activeMode: 'generated',
+        }
+      : null;
+    return { pseudoBill, pseudoItems, pseudoBiz, pseudoUpi };
+  };
+
   const handleDownloadPdf = async () => {
     if (!invoice) return;
+
+    if (language === 'te') {
+      const built = buildPseudoBillData();
+      if (built) {
+        const { dataUrl } = await generateShareableBillImage({
+          bill: built.pseudoBill,
+          items: built.pseudoItems,
+          business: built.pseudoBiz,
+          upi: built.pseudoUpi,
+          language: 'te',
+        });
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise<void>((res) => {
+          img.onload = () => res();
+          img.onerror = () => res();
+        });
+        const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const ratio = img.width > 0 ? img.height / img.width : 1.35;
+        let renderW = pageW - 12;
+        let renderH = renderW * ratio;
+        if (renderH > pageH - 12) {
+          renderH = pageH - 12;
+          renderW = renderH / ratio;
+        }
+        const x = (pageW - renderW) / 2;
+        pdf.addImage(dataUrl, 'PNG', x, 6, renderW, renderH);
+        pdf.save(`${invoice.invoiceNumber}_Telugu_Bill.pdf`);
+        return;
+      }
+    }
+
     const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
     pdf.setFillColor(11, 31, 68);
     pdf.rect(0, 0, 210, 34, 'F');
@@ -237,15 +403,28 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
   const handleSharePaymentLink = async () => {
     if (!invoice) return;
     const url = window.location.href;
-    const msg = `${invoice.businessName} · Bill ${invoice.invoiceNumber}\nCustomer: ${invoice.customerName}\n${
-      isDue
-        ? `Due Balance: ₹${Number(invoice.pendingBalance || 0).toFixed(2)}\nPay via PhonePe / GPay / Any UPI:`
-        : `Status: AMOUNT PAID (₹${Number(invoice.amountPaid || 0).toFixed(2)})`
-    }\n${url}`;
+    const dispBiz = translateBusinessName(invoice.businessName, language);
+    const dispCust = translateCustomerName(invoice.customerName, language);
+    const msg =
+      language === 'te'
+        ? `${dispBiz} · బిల్ ${invoice.invoiceNumber}\nకస్టమర్: ${dispCust}\n${
+            isDue
+              ? `బాకీ మొత్తం: ₹${Number(invoice.pendingBalance || 0).toFixed(2)}\nఫోన్‌పే / జీపే / యూపీఐ ద్వారా చెల్లించండి:`
+              : `స్థితి: పూర్తిగా చెల్లించబడింది (₹${Number(invoice.amountPaid || 0).toFixed(2)})`
+          }\n${url}`
+        : `${dispBiz} · Bill ${invoice.invoiceNumber}\nCustomer: ${dispCust}\n${
+            isDue
+              ? `Due Balance: ₹${Number(invoice.pendingBalance || 0).toFixed(2)}\nPay via PhonePe / GPay / Any UPI:`
+              : `Status: AMOUNT PAID (₹${Number(invoice.amountPaid || 0).toFixed(2)})`
+          }\n${url}`;
 
     if (navigator.share) {
       try {
-        await navigator.share({ title: `Bill ${invoice.invoiceNumber}`, text: msg, url });
+        await navigator.share({
+          title: `${tr(language, 'Bill', 'బిల్')} ${invoice.invoiceNumber}`,
+          text: msg,
+          url,
+        });
         return;
       } catch {
         // fallback to clipboard
@@ -258,88 +437,27 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
 
   const handleShareWhatsAppImage = async () => {
     if (!invoice) return;
+    const built = buildPseudoBillData();
+    if (!built) return;
     setSharingImage(true);
     try {
-      const pseudoBill: Bill = {
-        id: invoice.token,
-        businessId: invoice.businessId,
-        ownerUid: invoice.ownerUid,
-        authorizedUids: [],
-        billNumber: invoice.invoiceNumber,
-        verificationBarcode: verificationCode || getPublicInvoiceVerificationBarcode(invoice),
-        customerName: invoice.customerName,
-        customerMobile: invoice.customerPhoneMasked,
-        customerAddress: invoice.customerAddress,
-        itemCount: parsedItems.length,
-        subtotal: invoice.subtotal || invoice.grandTotal,
-        discountAmount: invoice.discountAmount || 0,
-        taxableAmount: invoice.grandTotal - (invoice.totalTax || 0),
-        gstType: 'NONE',
-        totalTax: invoice.totalTax || 0,
-        grandTotal: invoice.grandTotal,
-        amountPaid: invoice.amountPaid || 0,
-        pendingBalance: invoice.pendingBalance || 0,
-        paymentMethod: (invoice.paymentMethod as Bill['paymentMethod']) || 'UPI',
-        paymentStatus: invoice.paymentStatus,
-        billStatus: 'active',
-        publicToken: invoice.token,
-        publicLinkRevoked: invoice.revoked,
-        createdByUid: invoice.ownerUid,
-        createdByName: invoice.businessName,
-        createdAt: invoice.issuedAtIso || new Date().toISOString(),
-      };
-      const pseudoItems: BillItem[] = parsedItems.map((it, idx) => ({
-        id: `pi_${idx}`,
-        billId: invoice.token,
-        businessId: invoice.businessId,
-        ownerUid: invoice.ownerUid,
-        authorizedUids: [],
-        productId: `p_${idx}`,
-        productName: it.n,
-        variantLabel: it.v,
-        imageUrl: it.img,
-        quantity: it.q,
-        unitPrice: it.p,
-        discount: 0,
-        taxRate: 0,
-        taxAmount: 0,
-        lineTotal: it.t,
-      }));
-      const pseudoBiz: Business = {
-        id: invoice.businessId,
-        name: invoice.businessName,
-        phone: invoice.businessPhone,
-        address: invoice.businessAddress,
-        gstin: invoice.businessGstin,
-        logoUrl: invoice.businessLogoUrl,
-        ownerUid: invoice.ownerUid,
-        authorizedUids: [],
-      };
-      const pseudoUpi: UpiSetting | null = invoice.upiId
-        ? {
-            id: invoice.businessId,
-            businessId: invoice.businessId,
-            ownerUid: invoice.ownerUid,
-            authorizedUids: [],
-            upiId: invoice.upiId,
-            accountHolderName: invoice.upiName || invoice.businessName,
-            businessName: invoice.businessName,
-            activeMode: 'generated',
-          }
-        : null;
-
       const { dataUrl, file } = await generateShareableBillImage({
-        bill: pseudoBill,
-        items: pseudoItems,
-        business: pseudoBiz,
-        upi: pseudoUpi,
+        bill: built.pseudoBill,
+        items: built.pseudoItems,
+        business: built.pseudoBiz,
+        upi: built.pseudoUpi,
+        language,
       });
+
+      const dispBiz = translateBusinessName(invoice.businessName, language);
+      const shareTitle = `${invoice.invoiceNumber} - ${dispBiz}`;
+      const shareText = `${dispBiz} ${tr(language, 'Bill', 'బిల్')} #${invoice.invoiceNumber}\n${window.location.href}`;
 
       const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
       if (nav.share && nav.canShare?.({ files: [file] })) {
         await nav.share({
-          title: `${invoice.invoiceNumber} - ${invoice.businessName}`,
-          text: `${invoice.businessName} Bill #${invoice.invoiceNumber}\n${window.location.href}`,
+          title: shareTitle,
+          text: shareText,
           files: [file],
         });
       } else {
@@ -348,7 +466,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
         a.download = `${invoice.invoiceNumber}_Bill.png`;
         a.click();
         window.open(
-          `https://wa.me/?text=${encodeURIComponent(`${invoice.businessName} Bill #${invoice.invoiceNumber}\n${window.location.href}`)}`,
+          `https://wa.me/?text=${encodeURIComponent(shareText)}`,
           '_blank',
           'noopener,noreferrer'
         );
@@ -399,12 +517,18 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
         </div>
         <div className="relative z-10 max-w-md w-full bg-white rounded-2xl border border-blue-100 p-6 text-center space-y-3 shadow-sm">
           <ShieldAlert className="w-10 h-10 text-rose-600 mx-auto" />
-          <h1 className="text-lg font-bold text-[#0B1F44]">Invoice Unavailable</h1>
+          <h1 className="text-lg font-bold text-[#0B1F44]">
+            {tr(language, 'Invoice Unavailable', 'ఇన్వాయిస్ అందుబాటులో లేదు')}
+          </h1>
           <p className="text-sm text-slate-600">{error}</p>
         </div>
       </div>
     );
   }
+
+  const displayBizName = translateBusinessName(invoice.businessName, language);
+  const displayBizAddress = translateAddress(invoice.businessAddress, language);
+  const displayCustomerName = translateCustomerName(invoice.customerName, language);
 
   return (
     <div className="relative min-h-screen bg-[#F4F8FF] py-5 px-3 sm:px-4 overflow-x-hidden">
@@ -426,21 +550,29 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
           <div className="flex items-center justify-center gap-2 min-w-0">
             <img
               src={portalLogo}
-              alt={invoice.businessName}
+              alt={displayBizName}
               referrerPolicy="no-referrer"
               className="w-8 h-8 rounded-xl object-contain bg-white p-0.5 border border-blue-200 shrink-0"
             />
             <span className="text-xs font-bold text-[#0B1F44] truncate">
-              {invoice.businessName}
+              {displayBizName}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={togglePortalLanguage}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 text-[#0B1F44] text-xs font-semibold hover:bg-blue-100"
+            >
+              <Globe className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              {language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}
+            </button>
             <button
               onClick={handleSharePaymentLink}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 text-[#0B1F44] text-xs font-semibold hover:bg-blue-100"
             >
               {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-[#1D4ED8]" />}
-              {copiedLink ? 'Copied' : 'Share Link'}
+              {copiedLink ? tr(language, 'Copied', 'కాపీ అయింది') : tr(language, 'Share Link', 'లింక్ షేర్')}
             </button>
             <button
               onClick={handleShareWhatsAppImage}
@@ -448,21 +580,23 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
             >
               <ImageIcon className="w-3.5 h-3.5" />
-              {sharingImage ? 'Rendering...' : 'WhatsApp Image'}
+              {sharingImage
+                ? tr(language, 'Rendering...', 'తయారవుతోంది...')
+                : tr(language, 'WhatsApp Image', 'వాట్సాప్ బిల్ చిత్రం')}
             </button>
             <button
               onClick={() => window.print()}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-white text-[#0B1F44] text-xs font-semibold hover:bg-blue-50"
             >
               <Printer className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              Print
+              {tr(language, 'Print', 'ప్రింట్')}
             </button>
             <button
               onClick={handleDownloadPdf}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
             >
               <Download className="w-3.5 h-3.5" />
-              PDF
+              {tr(language, 'PDF', 'పీడీఎఫ్')}
             </button>
           </div>
         </div>
@@ -473,26 +607,33 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
               {portalLogo && (
                 <img
                   src={portalLogo}
-                  alt={invoice.businessName}
+                  alt={displayBizName}
                   referrerPolicy="no-referrer"
                   className="w-14 h-14 rounded-xl object-contain bg-white p-0.5 shrink-0"
                 />
               )}
               <div>
-                <h1 className="text-base font-bold">{invoice.businessName}</h1>
+                <h1 className="text-base font-bold">{displayBizName}</h1>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  {[invoice.businessPhone ? `Ph: ${invoice.businessPhone}` : '', invoice.businessGstin ? `GSTIN: ${invoice.businessGstin}` : '']
+                  {[
+                    invoice.businessPhone ? `${tr(language, 'Ph:', 'ఫోన్:')} ${invoice.businessPhone}` : '',
+                    invoice.businessGstin ? `${tr(language, 'GSTIN:', 'జీఎస్టీఐఎన్:')} ${invoice.businessGstin}` : '',
+                  ]
                     .filter(Boolean)
                     .join(' · ')}
                 </p>
-                {invoice.businessAddress && <p className="text-xs text-slate-300">{invoice.businessAddress}</p>}
+                {displayBizAddress && <p className="text-xs text-slate-300">{displayBizAddress}</p>}
               </div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-sky-300 font-semibold uppercase">Bill / Invoice</div>
+              <div className="text-xs text-sky-300 font-semibold uppercase">
+                {tr(language, 'Bill / Invoice', 'బిల్ / ఇన్వాయిస్')}
+              </div>
               <div className="font-mono text-lg font-bold">{invoice.invoiceNumber}</div>
               {invoice.issuedAtIso && (
-                <div className="text-xs text-slate-300">{new Date(invoice.issuedAtIso).toLocaleDateString('en-IN')}</div>
+                <div className="text-xs text-slate-300">
+                  {formatAppDate(new Date(invoice.issuedAtIso), language)}
+                </div>
               )}
             </div>
           </div>
@@ -500,15 +641,17 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
           <div className="p-5 sm:p-6 space-y-5">
             <div className="flex flex-wrap justify-between gap-4 pb-4 border-b border-slate-200">
               <div>
-                <div className="text-xs text-slate-500">Customer</div>
-                <div className="text-sm font-bold text-slate-900 mt-0.5">{invoice.customerName}</div>
+                <div className="text-xs text-slate-500">{tr(language, 'Customer', 'కస్టమర్')}</div>
+                <div className="text-sm font-bold text-slate-900 mt-0.5">{displayCustomerName}</div>
                 {invoice.customerPhoneMasked && (
-                  <div className="text-xs text-slate-600 font-mono">Phone: {invoice.customerPhoneMasked}</div>
+                  <div className="text-xs text-slate-600 font-mono">
+                    {tr(language, 'Phone:', 'ఫోన్:')} {invoice.customerPhoneMasked}
+                  </div>
                 )}
                 {invoice.customerAddress && <div className="text-xs text-slate-600">{invoice.customerAddress}</div>}
               </div>
               <div className="text-right">
-                <div className="text-xs text-slate-500">Live Status</div>
+                <div className="text-xs text-slate-500">{tr(language, 'Live Status', 'ప్రస్తుత స్థితి')}</div>
                 <div
                   className={`inline-flex items-center gap-1.5 mt-1 text-sm font-bold ${
                     isDue ? 'text-amber-700' : 'text-emerald-700'
@@ -517,31 +660,41 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                   {isDue ? (
                     <>
                       <Clock className="w-4 h-4 text-amber-600" />
-                      <span>DUE {formatCurrency(invoice.pendingBalance || 0)}</span>
+                      <span>
+                        {tr(language, 'DUE', 'బాకీ')} {formatCurrency(invoice.pendingBalance || 0)}
+                      </span>
                     </>
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>AMOUNT PAID</span>
+                      <span>{tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}</span>
                     </>
                   )}
                 </div>
-                {invoice.paymentMethod && <div className="text-xs text-slate-500">Via {invoice.paymentMethod}</div>}
+                {invoice.paymentMethod && (
+                  <div className="text-xs text-slate-500">
+                    {tr(language, 'Via', 'చెల్లింపు విధానం:')} {translatePaymentMethod(invoice.paymentMethod, language)}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Purchased Items with Images */}
             <div>
-              <div className="text-xs font-semibold text-slate-500 mb-2">Items in Bill ({parsedItems.length})</div>
+              <div className="text-xs font-semibold text-slate-500 mb-2">
+                {tr(language, 'Items in Bill', 'బిల్‌లోని వస్తువులు')} ({parsedItems.length})
+              </div>
               <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
                 {parsedItems.map((it, i) => {
                   const thumb = it.img || resolveProductImage(null, it.n);
+                  const dispItemName = translateCartProductName(it.n, undefined, [], language);
+                  const dispVar = it.v ? translateVariantLabel(it.v, language) : '';
                   return (
                     <div key={i} className="p-3 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <img
                           src={thumb}
-                          alt={it.n}
+                          alt={dispItemName}
                           referrerPolicy="no-referrer"
                           onError={(e) => {
                             const fallback = getDefaultProductImage(it.n);
@@ -551,8 +704,8 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                         />
                         <div className="min-w-0">
                           <div className="text-xs sm:text-sm font-semibold text-slate-900 truncate">
-                            {it.n}
-                            {it.v ? <span className="text-slate-500 font-normal"> ({it.v})</span> : null}
+                            {dispItemName}
+                            {dispVar ? <span className="text-slate-500 font-normal"> ({dispVar})</span> : null}
                           </div>
                           <div className="text-[11px] font-mono text-slate-500">
                             {it.q} × ₹{Number(it.p || 0).toFixed(2)}
@@ -577,15 +730,21 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                       {qrUrl && (
                         <img
                           src={qrUrl}
-                          alt="UPI Payment Scanner"
+                          alt={tr(language, 'UPI Payment Scanner', 'యూపీఐ చెల్లింపు స్కానర్')}
                           className="w-24 h-24 object-contain bg-white rounded-lg p-1 border border-amber-200 shrink-0"
                         />
                       )}
                       <div className="text-xs space-y-1">
                         <div className="font-bold text-amber-900 text-sm">
-                          Due: {formatCurrency(invoice.pendingBalance || 0)}
+                          {tr(language, 'Due:', 'బాకీ:')} {formatCurrency(invoice.pendingBalance || 0)}
                         </div>
-                        <div className="text-amber-800">Scan QR or tap PhonePe / UPI below to pay</div>
+                        <div className="text-amber-800">
+                          {tr(
+                            language,
+                            'Scan QR or tap PhonePe / UPI below to pay',
+                            'చెల్లించడానికి క్యూఆర్ స్కాన్ చేయండి లేదా కింది ఫోన్‌పే / యూపీఐ బటన్ నొక్కండి'
+                          )}
+                        </div>
                         {invoice.upiId && <div className="font-mono text-slate-700">{invoice.upiId}</div>}
                       </div>
                     </div>
@@ -597,20 +756,20 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#5F259F] text-white text-xs font-semibold hover:opacity-90"
                         >
                           <Smartphone className="w-3.5 h-3.5" />
-                          Pay with PhonePe
+                          {tr(language, 'Pay with PhonePe', 'ఫోన్‌పే ద్వారా చెల్లించండి')}
                         </a>
                         <a
                           href={upiPayUri}
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
                         >
-                          Pay via GPay / Any UPI
+                          {tr(language, 'Pay via GPay / Any UPI', 'జీపే / ఇతర యూపీఐ ద్వారా చెల్లించండి')}
                         </a>
                         <button
                           onClick={handleSharePaymentLink}
                           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 bg-white text-amber-900 text-xs font-semibold hover:bg-amber-100"
                         >
                           <Copy className="w-3.5 h-3.5" />
-                          Share Payment Link
+                          {tr(language, 'Share Payment Link', 'చెల్లింపు లింక్ షేర్ చేయండి')}
                         </button>
                       </div>
                     )}
@@ -619,11 +778,18 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                   <div className="flex items-center gap-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50">
                     <CheckCircle2 className="w-9 h-9 text-emerald-600 shrink-0" />
                     <div>
-                      <div className="text-base font-bold text-emerald-800">AMOUNT PAID</div>
-                      <div className="text-xs font-mono text-emerald-700">
-                        Paid {formatCurrency(invoice.amountPaid || invoice.grandTotal)} · {invoice.paymentMethod || 'Settled'}
+                      <div className="text-base font-bold text-emerald-800">
+                        {tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}
                       </div>
-                      <div className="text-[11px] text-emerald-600 mt-0.5">No pending balance due on this bill</div>
+                      <div className="text-xs font-mono text-emerald-700">
+                        {tr(language, 'Paid', 'చెల్లించినది')} {formatCurrency(invoice.amountPaid || invoice.grandTotal)} ·{' '}
+                        {invoice.paymentMethod
+                          ? translatePaymentMethod(invoice.paymentMethod, language)
+                          : tr(language, 'Settled', 'పూర్తయింది')}
+                      </div>
+                      <div className="text-[11px] text-emerald-600 mt-0.5">
+                        {tr(language, 'No pending balance due on this bill', 'ఈ బిల్‌పై ఎలాంటి బాకీ లేదు')}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -631,31 +797,31 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
 
               <div className="w-full sm:w-64 ml-auto space-y-2 text-xs font-mono">
                 <div className="flex justify-between text-slate-600">
-                  <span className="font-sans">Subtotal</span>
+                  <span className="font-sans">{tr(language, 'Subtotal', 'మొత్తం')}</span>
                   <span>{formatCurrency(invoice.subtotal || invoice.grandTotal)}</span>
                 </div>
                 {(invoice.discountAmount || 0) > 0 && (
                   <div className="flex justify-between text-emerald-700">
-                    <span className="font-sans">Discount</span>
+                    <span className="font-sans">{tr(language, 'Discount', 'తగ్గింపు')}</span>
                     <span>-{formatCurrency(invoice.discountAmount || 0)}</span>
                   </div>
                 )}
                 {(invoice.totalTax || 0) > 0 && (
                   <div className="flex justify-between text-slate-600">
-                    <span className="font-sans">Tax (GST)</span>
+                    <span className="font-sans">{tr(language, 'Tax (GST)', 'పన్ను (జీఎస్టీ)')}</span>
                     <span>{formatCurrency(invoice.totalTax || 0)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-bold text-[#0B1F44] pt-2 border-t border-slate-200">
-                  <span className="font-sans">Grand Total</span>
+                  <span className="font-sans">{tr(language, 'Grand Total', 'తుది మొత్తం')}</span>
                   <span>{formatCurrency(invoice.grandTotal)}</span>
                 </div>
                 <div className="flex justify-between text-emerald-700 font-semibold">
-                  <span className="font-sans">Amount Paid</span>
+                  <span className="font-sans">{tr(language, 'Amount Paid', 'చెల్లించిన మొత్తం')}</span>
                   <span>{formatCurrency(invoice.amountPaid || 0)}</span>
                 </div>
                 <div className={`flex justify-between font-semibold ${isDue ? 'text-rose-700' : 'text-slate-500'}`}>
-                  <span className="font-sans">Pending Balance</span>
+                  <span className="font-sans">{tr(language, 'Pending Balance', 'బాకీ మొత్తం')}</span>
                   <span>{formatCurrency(invoice.pendingBalance || 0)}</span>
                 </div>
               </div>
@@ -664,9 +830,15 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             {/* Scannable Code128 Bill Verification Barcode */}
             {barcodeSvgUrl && (
               <div className="pt-4 border-t border-slate-200 flex flex-col items-center gap-1">
-                <img src={barcodeSvgUrl} alt={`Bill Verification Barcode ${verificationCode}`} className="h-14 w-auto object-contain" />
+                <img
+                  src={barcodeSvgUrl}
+                  alt={`${tr(language, 'Bill Verification Barcode', 'బిల్ ధృవీకరణ బార్‌కోడ్')} ${verificationCode}`}
+                  className="h-14 w-auto object-contain"
+                />
                 <span className="text-[11px] text-slate-500">
-                  Verify Code: <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> · Scan at store to verify this bill
+                  {tr(language, 'Verify Code:', 'ధృవీకరణ కోడ్:')}{' '}
+                  <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> ·{' '}
+                  {tr(language, 'Scan at store to verify this bill', 'ఈ బిల్ నిర్ధారణకు షాప్ వద్ద స్కాన్ చేయండి')}
                 </span>
               </div>
             )}
@@ -674,7 +846,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
         </div>
 
         <footer className="text-center text-xs text-slate-500 pt-1 pb-3">
-          {getCopyrightNotice(invoice.businessName)}
+          {getCopyrightNoticeLocalized(invoice.businessName, language)}
         </footer>
       </div>
     </div>

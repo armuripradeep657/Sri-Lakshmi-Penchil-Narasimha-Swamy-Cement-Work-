@@ -23,11 +23,13 @@ import {
   isValidUsername,
   normalizeUsername,
 } from '../lib/mpinCrypto';
+import { tr } from '../lib/i18n';
 
 export const ProfilePage: React.FC = () => {
   const {
     userAccount,
     isAdmin,
+    language,
     emailPasswordDisabled,
     updateMyProfile,
     changeMyEmail,
@@ -84,11 +86,21 @@ export const ProfilePage: React.FC = () => {
     try {
       const compressed = await compressProfilePhoto(file);
       setPhotoDataUrl(compressed);
-      setProfileNotice({ type: 'ok', text: 'Photo ready. Tap "Save Profile Details" to sync to cloud.' });
+      setProfileNotice({
+        type: 'ok',
+        text: tr(
+          language,
+          'Photo ready. Tap "Save Profile Details" to sync to cloud.',
+          'ఫోటో సిద్ధంగా ఉంది. క్లౌడ్‌లో సింక్ చేయడానికి "ప్రొఫైల్ వివరాలు సేవ్ చేయండి" నొక్కండి.'
+        ),
+      });
     } catch (err) {
       setProfileNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Unable to process photo.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Unable to process photo.', 'ఫోటోను ప్రాసెస్ చేయడం సాధ్యం కాలేదు.'),
       });
     }
   };
@@ -103,11 +115,17 @@ export const ProfilePage: React.FC = () => {
         phoneNumber,
         photoDataUrl,
       });
-      setProfileNotice({ type: 'ok', text: 'Profile & photo saved to database.' });
+      setProfileNotice({
+        type: 'ok',
+        text: tr(language, 'Profile & photo saved to database.', 'ప్రొఫైల్ & ఫోటో డేటాబేస్‌లో సేవ్ చేయబడింది.'),
+      });
     } catch (err) {
       setProfileNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to save profile.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Failed to save profile.', 'ప్రొఫైల్ సేవ్ చేయడం విఫలమైంది.'),
       });
     } finally {
       setSavingProfile(false);
@@ -121,16 +139,26 @@ export const ProfilePage: React.FC = () => {
     if (!isValidUsername(cleanU)) {
       setCredsNotice({
         type: 'err',
-        text: 'Username must be 3-40 characters using lowercase letters, numbers, dot (.), underscore (_), or hyphen (-).',
+        text: tr(
+          language,
+          'Username must be 3-40 characters using lowercase letters, numbers, dot (.), underscore (_), or hyphen (-).',
+          'యూజర్ పేరు 3-40 అక్షరాలు (చిన్న అక్షరాలు, సంఖ్యలు, ., _, -) లోపల ఉండాలి.'
+        ),
       });
       return;
     }
     if (!isValidSecretPassword(newPassword)) {
-      setCredsNotice({ type: 'err', text: 'Password must be at least 4 characters.' });
+      setCredsNotice({
+        type: 'err',
+        text: tr(language, 'Password must be at least 4 characters.', 'పాస్‌వర్డ్ కనీసం 4 అక్షరాలు ఉండాలి.'),
+      });
       return;
     }
     if (newPassword !== confirmPassword) {
-      setCredsNotice({ type: 'err', text: 'Password and Confirm Password do not match.' });
+      setCredsNotice({
+        type: 'err',
+        text: tr(language, 'Password and Confirm Password do not match.', 'పాస్‌వర్డ్ మరియు నిర్ధారణ పాస్‌వర్డ్ సరిపోలలేదు.'),
+      });
       return;
     }
     setSavingCreds(true);
@@ -140,12 +168,19 @@ export const ProfilePage: React.FC = () => {
       setConfirmPassword('');
       setCredsNotice({
         type: 'ok',
-        text: `Username "@${cleanU}" and password saved! You can now sign in from any device (and offline once synced) without losing any data.`,
+        text: tr(
+          language,
+          `Username "@${cleanU}" and password saved! You can now sign in from any device (and offline once synced) without losing any data.`,
+          `యూజర్ పేరు "@${cleanU}" మరియు పాస్‌వర్డ్ సేవ్ అయ్యాయి! ఇప్పుడు ఏ పరికరం నుండైనా డేటా కోల్పోకుండా లాగిన్ కావచ్చు.`
+        ),
       });
     } catch (err) {
       setCredsNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to save username & password.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Failed to save username & password.', 'యూజర్ పేరు & పాస్‌వర్డ్ సేవ్ చేయడం విఫలమైంది.'),
       });
     } finally {
       setSavingCreds(false);
@@ -160,12 +195,19 @@ export const ProfilePage: React.FC = () => {
       await changeMyEmail(newEmail);
       setEmailNotice({
         type: 'ok',
-        text: 'Email updated & authorized. You can now sign in with this new Google email too.',
+        text: tr(
+          language,
+          'Email updated & authorized. You can now sign in with this new Google email too.',
+          'ఇమెయిల్ నవీకరించబడింది & అనుమతించబడింది. మీరు ఇప్పుడు ఈ కొత్త గూగుల్ ఇమెయిల్‌తో కూడా లాగిన్ కావచ్చు.'
+        ),
       });
     } catch (err) {
       setEmailNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to update email.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Failed to update email.', 'ఇమెయిల్ నవీకరించడం విఫలమైంది.'),
       });
     } finally {
       setSavingEmail(false);
@@ -176,11 +218,17 @@ export const ProfilePage: React.FC = () => {
     e.preventDefault();
     setMpinNotice(null);
     if (!isValidFourDigitMpin(mpin)) {
-      setMpinNotice({ type: 'err', text: 'Enter exactly 4 numeric digits (0-9).' });
+      setMpinNotice({
+        type: 'err',
+        text: tr(language, 'Enter exactly 4 numeric digits (0-9).', 'సరిగ్గా 4 అంకెలు (0-9) నమోదు చేయండి.'),
+      });
       return;
     }
     if (mpin !== confirmMpin) {
-      setMpinNotice({ type: 'err', text: 'MPIN and Confirm MPIN do not match.' });
+      setMpinNotice({
+        type: 'err',
+        text: tr(language, 'MPIN and Confirm MPIN do not match.', 'ఎంపిన్ మరియు నిర్ధారణ ఎంపిన్ సరిపోలలేదు.'),
+      });
       return;
     }
     setSavingMpin(true);
@@ -190,12 +238,19 @@ export const ProfilePage: React.FC = () => {
       setConfirmMpin('');
       setMpinNotice({
         type: 'ok',
-        text: '4-digit fast MPIN saved! You can now unlock offline or online using your 4-digit MPIN.',
+        text: tr(
+          language,
+          '4-digit fast MPIN saved! You can now unlock offline or online using your 4-digit MPIN.',
+          '4-అంకెల ఫాస్ట్ ఎంపిన్ సేవ్ అయింది! ఇప్పుడు ఆఫ్‌లైన్ లేదా ఆన్‌లైన్‌లో ఎంపిన్‌తో త్వరగా అన్‌లాక్ చేయవచ్చు.'
+        ),
       });
     } catch (err) {
       setMpinNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to create 4-digit MPIN.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Failed to create 4-digit MPIN.', '4-అంకెల ఎంపిన్ సృష్టించడం విఫలమైంది.'),
       });
     } finally {
       setSavingMpin(false);
@@ -207,11 +262,17 @@ export const ProfilePage: React.FC = () => {
     setMpinNotice(null);
     try {
       await disableMyMpin();
-      setMpinNotice({ type: 'ok', text: '4-digit MPIN disabled for your account.' });
+      setMpinNotice({
+        type: 'ok',
+        text: tr(language, '4-digit MPIN disabled for your account.', 'మీ ఖాతాకు 4-అంకెల ఎంపిన్ నిలిపివేయబడింది.'),
+      });
     } catch (err) {
       setMpinNotice({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Failed to disable MPIN.',
+        text:
+          err instanceof Error
+            ? err.message
+            : tr(language, 'Failed to disable MPIN.', 'ఎంపిన్ నిలిపివేయడం విఫలమైంది.'),
       });
     } finally {
       setSavingMpin(false);
@@ -240,7 +301,7 @@ export const ProfilePage: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-bold truncate">{userAccount.displayName}</h2>
               <span className="px-2 py-0.5 rounded-md bg-white/15 text-[10px] font-bold uppercase tracking-wide">
-                {isAdmin ? 'Owner / Admin' : 'Staff'}
+                {isAdmin ? tr(language, 'Owner / Admin', 'యజమాని / అడ్మిన్') : tr(language, 'Staff', 'సిబ్బంది')}
               </span>
               {userAccount.username && (
                 <span className="px-2 py-0.5 rounded-md bg-cyan-400/20 border border-cyan-300/40 text-cyan-100 text-[10px] font-mono font-bold">
@@ -254,7 +315,7 @@ export const ProfilePage: React.FC = () => {
             </div>
             <div className="text-xs text-cyan-200 mt-0.5 flex items-center gap-1.5 font-mono">
               <Phone className="w-3.5 h-3.5 shrink-0" />
-              <span>{userAccount.phoneNumber || 'Phone not added yet'}</span>
+              <span>{userAccount.phoneNumber || tr(language, 'Phone not added yet', 'ఫోన్ ఇంకా జోడించలేదు')}</span>
             </div>
           </div>
         </div>
@@ -267,7 +328,7 @@ export const ProfilePage: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white text-[#0B1F44] text-xs font-bold shadow hover:bg-blue-50 transition"
             >
               <Lock className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              Lock App
+              {tr(language, 'Lock App', 'యాప్ లాక్ చేయి')}
             </button>
           )}
         </div>
@@ -281,10 +342,15 @@ export const ProfilePage: React.FC = () => {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-              <AtSign className="w-4 h-4 text-[#1D4ED8]" /> Username &amp; Password Login (Any Device &amp; Offline)
+              <AtSign className="w-4 h-4 text-[#1D4ED8]" />{' '}
+              {tr(language, 'Username & Password Login (Any Device & Offline)', 'యూజర్ పేరు & పాస్‌వర్డ్ లాగిన్ (ఏ పరికరమైనా & ఆఫ్‌లైన్)')}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Set a unique username and password to sign into this same account from any phone or computer without losing any bills, products, or data.
+              {tr(
+                language,
+                'Set a unique username and password to sign into this same account from any phone or computer without losing any bills, products, or data.',
+                'బిల్లులు, ఉత్పత్తులు లేదా డేటా కోల్పోకుండా ఏ ఫోన్ లేదా కంప్యూటర్ నుండైనా ఇదే ఖాతాలో లాగిన్ కావడానికి యూజర్ పేరు మరియు పాస్‌వర్డ్ సెట్ చేయండి.'
+              )}
             </p>
           </div>
           <span
@@ -295,13 +361,15 @@ export const ProfilePage: React.FC = () => {
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            {userAccount.username ? `@${userAccount.username}` : 'Not Set'}
+            {userAccount.username ? `@${userAccount.username}` : tr(language, 'Not Set', 'సెట్ కాలేదు')}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Username *</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {tr(language, 'Username *', 'యూజర్ పేరు *')}
+            </label>
             <input
               type="text"
               required
@@ -313,7 +381,9 @@ export const ProfilePage: React.FC = () => {
           </div>
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              {userAccount.passwordEnabled ? 'New Password *' : 'Create Password *'}
+              {userAccount.passwordEnabled
+                ? tr(language, 'New Password *', 'కొత్త పాస్‌వర్డ్ *')
+                : tr(language, 'Create Password *', 'పాస్‌వర్డ్ సృష్టించండి *')}
             </label>
             <div className="relative">
               <input
@@ -322,7 +392,7 @@ export const ProfilePage: React.FC = () => {
                 minLength={4}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min 4 characters"
+                placeholder={tr(language, 'Min 4 characters', 'కనీసం 4 అక్షరాలు')}
                 className="w-full pl-3 pr-9 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
               />
               <button
@@ -335,14 +405,16 @@ export const ProfilePage: React.FC = () => {
             </div>
           </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Confirm Password *</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {tr(language, 'Confirm Password *', 'పాస్‌వర్డ్ నిర్ధారించండి *')}
+            </label>
             <input
               type={showPwd ? 'text' : 'password'}
               required
               minLength={4}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter password"
+              placeholder={tr(language, 'Re-enter password', 'పాస్‌వర్డ్ మళ్లీ నమోదు చేయండి')}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
@@ -364,7 +436,8 @@ export const ProfilePage: React.FC = () => {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-semibold"
               >
-                Enable Email/Password in Firebase Console <ExternalLink className="w-3 h-3" />
+                {tr(language, 'Enable Email/Password in Firebase Console', 'ఫైర్‌బేస్ కన్సోల్‌లో ఇమెయిల్/పాస్‌వర్డ్ ప్రారంభించండి')}{' '}
+                <ExternalLink className="w-3 h-3" />
               </a>
             )}
           </div>
@@ -377,10 +450,10 @@ export const ProfilePage: React.FC = () => {
             className="px-4 py-2.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-bold transition disabled:opacity-50"
           >
             {savingCreds
-              ? 'Securing Credentials...'
+              ? tr(language, 'Securing Credentials...', 'వివరాలు భద్రపరుస్తోంది...')
               : userAccount.passwordEnabled
-              ? 'Update Username & Password'
-              : 'Save Username & Password'}
+              ? tr(language, 'Update Username & Password', 'యూజర్ పేరు & పాస్‌వర్డ్ నవీకరించండి')
+              : tr(language, 'Save Username & Password', 'యూజర్ పేరు & పాస్‌వర్డ్ సేవ్ చేయండి')}
           </button>
         </div>
       </form>
@@ -393,10 +466,15 @@ export const ProfilePage: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-              <Camera className="w-4 h-4 text-[#1D4ED8]" /> Profile Photo, Name &amp; Phone Number
+              <Camera className="w-4 h-4 text-[#1D4ED8]" />{' '}
+              {tr(language, 'Profile Photo, Name & Phone Number', 'ప్రొఫైల్ ఫోటో, పేరు & ఫోన్ నంబర్')}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Visible on your portal, billing records, and quick login screen.
+              {tr(
+                language,
+                'Visible on your portal, billing records, and quick login screen.',
+                'మీ పోర్టల్, బిల్లింగ్ రికార్డులు మరియు త్వరిత లాగిన్ స్క్రీన్‌లో కనిపిస్తుంది.'
+              )}
             </p>
           </div>
         </div>
@@ -406,7 +484,7 @@ export const ProfilePage: React.FC = () => {
             {photoDataUrl ? (
               <img
                 src={photoDataUrl}
-                alt="Profile Preview"
+                alt={tr(language, 'Profile Preview', 'ప్రొఫైల్ ప్రివ్యూ')}
                 className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-200 shadow-sm"
               />
             ) : (
@@ -431,7 +509,7 @@ export const ProfilePage: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF] transition"
               >
                 <Camera className="w-3.5 h-3.5" />
-                {photoDataUrl ? 'Change Photo' : 'Upload Photo'}
+                {photoDataUrl ? tr(language, 'Change Photo', 'ఫోటో మార్చు') : tr(language, 'Upload Photo', 'ఫోటో అప్‌లోడ్ చేయి')}
               </button>
               {photoDataUrl && (
                 <button
@@ -440,35 +518,39 @@ export const ProfilePage: React.FC = () => {
                   className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-rose-200 text-rose-600 text-xs font-semibold hover:bg-rose-50 transition"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Remove
+                  {tr(language, 'Remove', 'తొలగించు')}
                 </button>
               )}
             </div>
             <p className="text-[11px] text-slate-500">
-              Automatically compressed &amp; synced across devices.
+              {tr(language, 'Automatically compressed & synced across devices.', 'ఆటోమేటిక్‌గా కంప్రెస్ అయి అన్ని పరికరాలకు సింక్ అవుతుంది.')}
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Full Name *</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {tr(language, 'Full Name *', 'పూర్తి పేరు *')}
+            </label>
             <input
               required
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Enter full name"
+              placeholder={tr(language, 'Enter full name', 'పూర్తి పేరు నమోదు చేయండి')}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Phone Number</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {tr(language, 'Phone Number', 'ఫోన్ నంబర్')}
+            </label>
             <input
               type="tel"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="e.g. 9876543210"
+              placeholder={tr(language, 'e.g. 9876543210', 'ఉదా. 9876543210')}
               className="w-full px-3 py-2.5 font-mono rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
           </div>
@@ -493,7 +575,9 @@ export const ProfilePage: React.FC = () => {
             disabled={savingProfile}
             className="px-4 py-2.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-bold transition disabled:opacity-50"
           >
-            {savingProfile ? 'Saving Profile...' : 'Save Profile Details'}
+            {savingProfile
+              ? tr(language, 'Saving Profile...', 'ప్రొఫైల్ సేవ్ అవుతోంది...')
+              : tr(language, 'Save Profile Details', 'ప్రొఫైల్ వివరాలు సేవ్ చేయండి')}
           </button>
         </div>
       </form>
@@ -505,10 +589,15 @@ export const ProfilePage: React.FC = () => {
       >
         <div>
           <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-            <Mail className="w-4 h-4 text-[#1D4ED8]" /> Change Google / Recovery Email Address
+            <Mail className="w-4 h-4 text-[#1D4ED8]" />{' '}
+            {tr(language, 'Change Google / Recovery Email Address', 'గూగుల్ / రికవరీ ఇమెయిల్ చిరునామా మార్చండి')}
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Updates your profile email and authorizes the new Google email to carry over your photo, phone, username, and MPIN.
+            {tr(
+              language,
+              'Updates your profile email and authorizes the new Google email to carry over your photo, phone, username, and MPIN.',
+              'మీ ప్రొఫైల్ ఇమెయిల్‌ను నవీకరిస్తుంది మరియు మీ ఫోటో, ఫోన్, యూజర్ పేరు, ఎంపిన్‌లను కొత్త గూగుల్ ఇమెయిల్‌కు వర్తింపజేస్తుంది.'
+            )}
           </p>
         </div>
 
@@ -526,7 +615,7 @@ export const ProfilePage: React.FC = () => {
             disabled={savingEmail}
             className="px-4 py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold whitespace-nowrap transition disabled:opacity-50"
           >
-            {savingEmail ? 'Updating Email...' : 'Update Email'}
+            {savingEmail ? tr(language, 'Updating Email...', 'ఇమెయిల్ నవీకరించబడుతోంది...') : tr(language, 'Update Email', 'ఇమెయిల్ నవీకరించు')}
           </button>
         </div>
 
@@ -551,10 +640,15 @@ export const ProfilePage: React.FC = () => {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44] flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#1D4ED8]" /> 4-Digit Fast Login MPIN
+              <KeyRound className="w-4 h-4 text-[#1D4ED8]" />{' '}
+              {tr(language, '4-Digit Fast Login MPIN', '4-అంకెల ఫాస్ట్ లాగిన్ ఎంపిన్')}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Create a 4-digit numeric MPIN so you can unlock and sign in fast (even offline) using your MPIN.
+              {tr(
+                language,
+                'Create a 4-digit numeric MPIN so you can unlock and sign in fast (even offline) using your MPIN.',
+                'ఆఫ్‌లైన్ లేదా ఆన్‌లైన్‌లో త్వరగా అన్‌లాక్ చేయడానికి 4-అంకెల ఎంపిన్ సృష్టించండి.'
+              )}
             </p>
           </div>
           <span
@@ -565,14 +659,18 @@ export const ProfilePage: React.FC = () => {
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            {userAccount.mpinEnabled ? 'MPIN Active' : 'Not Created'}
+            {userAccount.mpinEnabled
+              ? tr(language, 'MPIN Active', 'ఎంపిన్ సక్రియం')
+              : tr(language, 'Not Created', 'సెట్ కాలేదు')}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              {userAccount.mpinEnabled ? 'New 4-Digit MPIN *' : 'Create 4-Digit MPIN *'}
+              {userAccount.mpinEnabled
+                ? tr(language, 'New 4-Digit MPIN *', 'కొత్త 4-అంకెల ఎంపిన్ *')
+                : tr(language, 'Create 4-Digit MPIN *', '4-అంకెల ఎంపిన్ సృష్టించండి *')}
             </label>
             <input
               type="password"
@@ -585,7 +683,9 @@ export const ProfilePage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">Confirm 4-Digit MPIN *</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {tr(language, 'Confirm 4-Digit MPIN *', '4-అంకెల ఎంపిన్ నిర్ధారించండి *')}
+            </label>
             <input
               type="password"
               inputMode="numeric"
@@ -618,7 +718,7 @@ export const ProfilePage: React.FC = () => {
               disabled={savingMpin}
               className="px-3.5 py-2 rounded-xl border border-rose-200 text-rose-600 text-xs font-semibold hover:bg-rose-50 transition"
             >
-              Disable MPIN
+              {tr(language, 'Disable MPIN', 'ఎంపిన్ నిలిపివేయి')}
             </button>
           ) : (
             <span />
@@ -629,10 +729,10 @@ export const ProfilePage: React.FC = () => {
             className="px-4 py-2.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-bold transition disabled:opacity-50"
           >
             {savingMpin
-              ? 'Encrypting MPIN...'
+              ? tr(language, 'Encrypting MPIN...', 'ఎంపిన్ ఎన్‌క్రిప్ట్ అవుతోంది...')
               : userAccount.mpinEnabled
-              ? 'Update 4-Digit MPIN'
-              : 'Create 4-Digit MPIN'}
+              ? tr(language, 'Update 4-Digit MPIN', '4-అంకెల ఎంపిన్ నవీకరించు')
+              : tr(language, 'Create 4-Digit MPIN', '4-అంకెల ఎంపిన్ సృష్టించు')}
           </button>
         </div>
       </form>

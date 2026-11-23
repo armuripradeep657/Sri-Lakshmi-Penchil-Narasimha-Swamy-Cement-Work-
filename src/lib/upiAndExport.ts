@@ -3,10 +3,21 @@ import jsQR from 'jsqr';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { Bill, BillItem, Business, BusinessSettings, UpiSetting } from '../types/billing';
+import { Bill, BillItem, Business, BusinessSettings, Language, Product, UpiSetting } from '../types/billing';
 import { formatTimestamp } from './firebase';
-import { drawCode128OnCanvas, getBillVerificationBarcode } from './barcodeAndBillImage';
+import { drawCode128OnCanvas, generateShareableBillImage, getBillVerificationBarcode } from './barcodeAndBillImage';
 import { resolveBusinessLogoUrl } from './seedData';
+import {
+  formatAppDate,
+  translateAddress,
+  translateBusinessName,
+  translateCartProductName,
+  translateCustomerName,
+  translateFooterMessage,
+  translateGstType,
+  translatePaymentMethod,
+  translateVariantLabel,
+} from './i18n';
 
 export function buildUpiUri(params: {
   upiId: string;
@@ -100,9 +111,44 @@ export async function generateA4InvoicePdf(params: {
   business: Business;
   settings?: BusinessSettings | null;
   upi?: UpiSetting | null;
+  products?: Product[];
+  language?: Language;
 }): Promise<jsPDF> {
-  const { bill, items, business, settings, upi } = params;
+  const { bill, items, business, settings, upi, products = [], language = 'en' } = params;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  // jsPDF built-in Helvetica does not support Telugu Unicode glyphs; render crisp Canvas-2D PNG and embed onto A4.
+  if (language === 'te') {
+    const { dataUrl } = await generateShareableBillImage({
+      bill,
+      items,
+      business,
+      upi: settings?.showQrCode === false ? null : upi,
+      products,
+      language: 'te',
+    });
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise<void>((resolve) => {
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+    });
+    const pageW = 210;
+    const pageH = 297;
+    const marginMm = 8;
+    const maxW = pageW - marginMm * 2;
+    const maxH = pageH - marginMm * 2;
+    const aspect = img.width && img.height ? img.height / img.width : 1.3;
+    let drawW = maxW;
+    let drawH = drawW * aspect;
+    if (drawH > maxH) {
+      drawH = maxH;
+      drawW = drawH / aspect;
+    }
+    const offsetX = (pageW - drawW) / 2;
+    doc.addImage(dataUrl, 'PNG', offsetX, marginMm, drawW, drawH);
+    return doc;
+  }
 
   // Navy header bar
   doc.setFillColor(11, 31, 68);
@@ -303,6 +349,215 @@ async function loadMonochromeLogoDataUrl(src?: string): Promise<string | null> {
   }
 }
 
+async function renderTeluguThermalReceiptCanvas(params: {
+  bill: Bill;
+  items: BillItem[];
+  business: Business;
+  paperWidth: '58mm' | '80mm';
+  upi?: UpiSetting | null;
+  showLogo: boolean;
+  showQrCode: boolean;
+  footerMessage?: string;
+  products: Product[];
+}): Promise<{ dataUrl: string; widthPx: number; heightPx: number }> {
+  const { bill, items, business, paperWidth, upi, showLogo, showQrCode, footerMessage, products } = params;
+  const widthPx = paperWidth === '58mm' ? 384 : 520;
+  const pad = 22;
+  const resolvedLogoUrl = showLogo ? resolveBusinessLogoUrl(business.logoUrl) : '';
+  const hasQr = bill.pendingBalance > 0 && showQrCode && Boolean(upi?.upiId);
+  const estHeight =
+    340 +
+    (resolvedLogoUrl ? 92 : 0) +
+    items.length * 56 +
+    (hasQr ? 190 : 54) +
+    150;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = widthPx;
+  canvas.height = estHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable.');
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, widthPx, estHeight);
+  ctx.fillStyle = '#0F172A';
+
+  let y = 24;
+  const cx = widthPx / 2;
+
+  if (resolvedLogoUrl) {
+    const logoData = await loadMonochromeLogoDataUrl(resolvedLogoUrl);
+    if (logoData) {
+      const img = new Image();
+      img.src = logoData;
+      await new Promise<void>((res) => {
+        img.onload = () => res();
+        img.onerror = () => res();
+      });
+      ctx.drawImage(img, cx - 34, y, 68, 68);
+      y += 82;
+    }
+  }
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 17px sans-serif';
+  const bizTitle = translateBusinessName(business.name, 'te');
+  const words = bizTitle.split(/\s+/);
+  let line = '';
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (ctx.measureText(test).width > widthPx - pad * 2) {
+      ctx.fillText(line, cx, y);
+      y += 22;
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) {
+    ctx.fillText(line, cx, y);
+    y += 22;
+  }
+
+  ctx.font = '13px sans-serif';
+  const addr = translateAddress(business.address, 'te');
+  if (addr) {
+    ctx.fillText(addr.slice(0, 48), cx, y);
+    y += 18;
+  }
+  if (business.phone) {
+    ctx.fillText(`ఫోన్: ${business.phone}`, cx, y);
+    y += 18;
+  }
+  if (business.gstin) {
+    ctx.fillText(`జీఎస్టీఐఎన్: ${business.gstin}`, cx, y);
+    y += 18;
+  }
+
+  const drawDash = () => {
+    ctx.strokeStyle = '#64748B';
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad, y);
+    ctx.lineTo(widthPx - pad, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    y += 18;
+  };
+
+  y += 4;
+  drawDash();
+
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText(`బిల్: ${bill.billNumber}`, pad, y);
+  y += 20;
+  ctx.font = '13px sans-serif';
+  ctx.fillText(`తేదీ: ${formatAppDate(formatTimestamp(bill.createdAt), 'te', true)}`, pad, y);
+  y += 20;
+  ctx.fillText(`కస్టమర్: ${translateCustomerName(bill.customerName, 'te')}`, pad, y);
+  y += 20;
+  if (bill.customerMobile) {
+    ctx.fillText(`మొబైల్: ${bill.customerMobile}`, pad, y);
+    y += 20;
+  }
+  drawDash();
+
+  for (const item of items) {
+    const pName = translateCartProductName(item.productName, item.productId, products, 'te');
+    const vLabel = translateVariantLabel(item.variantLabel, 'te');
+    const full = vLabel ? `${pName} (${vLabel})` : pName;
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(full.slice(0, 34), pad, y);
+    y += 20;
+    ctx.font = '13px monospace';
+    ctx.fillText(`${item.quantity} × ${item.unitPrice.toFixed(2)}`, pad, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(item.lineTotal.toFixed(2), widthPx - pad, y);
+    ctx.textAlign = 'left';
+    y += 24;
+  }
+
+  drawDash();
+  ctx.font = '14px sans-serif';
+  const rowKV = (k: string, v: string, bold = false) => {
+    ctx.font = bold ? 'bold 17px sans-serif' : '14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(k, pad, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(v, widthPx - pad, y);
+    ctx.textAlign = 'left';
+    y += bold ? 26 : 21;
+  };
+
+  rowKV('ఉప మొత్తం', bill.subtotal.toFixed(2));
+  if (bill.discountAmount > 0) rowKV('తగ్గింపు', `-${bill.discountAmount.toFixed(2)}`);
+  if (bill.totalTax > 0) rowKV(`పన్ను (${translateGstType(bill.gstType, 'te')})`, bill.totalTax.toFixed(2));
+  rowKV('మొత్తం విలువ', `₹${bill.grandTotal.toFixed(2)}`, true);
+  rowKV(`చెల్లించినది (${translatePaymentMethod(bill.paymentMethod, 'te')})`, `₹${bill.amountPaid.toFixed(2)}`);
+  rowKV('బాకీ మొత్తం', `₹${bill.pendingBalance.toFixed(2)}`);
+
+  y += 4;
+  drawDash();
+
+  if (hasQr && upi?.upiId) {
+    const uri = buildUpiUri({
+      upiId: upi.upiId,
+      payeeName: upi.accountHolderName || business.name,
+      amount: bill.pendingBalance,
+      billNumber: bill.billNumber,
+    });
+    const qrData =
+      upi.activeMode === 'uploaded' && upi.uploadedQrDataUrl
+        ? upi.uploadedQrDataUrl
+        : await QRCode.toDataURL(uri, { width: 150, margin: 1 });
+    const qrImg = new Image();
+    qrImg.src = qrData;
+    await new Promise<void>((res) => {
+      qrImg.onload = () => res();
+      qrImg.onerror = () => res();
+    });
+    ctx.drawImage(qrImg, cx - 72, y, 144, 144);
+    y += 160;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(`బాకీ చెల్లించడానికి స్కాన్ చేయండి: ₹${bill.pendingBalance.toFixed(2)}`, cx, y);
+    y += 22;
+  } else {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('*** పూర్తిగా చెల్లించబడింది ***', cx, y);
+    y += 26;
+  }
+
+  const code = getBillVerificationBarcode(bill);
+  const bw = Math.min(widthPx - pad * 2, 320);
+  drawCode128OnCanvas(ctx, code, cx - bw / 2, y, bw, 46);
+  y += 82;
+
+  ctx.textAlign = 'center';
+  ctx.font = '13px sans-serif';
+  ctx.fillText(translateFooterMessage(footerMessage, 'te').slice(0, 56), cx, y);
+  y += 24;
+
+  // Crop canvas cleanly to actual used height y
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = widthPx;
+  finalCanvas.height = Math.max(y + 10, 300);
+  const fCtx = finalCanvas.getContext('2d');
+  if (fCtx) {
+    fCtx.fillStyle = '#FFFFFF';
+    fCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    fCtx.drawImage(canvas, 0, 0);
+  }
+  return {
+    dataUrl: finalCanvas.toDataURL('image/png'),
+    widthPx: finalCanvas.width,
+    heightPx: finalCanvas.height,
+  };
+}
+
 export async function generateThermalReceiptPdf(params: {
   bill: Bill;
   items: BillItem[];
@@ -312,9 +567,41 @@ export async function generateThermalReceiptPdf(params: {
   showLogo?: boolean;
   showQrCode?: boolean;
   footerMessage?: string;
+  products?: Product[];
+  language?: Language;
 }): Promise<jsPDF> {
-  const { bill, items, business, paperWidth, upi, showLogo = true, showQrCode = true, footerMessage } = params;
+  const {
+    bill,
+    items,
+    business,
+    paperWidth,
+    upi,
+    showLogo = true,
+    showQrCode = true,
+    footerMessage,
+    products = [],
+    language = 'en',
+  } = params;
   const widthMm = paperWidth === '58mm' ? 58 : 80;
+
+  if (language === 'te') {
+    const rendered = await renderTeluguThermalReceiptCanvas({
+      bill,
+      items,
+      business,
+      paperWidth,
+      upi,
+      showLogo,
+      showQrCode,
+      footerMessage,
+      products,
+    });
+    const heightMm = Math.max(80, Math.ceil((widthMm * rendered.heightPx) / rendered.widthPx) + 4);
+    const doc = new jsPDF({ unit: 'mm', format: [widthMm, heightMm] });
+    doc.addImage(rendered.dataUrl, 'PNG', 0, 2, widthMm, (widthMm * rendered.heightPx) / rendered.widthPx);
+    return doc;
+  }
+
   const margin = 4;
   const contentWidth = widthMm - margin * 2;
   const resolvedLogoUrl = resolveBusinessLogoUrl(business.logoUrl);

@@ -1,9 +1,21 @@
 import QRCode from 'qrcode';
-import { Bill, BillItem, Business, UpiSetting } from '../types/billing';
+import { Bill, BillItem, Business, Language, Product, UpiSetting } from '../types/billing';
 import { formatTimestamp } from './firebase';
 import { getDefaultProductImage } from './productImages';
-import { getCopyrightNotice, resolveBusinessLogoUrl } from './seedData';
+import { resolveBusinessLogoUrl } from './seedData';
 import { buildUpiUri, formatCurrency } from './upiAndExport';
+import {
+  formatAppDate,
+  getCopyrightNoticeLocalized,
+  tr,
+  translateAddress,
+  translateBusinessName,
+  translateCartProductName,
+  translateCustomerName,
+  translatePaymentMethod,
+  translateProprietor,
+  translateVariantLabel,
+} from './i18n';
 
 // Official ISO/IEC 15417 Code128 bar/space patterns (values 0..106)
 const CODE128_PATTERNS: string[] = [
@@ -223,8 +235,10 @@ export async function generateShareableBillImage(params: {
   business: Business;
   upi?: UpiSetting | null;
   productImagesMap?: Map<string, string>;
+  products?: Product[];
+  language?: Language;
 }): Promise<{ blob: Blob; dataUrl: string; file: File }> {
-  const { bill, items, business, upi, productImagesMap } = params;
+  const { bill, items, business, upi, productImagesMap, products = [], language = 'en' } = params;
   const width = 880;
   const rowHeight = 64;
   const headerH = 152;
@@ -263,34 +277,42 @@ export async function generateShareableBillImage(params: {
     ctx.restore();
   }
 
+  const bizName = translateBusinessName(business.name, language);
+  const bizProp = translateProprietor(business.proprietor, language);
+  const bizAddress = translateAddress(business.address, language);
+
   const textStartX = logoImg ? 124 : 36;
   ctx.fillStyle = '#FFFFFF';
   ctx.font = 'bold 24px sans-serif';
-  ctx.fillText((business.name || 'Sri Lakshmi Penchil Narasimha Swamy Cement Work').slice(0, 48), textStartX, 64);
+  ctx.fillText(bizName.slice(0, 52), textStartX, 64);
 
   ctx.fillStyle = '#CBD5E1';
   ctx.font = '14px sans-serif';
   const subParts = [
-    business.proprietor ? `Prop: ${business.proprietor}` : '',
-    business.phone ? `Ph: ${business.phone}` : '',
-    business.gstin ? `GSTIN: ${business.gstin}` : '',
+    bizProp ? `${tr(language, 'Prop:', 'యజమాని:')} ${bizProp}` : '',
+    business.phone ? `${tr(language, 'Ph:', 'ఫోన్:')} ${business.phone}` : '',
+    business.gstin ? `${tr(language, 'GSTIN:', 'జీఎస్టీఐఎన్:')} ${business.gstin}` : '',
   ].filter(Boolean);
   ctx.fillText(subParts.join('  ·  '), textStartX, 92);
-  if (business.address) {
-    ctx.fillText(business.address.slice(0, 62), textStartX, 116);
+  if (bizAddress) {
+    ctx.fillText(bizAddress.slice(0, 62), textStartX, 116);
   }
 
   // Right Header Bill Meta
   ctx.textAlign = 'right';
   ctx.fillStyle = '#38BDF8';
   ctx.font = 'bold 13px sans-serif';
-  ctx.fillText(bill.totalTax > 0 ? 'TAX INVOICE' : 'CUSTOMER BILL', width - 36, 54);
+  ctx.fillText(
+    bill.totalTax > 0 ? tr(language, 'TAX INVOICE', 'ట్యాక్స్ ఇన్వాయిస్') : tr(language, 'CUSTOMER BILL', 'కస్టమర్ బిల్'),
+    width - 36,
+    54
+  );
   ctx.fillStyle = '#FFFFFF';
   ctx.font = 'bold 24px monospace';
   ctx.fillText(bill.billNumber, width - 36, 86);
   ctx.fillStyle = '#CBD5E1';
   ctx.font = '13px monospace';
-  ctx.fillText(formatTimestamp(bill.createdAt).toLocaleString('en-IN'), width - 36, 112);
+  ctx.fillText(formatAppDate(formatTimestamp(bill.createdAt), language, true), width - 36, 112);
   ctx.textAlign = 'left';
 
   // Customer & Status Strip
@@ -306,14 +328,14 @@ export async function generateShareableBillImage(params: {
 
   ctx.fillStyle = '#64748B';
   ctx.font = 'bold 12px sans-serif';
-  ctx.fillText('BILLED TO', 36, y + 28);
+  ctx.fillText(tr(language, 'BILLED TO', 'బిల్ చేయబడినవారు'), 36, y + 28);
   ctx.fillStyle = '#0F172A';
   ctx.font = 'bold 19px sans-serif';
-  ctx.fillText(bill.customerName, 36, y + 54);
+  ctx.fillText(translateCustomerName(bill.customerName, language), 36, y + 54);
   ctx.fillStyle = '#475569';
   ctx.font = '14px sans-serif';
   const custMeta = [
-    bill.customerMobile ? `Mob: ${bill.customerMobile}` : '',
+    bill.customerMobile ? `${tr(language, 'Mob:', 'మొబైల్:')} ${bill.customerMobile}` : '',
     bill.customerAddress ? bill.customerAddress : '',
   ]
     .filter(Boolean)
@@ -325,13 +347,19 @@ export async function generateShareableBillImage(params: {
   ctx.textAlign = 'right';
   ctx.fillStyle = '#64748B';
   ctx.font = 'bold 12px sans-serif';
-  ctx.fillText('BILL STATUS', width - 36, y + 28);
+  ctx.fillText(tr(language, 'BILL STATUS', 'బిల్ స్థితి'), width - 36, y + 28);
   ctx.fillStyle = isPaid ? '#059669' : '#D97706';
   ctx.font = 'bold 20px sans-serif';
-  ctx.fillText(isPaid ? 'AMOUNT PAID' : `DUE ${formatCurrency(bill.pendingBalance)}`, width - 36, y + 56);
+  ctx.fillText(
+    isPaid
+      ? tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')
+      : `${tr(language, 'DUE', 'బాకీ')} ${formatCurrency(bill.pendingBalance)}`,
+    width - 36,
+    y + 56
+  );
   ctx.fillStyle = '#475569';
   ctx.font = '13px sans-serif';
-  ctx.fillText(`Method: ${bill.paymentMethod}`, width - 36, y + 80);
+  ctx.fillText(`${tr(language, 'Method:', 'విధానం:')} ${translatePaymentMethod(bill.paymentMethod, language)}`, width - 36, y + 80);
   ctx.textAlign = 'left';
 
   // Table Header
@@ -340,11 +368,11 @@ export async function generateShareableBillImage(params: {
   ctx.fillRect(0, y, width, tableHeaderH);
   ctx.fillStyle = '#475569';
   ctx.font = 'bold 13px sans-serif';
-  ctx.fillText('ITEM', 36, y + 25);
+  ctx.fillText(tr(language, 'ITEM', 'వస్తువు'), 36, y + 25);
   ctx.textAlign = 'right';
-  ctx.fillText('QTY', 580, y + 25);
-  ctx.fillText('RATE', 700, y + 25);
-  ctx.fillText('TOTAL', width - 36, y + 25);
+  ctx.fillText(tr(language, 'QTY', 'పరిమాణం'), 580, y + 25);
+  ctx.fillText(tr(language, 'RATE', 'ధర'), 700, y + 25);
+  ctx.fillText(tr(language, 'TOTAL', 'మొత్తం'), width - 36, y + 25);
   ctx.textAlign = 'left';
 
   // Line Items with Thumbnails
@@ -366,7 +394,9 @@ export async function generateShareableBillImage(params: {
 
     ctx.fillStyle = '#0F172A';
     ctx.font = 'bold 15px sans-serif';
-    const label = item.variantLabel ? `${item.productName} (${item.variantLabel})` : item.productName;
+    const itemName = translateCartProductName(item.productName, item.productId, products, language);
+    const varLabel = translateVariantLabel(item.variantLabel, language);
+    const label = varLabel ? `${itemName} (${varLabel})` : itemName;
     ctx.fillText(label.slice(0, 38), 94, rowY + 30);
 
     ctx.fillStyle = '#64748B';
@@ -415,13 +445,13 @@ export async function generateShareableBillImage(params: {
     }
     ctx.fillStyle = '#92400E';
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('SCAN TO PAY BALANCE DUE', 218, y + 48);
+    ctx.fillText(tr(language, 'SCAN TO PAY BALANCE DUE', 'బాకీ చెల్లించడానికి స్కాన్ చేయండి'), 218, y + 48);
     ctx.fillStyle = '#B45309';
     ctx.font = 'bold 22px monospace';
     ctx.fillText(formatCurrency(bill.pendingBalance), 218, y + 82);
     ctx.fillStyle = '#475569';
     ctx.font = '13px sans-serif';
-    ctx.fillText('PhonePe · GPay · Paytm · Any UPI', 218, y + 114);
+    ctx.fillText(tr(language, 'PhonePe · GPay · Paytm · Any UPI', 'ఫోన్‌పే · జీపే · పేటీఎం · ఏదైనా యూపీఐ'), 218, y + 114);
     ctx.font = '12px monospace';
     ctx.fillText(upi.upiId.slice(0, 26), 218, y + 140);
   } else {
@@ -432,14 +462,14 @@ export async function generateShareableBillImage(params: {
     ctx.strokeRect(36, y + 20, 380, 130);
 
     ctx.fillStyle = '#047857';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.fillText('✓ AMOUNT PAID', 62, y + 72);
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(tr(language, '✓ AMOUNT PAID', '✓ పూర్తిగా చెల్లించబడింది'), 62, y + 72);
     ctx.fillStyle = '#065F46';
     ctx.font = 'bold 18px monospace';
-    ctx.fillText(`${formatCurrency(bill.amountPaid)} · ${bill.paymentMethod}`, 62, y + 106);
+    ctx.fillText(`${formatCurrency(bill.amountPaid)} · ${translatePaymentMethod(bill.paymentMethod, language)}`, 62, y + 106);
     ctx.fillStyle = '#047857';
     ctx.font = '13px sans-serif';
-    ctx.fillText('Settled in Full · No Balance Due', 62, y + 132);
+    ctx.fillText(tr(language, 'Settled in Full · No Balance Due', 'పూర్తిగా చెల్లించబడింది · బాకీ లేదు'), 62, y + 132);
   }
 
   // Right Totals Breakdown
@@ -448,7 +478,7 @@ export async function generateShareableBillImage(params: {
   let ty = y + 20;
   ctx.font = '15px sans-serif';
   ctx.fillStyle = '#475569';
-  ctx.fillText('Subtotal', lx, ty);
+  ctx.fillText(tr(language, 'Subtotal', 'ఉప మొత్తం'), lx, ty);
   ctx.textAlign = 'right';
   ctx.font = '15px monospace';
   ctx.fillText(formatCurrency(bill.subtotal), rx, ty);
@@ -458,7 +488,7 @@ export async function generateShareableBillImage(params: {
   if (bill.discountAmount > 0) {
     ctx.fillStyle = '#059669';
     ctx.font = '15px sans-serif';
-    ctx.fillText('Discount', lx, ty);
+    ctx.fillText(tr(language, 'Discount', 'తగ్గింపు'), lx, ty);
     ctx.textAlign = 'right';
     ctx.font = '15px monospace';
     ctx.fillText(`-${formatCurrency(bill.discountAmount)}`, rx, ty);
@@ -469,7 +499,7 @@ export async function generateShareableBillImage(params: {
   if (bill.totalTax > 0) {
     ctx.fillStyle = '#475569';
     ctx.font = '15px sans-serif';
-    ctx.fillText('Tax (GST)', lx, ty);
+    ctx.fillText(tr(language, 'Tax (GST)', 'పన్ను (జీఎస్టీ)'), lx, ty);
     ctx.textAlign = 'right';
     ctx.font = '15px monospace';
     ctx.fillText(formatCurrency(bill.totalTax), rx, ty);
@@ -485,7 +515,7 @@ export async function generateShareableBillImage(params: {
 
   ctx.fillStyle = '#0B1F44';
   ctx.font = 'bold 20px sans-serif';
-  ctx.fillText('Grand Total', lx, ty + 18);
+  ctx.fillText(tr(language, 'Grand Total', 'మొత్తం విలువ'), lx, ty + 18);
   ctx.textAlign = 'right';
   ctx.font = 'bold 22px monospace';
   ctx.fillText(formatCurrency(bill.grandTotal), rx, ty + 18);
@@ -494,7 +524,7 @@ export async function generateShareableBillImage(params: {
 
   ctx.fillStyle = '#059669';
   ctx.font = '15px sans-serif';
-  ctx.fillText('Amount Paid', lx, ty);
+  ctx.fillText(tr(language, 'Amount Paid', 'చెల్లించిన మొత్తం'), lx, ty);
   ctx.textAlign = 'right';
   ctx.font = 'bold 15px monospace';
   ctx.fillText(formatCurrency(bill.amountPaid), rx, ty);
@@ -503,7 +533,7 @@ export async function generateShareableBillImage(params: {
 
   ctx.fillStyle = bill.pendingBalance > 0 ? '#DC2626' : '#64748B';
   ctx.font = 'bold 15px sans-serif';
-  ctx.fillText('Balance Due', lx, ty);
+  ctx.fillText(tr(language, 'Balance Due', 'బాకీ మొత్తం'), lx, ty);
   ctx.textAlign = 'right';
   ctx.font = 'bold 16px monospace';
   ctx.fillText(formatCurrency(bill.pendingBalance), rx, ty);
@@ -523,7 +553,11 @@ export async function generateShareableBillImage(params: {
   ctx.fillStyle = '#64748B';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(`Scan barcode to verify bill · ${getCopyrightNotice(business.name)}`, width / 2, totalHeight - 16);
+  ctx.fillText(
+    `${tr(language, 'Scan barcode to verify bill', 'బిల్ తనిఖీ కోసం బార్‌కోడ్ స్కాన్ చేయండి')} · ${getCopyrightNoticeLocalized(business.name, language)}`,
+    width / 2,
+    totalHeight - 16
+  );
   ctx.textAlign = 'left';
 
   const blob = await new Promise<Blob>((resolve, reject) => {

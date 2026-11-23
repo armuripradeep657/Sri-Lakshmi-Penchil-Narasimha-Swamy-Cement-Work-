@@ -40,6 +40,14 @@ import { BillingDataProvider, CartItemInput, useBillingData } from './context/Bi
 import { DEFAULT_BUSINESS_LOGO, getCopyrightNotice, resolveBusinessLogoUrl } from './lib/seedData';
 import { getDefaultProductImage, resolveProductImage } from './lib/productImages';
 import { formatCurrency } from './lib/upiAndExport';
+import {
+  tr,
+  translateBusinessName,
+  translateCustomerName,
+  translateProductName,
+  translateProprietor,
+  translateVariantLabel,
+} from './lib/i18n';
 import { Bill, NavPageId, Product } from './types/billing';
 
 import { LoginPage } from './pages/LoginPage';
@@ -158,6 +166,8 @@ const AuthenticatedShell: React.FC = () => {
   const handleAddToCart = (product: Product, variantLabel?: string, variantPrice?: number) => {
     const price = variantPrice ?? product.sellingPrice;
     const taxRate = business?.taxEnabled ? product.taxRate : 0;
+    const displayProdName = translateProductName(product, language);
+    const displayVariant = translateVariantLabel(variantLabel, language);
 
     setCart((prev) => {
       const idx = prev.findIndex(
@@ -173,7 +183,7 @@ const AuthenticatedShell: React.FC = () => {
           {
             productId: product.id,
             productCode: product.productCode,
-            productName: language === 'te' && product.nameTe ? `${product.name} (${product.nameTe})` : product.name,
+            productName: displayProdName,
             variantLabel,
             barcode: product.barcode,
             imageUrl: product.imageUrl || '',
@@ -194,8 +204,8 @@ const AuthenticatedShell: React.FC = () => {
       if (cartToastTimerRef.current) window.clearTimeout(cartToastTimerRef.current);
       setCartPopToast({
         id: Date.now() + Math.random(),
-        title: variantLabel ? `${product.name} · ${variantLabel}` : product.name,
-        subtitle: `Added ₹${price}`,
+        title: displayVariant ? `${displayProdName} · ${displayVariant}` : displayProdName,
+        subtitle: tr(language, `Added ₹${price}`, `₹${price} జోడించబడింది`),
         thumb: resolveProductImage(product),
         fallbackThumb: getDefaultProductImage(product.name, product.category),
         totalUnits: nextUnits,
@@ -318,7 +328,9 @@ const AuthenticatedShell: React.FC = () => {
   };
 
   const logoSrc = resolveBusinessLogoUrl(business?.logoUrl);
-  const copyrightText = getCopyrightNotice(business?.name);
+  const copyrightText = getCopyrightNotice(business?.name, language);
+  const brandTitle = translateBusinessName(business?.name, language);
+  const proprietorText = translateProprietor(business?.proprietor, language);
 
   return (
     <div className="min-h-screen bg-[#F4F8FF] text-slate-900 flex overflow-x-hidden">
@@ -332,17 +344,19 @@ const AuthenticatedShell: React.FC = () => {
           <div className="flex items-center gap-2.5 overflow-hidden">
             <img
               src={logoSrc}
-              alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+              alt={brandTitle}
               referrerPolicy="no-referrer"
               className="w-10 h-10 rounded-xl object-contain bg-white p-0.5 border border-white/30 shadow-sm shrink-0"
             />
             {!sidebarCollapsed && (
               <div className="min-w-0">
                 <div className="font-display font-bold text-xs leading-snug tracking-tight text-white line-clamp-2">
-                  Sri Lakshmi Penchil Narasimha Swamy Cement Work
+                  {brandTitle}
                 </div>
                 <div className="text-[10px] text-cyan-300 truncate">
-                  {business?.proprietor ? `Prop: ${business.proprietor}` : 'Cloud POS'}
+                  {proprietorText
+                    ? tr(language, `Prop: ${proprietorText}`, `యజమాని: ${proprietorText}`)
+                    : tr(language, 'Cloud POS', 'క్లౌడ్ బిల్లింగ్')}
                 </div>
               </div>
             )}
@@ -350,7 +364,11 @@ const AuthenticatedShell: React.FC = () => {
           <button
             onClick={() => setSidebarCollapsed((c) => !c)}
             className="p-1 rounded-lg hover:bg-white/10 text-slate-300"
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={
+              sidebarCollapsed
+                ? tr(language, 'Expand sidebar', 'సైడ్‌బార్ విస్తరించండి')
+                : tr(language, 'Collapse sidebar', 'సైడ్‌బార్ కుదించండి')
+            }
           >
             {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
@@ -360,12 +378,13 @@ const AuthenticatedShell: React.FC = () => {
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activePage === item.id;
+            const itemLabel = language === 'te' ? item.labelTe : item.label;
             return (
               <motion.button
                 key={item.id}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => handleNavigate(item.id)}
-                title={sidebarCollapsed ? item.label : undefined}
+                title={sidebarCollapsed ? itemLabel : undefined}
                 className={`relative w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
                   isActive
                     ? 'text-[#0B1F44]'
@@ -381,9 +400,7 @@ const AuthenticatedShell: React.FC = () => {
                 )}
                 <span className="relative z-10 flex items-center gap-2.5 min-w-0">
                   <Icon className="w-4 h-4 shrink-0" />
-                  {!sidebarCollapsed && (
-                    <span className="truncate">{language === 'te' ? item.labelTe : item.label}</span>
-                  )}
+                  {!sidebarCollapsed && <span className="truncate">{itemLabel}</span>}
                 </span>
                 {!sidebarCollapsed && item.id === 'notifications' && unreadNotifications > 0 && (
                   <span className="relative z-10 px-1.5 py-0.5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold">
@@ -400,7 +417,7 @@ const AuthenticatedShell: React.FC = () => {
             <button
               type="button"
               onClick={() => handleNavigate('scanner')}
-              title="Open Verify Scanner"
+              title={tr(language, 'Open Verify Scanner', 'తనిఖీ స్కానర్ తెరవండి')}
               className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold transition ${
                 activePage === 'scanner'
                   ? 'bg-white text-[#0B1F44]'
@@ -408,16 +425,16 @@ const AuthenticatedShell: React.FC = () => {
               }`}
             >
               <ScanBarcode className={`w-3.5 h-3.5 shrink-0 ${activePage === 'scanner' ? 'text-[#1D4ED8]' : 'text-cyan-300'}`} />
-              {!sidebarCollapsed && <span className="truncate">Verify Bill</span>}
+              {!sidebarCollapsed && <span className="truncate">{tr(language, 'Verify Bill', 'బిల్ తనిఖీ')}</span>}
             </button>
             <button
               type="button"
               onClick={toggleLanguage}
-              title="Toggle English / Telugu"
+              title={tr(language, 'Switch to Telugu', 'ఇంగ్లీష్‌కు మార్చండి')}
               className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold transition"
             >
               <Globe className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
-              {!sidebarCollapsed && <span>{language === 'te' ? 'EN' : 'తెలుగు'}</span>}
+              {!sidebarCollapsed && <span>{language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}</span>}
             </button>
           </div>
           {!sidebarCollapsed && (
@@ -441,7 +458,7 @@ const AuthenticatedShell: React.FC = () => {
                 <div className="font-semibold text-white truncate">{userAccount?.displayName}</div>
                 <div className="text-[11px] text-blue-200 flex items-center gap-1 capitalize">
                   <ShieldCheck className="w-3 h-3 text-white shrink-0" />
-                  <span>{role === 'admin' ? 'Admin' : 'Staff'}</span>
+                  <span>{role === 'admin' ? tr(language, 'Admin', 'అడ్మిన్') : tr(language, 'Staff', 'సిబ్బంది')}</span>
                   {userAccount?.phoneNumber && (
                     <span className="font-mono text-cyan-200 truncate">· {userAccount.phoneNumber}</span>
                   )}
@@ -454,7 +471,13 @@ const AuthenticatedShell: React.FC = () => {
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/15 hover:bg-rose-600 text-white text-xs font-semibold transition"
           >
             <LogOut className="w-3.5 h-3.5" />
-            {!sidebarCollapsed && <span>{userAccount?.mpinEnabled ? 'Lock / Sign Out' : 'Sign Out'}</span>}
+            {!sidebarCollapsed && (
+              <span>
+                {userAccount?.mpinEnabled
+                  ? tr(language, 'Lock / Sign Out', 'లాక్ / సైన్ అవుట్')
+                  : tr(language, 'Sign Out', 'సైన్ అవుట్')}
+              </span>
+            )}
           </button>
           {!sidebarCollapsed && (
             <div className="pt-1 text-center text-[10px] leading-tight text-blue-200/80">
@@ -486,19 +509,19 @@ const AuthenticatedShell: React.FC = () => {
           <button
             onClick={() => setMobileMenuOpen(true)}
             className="lg:hidden p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white shrink-0"
-            aria-label="Open navigation menu"
+            aria-label={tr(language, 'Open navigation menu', 'మెనూ తెరవండి')}
           >
             <Menu className="w-4 h-4" />
           </button>
           <div className="flex-1 flex items-center justify-center gap-2.5 min-w-0">
             <img
               src={logoSrc}
-              alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+              alt={brandTitle}
               referrerPolicy="no-referrer"
               className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-white/30 lg:border-blue-200 shrink-0 shadow-sm"
             />
             <h1 className="font-display font-bold text-xs sm:text-base tracking-tight leading-tight line-clamp-1 text-center">
-              Sri Lakshmi Penchil Narasimha Swamy Cement Work
+              {brandTitle}
             </h1>
           </div>
           <div className="w-8 shrink-0 lg:hidden" aria-hidden="true" />
@@ -537,7 +560,7 @@ const AuthenticatedShell: React.FC = () => {
                   onClick={() => handleNavigate('profile')}
                   className="px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0B1F44] text-xs font-semibold transition"
                 >
-                  Profile
+                  {tr(language, 'Profile', 'ప్రొఫైల్')}
                 </motion.button>
                 {userAccount.mpinEnabled && (
                   <motion.button
@@ -546,7 +569,7 @@ const AuthenticatedShell: React.FC = () => {
                     onClick={lockWithMpin}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold transition"
                   >
-                    <Lock className="w-3 h-3" /> Lock
+                    <Lock className="w-3 h-3" /> {tr(language, 'Lock', 'లాక్')}
                   </motion.button>
                 )}
               </div>
@@ -580,18 +603,18 @@ const AuthenticatedShell: React.FC = () => {
         {(
           (isAdmin
             ? [
-                { id: 'new-billing', label: 'Bill', icon: FilePlus2 },
-                { id: 'products', label: 'Products', icon: Package },
-                { id: 'labour-cashbook', label: 'Labour', icon: HardHat },
-                { id: 'shop-cashbook', label: 'Income/Exp', icon: Wallet },
-                { id: 'bill-history', label: 'History', icon: History },
-                { id: 'settings', label: 'Settings', icon: Settings },
+                { id: 'new-billing', label: tr(language, 'Bill', 'బిల్'), icon: FilePlus2 },
+                { id: 'products', label: tr(language, 'Products', 'ఉత్పత్తులు'), icon: Package },
+                { id: 'labour-cashbook', label: tr(language, 'Labour', 'లేబర్'), icon: HardHat },
+                { id: 'shop-cashbook', label: tr(language, 'Income/Exp', 'ఆదాయం/ఖర్చు'), icon: Wallet },
+                { id: 'bill-history', label: tr(language, 'History', 'చరిత్ర'), icon: History },
+                { id: 'settings', label: tr(language, 'Settings', 'సెట్టింగ్స్'), icon: Settings },
               ]
             : [
-                { id: 'new-billing', label: 'New Bill', icon: FilePlus2 },
-                { id: 'bill-history', label: 'My Bills', icon: History },
-                { id: 'scanner', label: 'Scanner', icon: ScanBarcode },
-                { id: 'profile', label: 'Profile', icon: User },
+                { id: 'new-billing', label: tr(language, 'New Bill', 'కొత్త బిల్'), icon: FilePlus2 },
+                { id: 'bill-history', label: tr(language, 'My Bills', 'నా బిల్లులు'), icon: History },
+                { id: 'scanner', label: tr(language, 'Scanner', 'స్కానర్'), icon: ScanBarcode },
+                { id: 'profile', label: tr(language, 'Profile', 'ప్రొఫైల్'), icon: User },
               ]) as Array<{
             id: NavPageId;
             label: string;
@@ -649,12 +672,12 @@ const AuthenticatedShell: React.FC = () => {
                 <div className="flex items-center gap-2.5 min-w-0">
                   <img
                     src={logoSrc}
-                    alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+                    alt={brandTitle}
                     referrerPolicy="no-referrer"
                     className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-white/30 shrink-0"
                   />
                   <span className="font-display font-bold text-xs leading-snug line-clamp-2">
-                    Sri Lakshmi Penchil Narasimha Swamy Cement Work
+                    {brandTitle}
                   </span>
                 </div>
                 <button onClick={() => setMobileMenuOpen(false)} className="p-1 text-blue-100 hover:text-white">
@@ -696,7 +719,7 @@ const AuthenticatedShell: React.FC = () => {
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold"
                   >
                     <ScanBarcode className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>Verify Bill</span>
+                    <span>{tr(language, 'Verify Bill', 'బిల్ తనిఖీ')}</span>
                   </button>
                   <button
                     type="button"
@@ -704,7 +727,7 @@ const AuthenticatedShell: React.FC = () => {
                     className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold"
                   >
                     <Globe className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>{language === 'te' ? 'EN' : 'తెలుగు'}</span>
+                    <span>{language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}</span>
                   </button>
                 </div>
                 <PWAInstallButton variant="drawer" />
@@ -712,7 +735,8 @@ const AuthenticatedShell: React.FC = () => {
                   onClick={logout}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white text-xs font-semibold"
                 >
-                  <LogOut className="w-4 h-4" /> Sign Out ({userAccount?.displayName})
+                  <LogOut className="w-4 h-4" />{' '}
+                  {tr(language, `Sign Out (${userAccount?.displayName})`, `సైన్ అవుట్ (${userAccount?.displayName})`)}
                 </button>
                 <div className="pt-1 text-center text-[10px] leading-tight text-blue-200/80">
                   {copyrightText}
@@ -754,13 +778,14 @@ const AuthenticatedShell: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                  Added to Cart
+                  {tr(language, 'Added to Cart', 'కార్ట్‌లో జోడించబడింది')}
                 </div>
                 <div className="text-xs font-bold text-[#0B1F44] dark:text-white truncate">
                   {cartPopToast.title}
                 </div>
                 <div className="text-[11px] text-[#1D4ED8] dark:text-sky-400 font-semibold truncate">
-                  {cartPopToast.subtitle} · {cartPopToast.totalUnits} items ({formatCurrency(cartPopToast.grandTotal)})
+                  {cartPopToast.subtitle} · {cartPopToast.totalUnits} {tr(language, 'items', 'వస్తువులు')} (
+                  {formatCurrency(cartPopToast.grandTotal)})
                 </div>
               </div>
             </div>
@@ -775,14 +800,14 @@ const AuthenticatedShell: React.FC = () => {
                 }}
                 className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold shadow-sm whitespace-nowrap"
               >
-                View Cart
+                {tr(language, 'View Cart', 'కార్ట్ చూడండి')}
                 <ArrowRight className="w-3.5 h-3.5" />
               </motion.button>
               <button
                 type="button"
                 onClick={() => setCartPopToast(null)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                aria-label="Dismiss cart notification"
+                aria-label={tr(language, 'Dismiss cart notification', 'నోటిఫికేషన్‌ను మూసివేయండి')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -808,10 +833,13 @@ const AuthenticatedShell: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-bold truncate">
-                  Bill {liveBillToast.billNumber} · {formatCurrency(liveBillToast.grandTotal)}
+                  {tr(language, 'Bill', 'బిల్')} {liveBillToast.billNumber} · {formatCurrency(liveBillToast.grandTotal)}
                 </div>
                 <div className="text-[11px] text-blue-100 truncate">
-                  {liveBillToast.customerName} · {liveBillToast.pendingBalance <= 0 ? 'AMOUNT PAID' : `Due ₹${liveBillToast.pendingBalance.toFixed(0)}`}
+                  {translateCustomerName(liveBillToast.customerName, language)} ·{' '}
+                  {liveBillToast.pendingBalance <= 0
+                    ? tr(language, 'AMOUNT PAID', 'చెల్లింపు పూర్తయింది')
+                    : `${tr(language, 'Due', 'బాకీ')} ₹${liveBillToast.pendingBalance.toFixed(0)}`}
                 </div>
               </div>
             </div>
@@ -825,14 +853,14 @@ const AuthenticatedShell: React.FC = () => {
                 }}
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white text-[#0B1F44] text-xs font-bold shadow-sm hover:bg-blue-50 whitespace-nowrap"
               >
-                View Bill
+                {tr(language, 'View Bill', 'బిల్ చూడండి')}
                 <ArrowRight className="w-3.5 h-3.5" />
               </motion.button>
               <button
                 type="button"
                 onClick={() => setLiveBillToast(null)}
                 className="p-1.5 rounded-lg text-blue-100 hover:text-white"
-                aria-label="Close bill notification"
+                aria-label={tr(language, 'Close bill notification', 'బిల్ నోటిఫికేషన్‌ను మూసివేయండి')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -855,7 +883,7 @@ const AuthenticatedShell: React.FC = () => {
 };
 
 const RootRouter: React.FC = () => {
-  const { authReady, activeUid, userAccount, accessDeniedReason, deviceRevoked, mpinLocked } = useAuth();
+  const { authReady, activeUid, userAccount, accessDeniedReason, deviceRevoked, mpinLocked, language } = useAuth();
 
   if (!authReady) {
     return (
@@ -874,7 +902,7 @@ const RootRouter: React.FC = () => {
             />
             <img
               src={DEFAULT_BUSINESS_LOGO}
-              alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
+              alt={translateBusinessName(undefined, language)}
               referrerPolicy="no-referrer"
               className="relative w-24 h-24 rounded-2xl object-contain bg-white p-1.5 border-2 border-cyan-300/70 shadow-xl"
             />
@@ -885,12 +913,14 @@ const RootRouter: React.FC = () => {
             transition={{ delay: 0.12, duration: 0.32 }}
           >
             <h1 className="font-display font-bold text-lg sm:text-xl tracking-tight text-balance max-w-md">
-              Sri Lakshmi Penchil Narasimha Swamy Cement Work
+              {translateBusinessName(undefined, language)}
             </h1>
-            <p className="text-xs text-cyan-200 mt-1">Opening SLP Billing...</p>
+            <p className="text-xs text-cyan-200 mt-1">
+              {tr(language, 'Opening SLP Billing...', 'ఎస్‌ఎల్‌పి బిల్లింగ్ తెరవబడుతోంది...')}
+            </p>
           </motion.div>
           <div className="w-7 h-7 border-2 border-cyan-300 border-t-transparent rounded-full animate-spin" />
-          <p className="text-[11px] text-blue-200/80 pt-3">{getCopyrightNotice()}</p>
+          <p className="text-[11px] text-blue-200/80 pt-3">{getCopyrightNotice(undefined, language)}</p>
         </motion.div>
       </div>
     );

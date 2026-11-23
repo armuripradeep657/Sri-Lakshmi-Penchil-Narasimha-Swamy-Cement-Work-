@@ -21,6 +21,7 @@ import { formatTimestamp } from '../lib/firebase';
 import { formatCurrency } from '../lib/upiAndExport';
 import { AnimatedNumber, MotionCard } from '../components/MotionPrimitives';
 import { LabourWork, ShopEntry } from '../types/billing';
+import { tr, translateCategory, translatePaymentMethod } from '../lib/i18n';
 
 function toLocalDateStr(date: Date): string {
   const y = date.getFullYear();
@@ -111,10 +112,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
 
   const rangeLabel = useMemo(() => {
     if (fromDate && toDate) return `${fromDate} → ${toDate}`;
-    if (fromDate) return `From ${fromDate}`;
-    if (toDate) return `Up to ${toDate}`;
+    if (fromDate) return language === 'te' ? `${fromDate} నుండి` : `From ${fromDate}`;
+    if (toDate) return language === 'te' ? `${toDate} వరకు` : `Up to ${toDate}`;
     return selectedDate;
-  }, [fromDate, toDate, selectedDate]);
+  }, [fromDate, toDate, selectedDate, language]);
 
   const customShopCategories = useMemo(() => {
     const set = new Set<string>();
@@ -362,7 +363,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     e.preventDefault();
     setFeedback(null);
     if (!workerName.trim() || !workDone.trim()) {
-      setFeedback({ type: 'error', text: 'Enter worker name and work done.' });
+      setFeedback({
+        type: 'error',
+        text: tr(language, 'Enter worker name and work done.', 'పనిమనిషి పేరు మరియు చేసిన పని వివరాలు నమోదు చేయండి.'),
+      });
       return;
     }
     setSavingWork(true);
@@ -378,14 +382,16 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       });
       setFeedback({
         type: 'success',
-        text: editingWorkId ? 'Labour record updated.' : 'Labour work & money taken saved.',
+        text: editingWorkId
+          ? tr(language, 'Labour record updated.', 'లేబర్ నమోదు నవీకరించబడింది.')
+          : tr(language, 'Labour work & money taken saved.', 'లేబర్ పని & తీసుకున్న డబ్బు సేవ్ చేయబడింది.'),
       });
       setSelectedDate(workDate);
       resetLabourForm();
     } catch (err) {
       setFeedback({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to save labour work.',
+        text: err instanceof Error ? err.message : tr(language, 'Failed to save labour work.', 'లేబర్ పనిని సేవ్ చేయడంలో లోపం.'),
       });
     } finally {
       setSavingWork(false);
@@ -409,11 +415,14 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     try {
       await deleteLabourWork(work.id);
       if (editingWorkId === work.id) resetLabourForm();
-      setFeedback({ type: 'success', text: `Deleted labour log for ${work.workerName}.` });
+      setFeedback({
+        type: 'success',
+        text: language === 'te' ? `${work.workerName} లేబర్ నమోదు తొలగించబడింది.` : `Deleted labour log for ${work.workerName}.`,
+      });
     } catch (err) {
       setFeedback({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Unable to delete labour record.',
+        text: err instanceof Error ? err.message : tr(language, 'Unable to delete labour record.', 'లేబర్ నమోదును తొలగించడం సాధ్యం కాలేదు.'),
       });
     }
   };
@@ -423,7 +432,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     setFeedback(null);
     const amt = Number(incomeAmount);
     if (!incomeTitle.trim() || !Number.isFinite(amt) || amt <= 0) {
-      setFeedback({ type: 'error', text: 'Enter income title and a valid amount greater than ₹0.' });
+      setFeedback({
+        type: 'error',
+        text: tr(language, 'Enter income title and a valid amount greater than ₹0.', 'ఆదాయ వివరాలు మరియు ₹0 కంటే ఎక్కువ సరైన మొత్తాన్ని నమోదు చేయండి.'),
+      });
       return;
     }
     setSavingIncome(true);
@@ -440,14 +452,16 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       });
       setFeedback({
         type: 'success',
-        text: editingIncomeId ? 'Shop income updated.' : 'Shop income saved.',
+        text: editingIncomeId
+          ? tr(language, 'Shop income updated.', 'షాప్ ఆదాయం నవీకరించబడింది.')
+          : tr(language, 'Shop income saved.', 'షాప్ ఆదాయం సేవ్ చేయబడింది.'),
       });
       setSelectedDate(incomeDate);
       resetIncomeForm();
     } catch (err) {
       setFeedback({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to save shop income.',
+        text: err instanceof Error ? err.message : tr(language, 'Failed to save shop income.', 'షాప్ ఆదాయాన్ని సేవ్ చేయడంలో లోపం.'),
       });
     } finally {
       setSavingIncome(false);
@@ -470,7 +484,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
     setFeedback(null);
     const amt = Number(expenseAmount);
     if (!expenseTitle.trim() || !Number.isFinite(amt) || amt <= 0) {
-      setFeedback({ type: 'error', text: 'Enter expense description and a valid amount greater than ₹0.' });
+      setFeedback({
+        type: 'error',
+        text: tr(language, 'Enter expense description and a valid amount greater than ₹0.', 'ఖర్చు వివరాలు మరియు ₹0 కంటే ఎక్కువ సరైన మొత్తాన్ని నమోదు చేయండి.'),
+      });
       return;
     }
     setSavingExpense(true);
@@ -487,14 +504,16 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       });
       setFeedback({
         type: 'success',
-        text: editingExpenseId ? 'Shop expense updated.' : 'Shop expense saved.',
+        text: editingExpenseId
+          ? tr(language, 'Shop expense updated.', 'షాప్ ఖర్చు నవీకరించబడింది.')
+          : tr(language, 'Shop expense saved.', 'షాప్ ఖర్చు సేవ్ చేయబడింది.'),
       });
       setSelectedDate(expenseDate);
       resetExpenseForm();
     } catch (err) {
       setFeedback({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Failed to save shop expense.',
+        text: err instanceof Error ? err.message : tr(language, 'Failed to save shop expense.', 'షాప్ ఖర్చును సేవ్ చేయడంలో లోపం.'),
       });
     } finally {
       setSavingExpense(false);
@@ -518,11 +537,14 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
       await deleteShopEntry(entry.id);
       if (editingIncomeId === entry.id) resetIncomeForm();
       if (editingExpenseId === entry.id) resetExpenseForm();
-      setFeedback({ type: 'success', text: `Deleted "${entry.title}".` });
+      setFeedback({
+        type: 'success',
+        text: language === 'te' ? `"${entry.title}" తొలగించబడింది.` : `Deleted "${entry.title}".`,
+      });
     } catch (err) {
       setFeedback({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Unable to delete shop entry.',
+        text: err instanceof Error ? err.message : tr(language, 'Unable to delete shop entry.', 'షాప్ నమోదును తొలగించడం సాధ్యం కాలేదు.'),
       });
     }
   };
@@ -540,13 +562,17 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5 slp-card-lift"
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              <span>Work Entries ({rangeLabel})</span>
+              <span>{tr(language, `Work Entries (${rangeLabel})`, `పని నమోదులు (${rangeLabel})`)}</span>
               <HardHat className="w-4 h-4 text-[#1D4ED8]" />
             </div>
             <div className="mt-1 text-lg font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
               <AnimatedNumber
                 value={daySummary.labourCount}
-                format={(n) => `${Math.round(n)} ${Math.round(n) === 1 ? 'Work' : 'Works'}`}
+                format={(n) =>
+                  language === 'te'
+                    ? `${Math.round(n)} పనులు`
+                    : `${Math.round(n)} ${Math.round(n) === 1 ? 'Work' : 'Works'}`
+                }
               />
             </div>
           </MotionCard>
@@ -555,7 +581,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             className="bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white rounded-2xl p-3.5 shadow-sm shadow-blue-900/15 slp-card-lift"
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-blue-100">
-              <span>Money Taken ({rangeLabel})</span>
+              <span>{tr(language, `Money Taken (${rangeLabel})`, `తీసుకున్న డబ్బు (${rangeLabel})`)}</span>
               <Wallet className="w-4 h-4 text-cyan-300" />
             </div>
             <div className="mt-1 text-lg font-bold font-mono tabular-nums text-white">
@@ -563,7 +589,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             </div>
             {daySummary.labourUnpaid > 0 && (
               <div className="mt-0.5 text-[11px] text-amber-200 font-mono">
-                Unpaid Due: {formatCurrency(daySummary.labourUnpaid)}
+                {tr(language, 'Unpaid Due:', 'బాకీ:')} {formatCurrency(daySummary.labourUnpaid)}
               </div>
             )}
           </MotionCard>
@@ -575,14 +601,19 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5 slp-card-lift"
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              <span>{hasDateRange ? 'Range Income' : 'Day Shop Income'}</span>
+              <span>
+                {hasDateRange
+                  ? tr(language, 'Range Income', 'ఎంచుకున్న తేదీల ఆదాయం')
+                  : tr(language, 'Day Shop Income', 'నేటి షాప్ ఆదాయం')}
+              </span>
               <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
             </div>
             <div className="mt-1 text-lg font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
               <AnimatedNumber value={daySummary.totalDayIncome} format={(n) => formatCurrency(n)} />
             </div>
             <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-              Bills: {formatCurrency(daySummary.salesCollected)} · Other: {formatCurrency(daySummary.otherIncome)}
+              {tr(language, 'Bills:', 'బిల్లులు:')} {formatCurrency(daySummary.salesCollected)} · {tr(language, 'Other:', 'ఇతర:')}{' '}
+              {formatCurrency(daySummary.otherIncome)}
             </div>
           </MotionCard>
           <MotionCard
@@ -590,14 +621,19 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm shadow-blue-900/5 slp-card-lift"
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              <span>{hasDateRange ? 'Range Expenses' : 'Total Day Expenses'}</span>
+              <span>
+                {hasDateRange
+                  ? tr(language, 'Range Expenses', 'ఎంచుకున్న తేదీల ఖర్చులు')
+                  : tr(language, 'Total Day Expenses', 'నేటి మొత్తం ఖర్చులు')}
+              </span>
               <ArrowUpRight className="w-4 h-4 text-rose-600" />
             </div>
             <div className="mt-1 text-lg font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400">
               <AnimatedNumber value={daySummary.totalDayOutflow} format={(n) => formatCurrency(n)} />
             </div>
             <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-              Shop: {formatCurrency(daySummary.shopExpenses)} · Labour: {formatCurrency(daySummary.labourPaid)}
+              {tr(language, 'Shop:', 'షాప్:')} {formatCurrency(daySummary.shopExpenses)} · {tr(language, 'Labour:', 'లేబర్:')}{' '}
+              {formatCurrency(daySummary.labourPaid)}
             </div>
           </MotionCard>
           <MotionCard
@@ -605,7 +641,11 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             className="bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white rounded-2xl p-3.5 shadow-sm shadow-blue-900/15 slp-card-lift"
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-blue-100">
-              <span>{hasDateRange ? 'Net Range Balance' : 'Net Day Balance'}</span>
+              <span>
+                {hasDateRange
+                  ? tr(language, 'Net Range Balance', 'నికర వ్యవధి బ్యాలెన్స్')
+                  : tr(language, 'Net Day Balance', 'నేటి నికర బ్యాలెన్స్')}
+              </span>
               <Wallet className="w-4 h-4 text-cyan-300" />
             </div>
             <div
@@ -631,8 +671,8 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
                 activeTab === 'labour'
-                  ? 'Search worker, work done, or date...'
-                  : 'Search income, expense, labour, or date...'
+                  ? tr(language, 'Search worker, work done, or date...', 'పనిమనిషి, చేసిన పని లేదా తేదీ వెతకండి...')
+                  : tr(language, 'Search income, expense, labour, or date...', 'ఆదాయం, ఖర్చు, లేబర్ లేదా తేదీ వెతకండి...')
               }
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             />
@@ -640,20 +680,24 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
 
           <div className="grid grid-cols-2 gap-2 md:col-span-4">
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950">
-              <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">From</span>
+              <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">
+                {tr(language, 'From', 'నుండి')}
+              </span>
               <input
                 type="date"
-                aria-label="From date"
+                aria-label={tr(language, 'From date', 'ప్రారంభ తేదీ')}
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
                 className="w-full min-w-0 bg-transparent text-xs font-mono font-semibold text-[#0B1F44] dark:text-white focus:outline-none"
               />
             </div>
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950">
-              <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">To</span>
+              <span className="text-[10px] font-bold uppercase text-slate-400 shrink-0">
+                {tr(language, 'To', 'వరకు')}
+              </span>
               <input
                 type="date"
-                aria-label="To date"
+                aria-label={tr(language, 'To date', 'ముగింపు తేదీ')}
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
                 className="w-full min-w-0 bg-transparent text-xs font-mono font-semibold text-[#0B1F44] dark:text-white focus:outline-none"
@@ -663,33 +707,33 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
 
           <div className="flex items-center gap-2 md:col-span-3">
             <select
-              aria-label="Category filter"
+              aria-label={tr(language, 'Category filter', 'వర్గం ఫిల్టర్')}
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
               className="w-full px-2.5 py-2 text-xs font-semibold rounded-xl border border-blue-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-[#0B1F44] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
             >
               {activeTab === 'labour' ? (
                 <>
-                  <option value="ALL">All Payment Modes</option>
-                  <option value="PAID">Paid Only</option>
-                  <option value="Cash">Cash</option>
-                  <option value="UPI">UPI</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Unpaid">Unpaid / Credit</option>
+                  <option value="ALL">{tr(language, 'All Payment Modes', 'అన్ని చెల్లింపు విధానాలు')}</option>
+                  <option value="PAID">{tr(language, 'Paid Only', 'చెల్లించినవి మాత్రమే')}</option>
+                  <option value="Cash">{translatePaymentMethod('Cash', language)}</option>
+                  <option value="UPI">{translatePaymentMethod('UPI', language)}</option>
+                  <option value="Bank Transfer">{translatePaymentMethod('Bank Transfer', language)}</option>
+                  <option value="Unpaid">{tr(language, 'Unpaid / Credit', 'చెల్లించనిది / బాకీ')}</option>
                 </>
               ) : (
                 <>
-                  <option value="ALL">All Categories</option>
-                  <option value="INCOME">Shop Income Only</option>
-                  <option value="EXPENSE">Shop Expenses Only</option>
-                  <option value="LABOUR_MONEY">Labour Money Taken</option>
-                  <option value="Cash">Mode: Cash</option>
-                  <option value="UPI">Mode: UPI</option>
-                  <option value="Bank Transfer">Mode: Bank Transfer</option>
-                  <option value="Other">Mode: Other</option>
+                  <option value="ALL">{tr(language, 'All Categories', 'అన్ని వర్గాలు')}</option>
+                  <option value="INCOME">{tr(language, 'Shop Income Only', 'షాప్ ఆదాయం మాత్రమే')}</option>
+                  <option value="EXPENSE">{tr(language, 'Shop Expenses Only', 'షాప్ ఖర్చులు మాత్రమే')}</option>
+                  <option value="LABOUR_MONEY">{tr(language, 'Labour Money Taken', 'లేబర్ తీసుకున్న డబ్బు')}</option>
+                  <option value="Cash">{tr(language, 'Mode: Cash', 'విధానం: నగదు')}</option>
+                  <option value="UPI">{tr(language, 'Mode: UPI', 'విధానం: యూపీఐ')}</option>
+                  <option value="Bank Transfer">{tr(language, 'Mode: Bank Transfer', 'విధానం: బ్యాంక్ బదిలీ')}</option>
+                  <option value="Other">{tr(language, 'Mode: Other', 'విధానం: ఇతర')}</option>
                   {customShopCategories.map((cat) => (
                     <option key={cat} value={cat}>
-                      {cat}
+                      {translateCategory(cat, [], language)}
                     </option>
                   ))}
                 </>
@@ -707,7 +751,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 }}
                 className="px-2.5 py-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-[11px] font-bold shrink-0 hover:bg-rose-100 transition"
               >
-                Clear
+                {tr(language, 'Clear', 'క్లియర్')}
               </motion.button>
             )}
           </div>
@@ -745,7 +789,9 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
                 <Plus className="w-4 h-4 text-[#1D4ED8]" />
-                {editingWorkId ? 'Edit Labour Entry' : 'Add Labour Work & Money Taken'}
+                {editingWorkId
+                  ? tr(language, 'Edit Labour Entry', 'లేబర్ నమోదును సవరించండి')
+                  : tr(language, 'Add Labour Work & Money Taken', 'లేబర్ పని & తీసుకున్న డబ్బు చేర్చండి')}
               </h3>
               {editingWorkId && (
                 <button
@@ -753,14 +799,14 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   onClick={resetLabourForm}
                   className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 >
-                  Cancel Edit
+                  {tr(language, 'Cancel Edit', 'సవరణ రద్దు')}
                 </button>
               )}
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Worker Name *
+                {tr(language, 'Worker Name *', 'పనిమనిషి పేరు *')}
               </label>
               <input
                 required
@@ -768,7 +814,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 list="slp-worker-datalist"
                 value={workerName}
                 onChange={(e) => setWorkerName(e.target.value)}
-                placeholder="Enter worker name"
+                placeholder={tr(language, 'Enter worker name', 'పనిమనిషి పేరు నమోదు చేయండి')}
                 maxLength={160}
                 className="w-full px-3 py-2.5 text-sm rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
@@ -783,14 +829,14 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Work Done *
+                {tr(language, 'Work Done *', 'చేసిన పని *')}
               </label>
               <input
                 required
                 type="text"
                 value={workDone}
                 onChange={(e) => setWorkDone(e.target.value)}
-                placeholder="Enter work done on this day"
+                placeholder={tr(language, 'Enter work done on this day', 'ఆ రోజు చేసిన పనిని నమోదు చేయండి')}
                 maxLength={300}
                 className="w-full px-3 py-2.5 text-sm rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
@@ -799,7 +845,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Date *
+                  {tr(language, 'Date *', 'తేదీ *')}
                 </label>
                 <input
                   required
@@ -811,7 +857,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Money Taken (₹)
+                  {tr(language, 'Money Taken (₹)', 'తీసుకున్న డబ్బు (₹)')}
                 </label>
                 <input
                   type="number"
@@ -825,7 +871,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Payment Mode
+                  {tr(language, 'Payment Mode', 'చెల్లింపు విధానం')}
                 </label>
                 <select
                   value={workPayMethod}
@@ -834,23 +880,23 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   }
                   className="w-full px-2.5 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="Cash">Paid · Cash</option>
-                  <option value="UPI">Paid · UPI</option>
-                  <option value="Bank Transfer">Paid · Bank</option>
-                  <option value="Unpaid">Unpaid / Credit</option>
+                  <option value="Cash">{tr(language, 'Paid · Cash', 'చెల్లించినది · నగదు')}</option>
+                  <option value="UPI">{tr(language, 'Paid · UPI', 'చెల్లించినది · యూపీఐ')}</option>
+                  <option value="Bank Transfer">{tr(language, 'Paid · Bank', 'చెల్లించినది · బ్యాంక్')}</option>
+                  <option value="Unpaid">{tr(language, 'Unpaid / Credit', 'చెల్లించనిది / బాకీ')}</option>
                 </select>
               </div>
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Note (Optional)
+                {tr(language, 'Note (Optional)', 'గమనిక (ఐచ్ఛికం)')}
               </label>
               <textarea
                 rows={2}
                 value={workNote}
                 onChange={(e) => setWorkNote(e.target.value)}
-                placeholder="Optional note..."
+                placeholder={tr(language, 'Optional note...', 'ఐచ్ఛిక గమనిక...')}
                 maxLength={500}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-blue-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
               />
@@ -864,10 +910,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             >
               {savingWork ? <Loader2 className="w-4 h-4 animate-spin" /> : <HardHat className="w-4 h-4" />}
               {savingWork
-                ? 'Saving...'
+                ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...')
                 : editingWorkId
-                ? 'Update Labour Entry'
-                : 'Save Labour Work'}
+                ? tr(language, 'Update Labour Entry', 'లేబర్ నమోదును నవీకరించండి')
+                : tr(language, 'Save Labour Work', 'లేబర్ పనిని సేవ్ చేయండి')}
             </motion.button>
           </form>
 
@@ -875,7 +921,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
           <div className="xl:col-span-7 space-y-2.5">
             {filteredLabour.length === 0 ? (
               <div className="bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-8 text-center text-xs text-slate-400">
-                No labour work records found.
+                {tr(language, 'No labour work records found.', 'లేబర్ పని నమోదులు ఏవీ కనుగొనబడలేదు.')}
               </div>
             ) : (
               <AnimatePresence initial={false}>
@@ -904,12 +950,16 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                               : 'text-emerald-600 dark:text-emerald-400'
                           }`}
                         >
-                          {work.paymentMethod === 'Unpaid' ? 'Unpaid / Credit' : `Paid (${work.paymentMethod})`}
+                          {work.paymentMethod === 'Unpaid'
+                            ? tr(language, 'Unpaid / Credit', 'చెల్లించనిది / బాకీ')
+                            : language === 'te'
+                            ? `చెల్లించినది (${translatePaymentMethod(work.paymentMethod, language)})`
+                            : `Paid (${work.paymentMethod})`}
                         </span>
                       </div>
 
                       <div className="text-xs font-medium text-[#1D4ED8] dark:text-sky-400">
-                        Work Done: {work.workDone}
+                        {tr(language, 'Work Done:', 'చేసిన పని:')} {work.workDone}
                       </div>
 
                       {work.note && (
@@ -923,7 +973,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                     <div className="flex flex-col items-end gap-2 shrink-0">
                       <div className="text-right">
                         <div className="text-[10px] font-semibold uppercase text-slate-400">
-                          Money Taken
+                          {tr(language, 'Money Taken', 'తీసుకున్న డబ్బు')}
                         </div>
                         <div className="text-sm font-bold font-mono tabular-nums text-[#0B1F44] dark:text-white">
                           {work.wageAmount > 0 ? formatCurrency(work.wageAmount) : '₹0.00'}
@@ -937,7 +987,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                             whileTap={{ scale: 0.9 }}
                             onClick={() => handleEditLabour(work)}
                             className="p-2 rounded-xl border border-blue-200 dark:border-slate-700 text-[#0B1F44] dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-800"
-                            aria-label="Edit labour work"
+                            aria-label={tr(language, 'Edit labour work', 'లేబర్ పనిని సవరించండి')}
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </motion.button>
@@ -946,7 +996,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                             whileTap={{ scale: 0.9 }}
                             onClick={() => handleDeleteLabour(work)}
                             className="p-2 rounded-xl border border-rose-200 dark:border-rose-900 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
-                            aria-label="Delete labour work"
+                            aria-label={tr(language, 'Delete labour work', 'లేబర్ పనిని తొలగించండి')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </motion.button>
@@ -973,7 +1023,9 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
                 <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
-                {editingIncomeId ? 'Edit Shop Income' : 'Add Shop Income'}
+                {editingIncomeId
+                  ? tr(language, 'Edit Shop Income', 'షాప్ ఆదాయాన్ని సవరించండి')
+                  : tr(language, 'Add Shop Income', 'షాప్ ఆదాయాన్ని చేర్చండి')}
               </h3>
               {editingIncomeId && (
                 <button
@@ -981,21 +1033,21 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   onClick={resetIncomeForm}
                   className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 >
-                  Cancel Edit
+                  {tr(language, 'Cancel Edit', 'సవరణ రద్దు')}
                 </button>
               )}
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Income Title / Source *
+                {tr(language, 'Income Title / Source *', 'ఆదాయ శీర్షిక / మూలం *')}
               </label>
               <input
                 required
                 type="text"
                 value={incomeTitle}
                 onChange={(e) => setIncomeTitle(e.target.value)}
-                placeholder="Enter income description"
+                placeholder={tr(language, 'Enter income description', 'ఆదాయ వివరాలు నమోదు చేయండి')}
                 maxLength={160}
                 className="w-full px-3 py-2.5 text-sm rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
@@ -1004,7 +1056,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Amount (₹) *
+                  {tr(language, 'Amount (₹) *', 'మొత్తం (₹) *')}
                 </label>
                 <input
                   required
@@ -1019,7 +1071,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Date *
+                  {tr(language, 'Date *', 'తేదీ *')}
                 </label>
                 <input
                   required
@@ -1031,7 +1083,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Mode
+                  {tr(language, 'Mode', 'విధానం')}
                 </label>
                 <select
                   value={incomePayMethod}
@@ -1040,23 +1092,23 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   }
                   className="w-full px-2.5 py-2 text-xs rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="Cash">Cash</option>
-                  <option value="UPI">UPI</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Other">Other</option>
+                  <option value="Cash">{translatePaymentMethod('Cash', language)}</option>
+                  <option value="UPI">{translatePaymentMethod('UPI', language)}</option>
+                  <option value="Bank Transfer">{translatePaymentMethod('Bank Transfer', language)}</option>
+                  <option value="Other">{translatePaymentMethod('Other', language)}</option>
                 </select>
               </div>
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Note (Optional)
+                {tr(language, 'Note (Optional)', 'గమనిక (ఐచ్ఛికం)')}
               </label>
               <textarea
                 rows={2}
                 value={incomeNote}
                 onChange={(e) => setIncomeNote(e.target.value)}
-                placeholder="Optional note..."
+                placeholder={tr(language, 'Optional note...', 'ఐచ్ఛిక గమనిక...')}
                 maxLength={500}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
               />
@@ -1070,10 +1122,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             >
               {savingIncome ? <Loader2 className="w-4 h-4 animate-spin" /> : <IndianRupee className="w-4 h-4" />}
               {savingIncome
-                ? 'Saving...'
+                ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...')
                 : editingIncomeId
-                ? 'Update Shop Income'
-                : 'Save Shop Income'}
+                ? tr(language, 'Update Shop Income', 'షాప్ ఆదాయాన్ని నవీకరించండి')
+                : tr(language, 'Save Shop Income', 'షాప్ ఆదాయాన్ని సేవ్ చేయండి')}
             </motion.button>
           </form>
 
@@ -1086,10 +1138,12 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-[#0B1F44] dark:text-white">
-                      {language === 'te' ? 'షాప్ ఆదాయం వివరాలు' : 'Shop Income'}
+                      {tr(language, 'Shop Income', 'షాప్ ఆదాయం వివరాలు')}
                     </h4>
                     <div className="text-[11px] text-slate-500">
-                      Bills + {filteredIncomeEntries.length} manual entries
+                      {language === 'te'
+                        ? `బిల్లులు + ${filteredIncomeEntries.length} మాన్యువల్ నమోదులు`
+                        : `Bills + ${filteredIncomeEntries.length} manual entries`}
                     </div>
                   </div>
                 </div>
@@ -1097,7 +1151,9 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   <div className="text-sm font-bold font-mono tabular-nums text-emerald-600">
                     +<AnimatedNumber value={manualIncomeTotal + daySummary.salesCollected} format={(n) => formatCurrency(n)} />
                   </div>
-                  <div className="text-[10px] text-slate-400">Bills + Manual</div>
+                  <div className="text-[10px] text-slate-400">
+                    {tr(language, 'Bills + Manual', 'బిల్లులు + మాన్యువల్')}
+                  </div>
                 </div>
               </div>
 
@@ -1109,10 +1165,12 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-[#0B1F44] dark:text-white truncate">
-                      Bill Sales ({selectedDate})
+                      {tr(language, `Bill Sales (${selectedDate})`, `బిల్లు అమ్మకాలు (${selectedDate})`)}
                     </div>
                     <div className="text-[10px] text-slate-600 dark:text-slate-300 truncate">
-                      {daySummary.dayBillsCount} bills ({formatCurrency(daySummary.dayBilledTotal)})
+                      {language === 'te'
+                        ? `${daySummary.dayBillsCount} బిల్లులు (${formatCurrency(daySummary.dayBilledTotal)})`
+                        : `${daySummary.dayBillsCount} bills (${formatCurrency(daySummary.dayBilledTotal)})`}
                     </div>
                   </div>
                 </div>
@@ -1124,7 +1182,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               <div className="space-y-2">
                 {filteredIncomeEntries.length === 0 ? (
                   <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-emerald-200/70 rounded-xl">
-                    No manual shop income entries found.
+                    {tr(language, 'No manual shop income entries found.', 'మాన్యువల్ షాప్ ఆదాయ నమోదులు ఏవీ కనుగొనబడలేదు.')}
                   </div>
                 ) : (
                   <AnimatePresence initial={false}>
@@ -1143,7 +1201,8 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                             {entry.title}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            <span className="font-mono">{entry.entryDate}</span> · {entry.paymentMethod}
+                            <span className="font-mono">{entry.entryDate}</span> ·{' '}
+                            {translatePaymentMethod(entry.paymentMethod, language)}
                           </div>
                           {entry.note && (
                             <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white dark:bg-slate-900 rounded-lg px-2 py-1 mt-1 border border-emerald-100 dark:border-slate-700">
@@ -1164,7 +1223,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                                 whileTap={{ scale: 0.9 }}
                                 onClick={() => handleEditIncome(entry)}
                                 className="p-1.5 rounded-lg border border-blue-200 bg-white text-[#0B1F44] hover:bg-blue-50"
-                                aria-label="Edit income entry"
+                                aria-label={tr(language, 'Edit income entry', 'ఆదాయ నమోదును సవరించండి')}
                               >
                                 <Edit3 className="w-3 h-3" />
                               </motion.button>
@@ -1173,7 +1232,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                                 whileTap={{ scale: 0.9 }}
                                 onClick={() => handleDeleteEntry(entry)}
                                 className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
-                                aria-label="Delete income entry"
+                                aria-label={tr(language, 'Delete income entry', 'ఆదాయ నమోదును తొలగించండి')}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </motion.button>
@@ -1197,7 +1256,9 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
                 <ArrowUpRight className="w-4 h-4 text-rose-600" />
-                {editingExpenseId ? 'Edit Shop Expense' : 'Add Shop Expense'}
+                {editingExpenseId
+                  ? tr(language, 'Edit Shop Expense', 'షాప్ ఖర్చును సవరించండి')
+                  : tr(language, 'Add Shop Expense', 'షాప్ ఖర్చును చేర్చండి')}
               </h3>
               {editingExpenseId && (
                 <button
@@ -1205,21 +1266,21 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   onClick={resetExpenseForm}
                   className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 >
-                  Cancel Edit
+                  {tr(language, 'Cancel Edit', 'సవరణ రద్దు')}
                 </button>
               )}
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Expense Description *
+                {tr(language, 'Expense Description *', 'ఖర్చు వివరాలు *')}
               </label>
               <input
                 required
                 type="text"
                 value={expenseTitle}
                 onChange={(e) => setExpenseTitle(e.target.value)}
-                placeholder="Enter expense description"
+                placeholder={tr(language, 'Enter expense description', 'ఖర్చు వివరాలు నమోదు చేయండి')}
                 maxLength={160}
                 className="w-full px-3 py-2.5 text-sm rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               />
@@ -1228,7 +1289,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Amount (₹) *
+                  {tr(language, 'Amount (₹) *', 'మొత్తం (₹) *')}
                 </label>
                 <input
                   required
@@ -1243,7 +1304,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Date *
+                  {tr(language, 'Date *', 'తేదీ *')}
                 </label>
                 <input
                   required
@@ -1255,7 +1316,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                  Mode
+                  {tr(language, 'Mode', 'విధానం')}
                 </label>
                 <select
                   value={expensePayMethod}
@@ -1264,23 +1325,23 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                   }
                   className="w-full px-2.5 py-2 text-xs rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                 >
-                  <option value="Cash">Cash</option>
-                  <option value="UPI">UPI</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Other">Other</option>
+                  <option value="Cash">{translatePaymentMethod('Cash', language)}</option>
+                  <option value="UPI">{translatePaymentMethod('UPI', language)}</option>
+                  <option value="Bank Transfer">{translatePaymentMethod('Bank Transfer', language)}</option>
+                  <option value="Other">{translatePaymentMethod('Other', language)}</option>
                 </select>
               </div>
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                Note (Optional)
+                {tr(language, 'Note (Optional)', 'గమనిక (ఐచ్ఛికం)')}
               </label>
               <textarea
                 rows={2}
                 value={expenseNote}
                 onChange={(e) => setExpenseNote(e.target.value)}
-                placeholder="Optional note..."
+                placeholder={tr(language, 'Optional note...', 'ఐచ్ఛిక గమనిక...')}
                 maxLength={500}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-rose-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white resize-none"
               />
@@ -1294,10 +1355,10 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
             >
               {savingExpense ? <Loader2 className="w-4 h-4 animate-spin" /> : <IndianRupee className="w-4 h-4" />}
               {savingExpense
-                ? 'Saving...'
+                ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...')
                 : editingExpenseId
-                ? 'Update Shop Expense'
-                : 'Save Shop Expense'}
+                ? tr(language, 'Update Shop Expense', 'షాప్ ఖర్చును నవీకరించండి')
+                : tr(language, 'Save Shop Expense', 'షాప్ ఖర్చును సేవ్ చేయండి')}
             </motion.button>
           </form>
 
@@ -1310,10 +1371,12 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-[#0B1F44] dark:text-white">
-                    {language === 'te' ? 'షాప్ ఖర్చులు & లేబర్ డబ్బు' : 'Shop Expenses'}
+                    {tr(language, 'Shop Expenses', 'షాప్ ఖర్చులు & లేబర్ డబ్బు')}
                   </h4>
                   <div className="text-[11px] text-slate-500">
-                    {combinedExpenses.length} expense items (includes paid labour money taken)
+                    {language === 'te'
+                      ? `${combinedExpenses.length} ఖర్చు అంశాలు (లేబర్ తీసుకున్న డబ్బు సహా)`
+                      : `${combinedExpenses.length} expense items (includes paid labour money taken)`}
                   </div>
                 </div>
               </div>
@@ -1321,14 +1384,16 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                 <div className="text-sm font-bold font-mono tabular-nums text-rose-600">
                   -<AnimatedNumber value={combinedExpensesTotal} format={(n) => formatCurrency(n)} />
                 </div>
-                <div className="text-[10px] text-slate-400">Shop + Labour</div>
+                <div className="text-[10px] text-slate-400">
+                  {tr(language, 'Shop + Labour', 'షాప్ + లేబర్')}
+                </div>
               </div>
             </div>
 
             <div className="space-y-2">
               {combinedExpenses.length === 0 ? (
                 <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-rose-200/70 rounded-xl">
-                  No expenses or labour money taken recorded yet.
+                  {tr(language, 'No expenses or labour money taken recorded yet.', 'ఖర్చులు లేదా లేబర్ తీసుకున్న డబ్బు ఇంకా నమోదు కాలేదు.')}
                 </div>
               ) : (
                 <AnimatePresence initial={false}>
@@ -1349,14 +1414,15 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                               {row.work.workerName}
                             </span>
                             <span className="px-2 py-0.5 rounded-md bg-[#0B1F44] text-white text-[10px] font-bold">
-                              Labour Money Taken
+                              {tr(language, 'Labour Money Taken', 'లేబర్ తీసుకున్న డబ్బు')}
                             </span>
                           </div>
                           <div className="text-[11px] font-medium text-[#1D4ED8] dark:text-sky-400">
-                            Work Done: {row.work.workDone}
+                            {tr(language, 'Work Done:', 'చేసిన పని:')} {row.work.workDone}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            <span className="font-mono">{row.work.workDate}</span> · {row.work.paymentMethod}
+                            <span className="font-mono">{row.work.workDate}</span> ·{' '}
+                            {translatePaymentMethod(row.work.paymentMethod, language)}
                           </div>
                           {row.work.note && (
                             <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white dark:bg-slate-900 rounded-lg px-2 py-1 mt-1 border border-blue-100 dark:border-slate-700">
@@ -1377,7 +1443,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                               onClick={() => handleEditLabour(row.work)}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-white text-[10px] font-semibold text-[#0B1F44] hover:bg-blue-50"
                             >
-                              <Edit3 className="w-3 h-3" /> Edit
+                              <Edit3 className="w-3 h-3" /> {tr(language, 'Edit', 'సవరించు')}
                             </motion.button>
                           )}
                         </div>
@@ -1397,7 +1463,8 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                             {row.entry.title}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            <span className="font-mono">{row.entry.entryDate}</span> · {row.entry.paymentMethod}
+                            <span className="font-mono">{row.entry.entryDate}</span> ·{' '}
+                            {translatePaymentMethod(row.entry.paymentMethod, language)}
                           </div>
                           {row.entry.note && (
                             <div className="flex items-start gap-1 text-[11px] text-slate-600 bg-white dark:bg-slate-900 rounded-lg px-2 py-1 mt-1 border border-rose-100 dark:border-slate-700">
@@ -1418,7 +1485,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                                 whileTap={{ scale: 0.9 }}
                                 onClick={() => handleEditExpense(row.entry)}
                                 className="p-1.5 rounded-lg border border-blue-200 bg-white text-[#0B1F44] hover:bg-blue-50"
-                                aria-label="Edit expense entry"
+                                aria-label={tr(language, 'Edit expense entry', 'ఖర్చు నమోదును సవరించండి')}
                               >
                                 <Edit3 className="w-3 h-3" />
                               </motion.button>
@@ -1427,7 +1494,7 @@ export const LabourAndCashbookPage: React.FC<LabourAndCashbookPageProps> = ({ se
                                 whileTap={{ scale: 0.9 }}
                                 onClick={() => handleDeleteEntry(row.entry)}
                                 className="p-1.5 rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
-                                aria-label="Delete expense entry"
+                                aria-label={tr(language, 'Delete expense entry', 'ఖర్చు నమోదును తొలగించండి')}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </motion.button>

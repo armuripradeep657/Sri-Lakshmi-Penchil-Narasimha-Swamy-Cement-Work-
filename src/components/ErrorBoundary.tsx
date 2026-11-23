@@ -22,11 +22,14 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
 
   render() {
     if (this.state.hasError) {
+      const isTe = typeof localStorage !== 'undefined' && localStorage.getItem('slp_lang') === 'te';
       let readable = this.state.message;
       try {
         const parsed = JSON.parse(this.state.message) as { error?: string; operationType?: string; path?: string };
         if (parsed?.error) {
-          readable = `Firestore ${parsed.operationType || 'operation'} on "${parsed.path || 'unknown'}" failed: ${parsed.error}`;
+          readable = isTe
+            ? `డేటాబేస్ చర్య విఫలమైంది: ${parsed.error}`
+            : `Firestore ${parsed.operationType || 'operation'} on "${parsed.path || 'unknown'}" failed: ${parsed.error}`;
         }
       } catch {
         // plain text error
@@ -37,7 +40,9 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
           <div className="max-w-lg w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
               <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Application Recovery Needed</h2>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                {isTe ? 'యాప్‌ను రీలోడ్ చేయాల్సి ఉంది' : 'Application Recovery Needed'}
+              </h2>
             </div>
             <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed break-words">
               {readable}
@@ -47,7 +52,9 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
               className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0B1F44] text-white text-sm font-medium hover:bg-[#13326b] transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
-              Reload Sri Lakshmi Penchil Narasimha Swamy Cement Work
+              {isTe
+                ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్ రీలోడ్ చేయండి'
+                : 'Reload Sri Lakshmi Penchil Narasimha Swamy Cement Work'}
             </button>
           </div>
         </div>

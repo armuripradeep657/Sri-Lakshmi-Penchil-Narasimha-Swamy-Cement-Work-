@@ -26,6 +26,19 @@ import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
 import { formatCurrency } from '../lib/upiAndExport';
 import { getBillVerificationBarcode } from '../lib/barcodeAndBillImage';
+import {
+  formatAppDate,
+  getAppLocale,
+  tr,
+  translateCategory,
+  translateCustomerName,
+  translateItemsSummary,
+  translatePaymentMethod,
+  translateProductName,
+  translateStatus,
+  translateSystemText,
+  translateVariantLabel,
+} from '../lib/i18n';
 import { AnimatedNumber, MotionCard } from '../components/MotionPrimitives';
 import { Bill, BillItem, GstType, PaymentMethod } from '../types/billing';
 import { PostBillActionsModal } from '../components/InvoiceViews';
@@ -50,7 +63,7 @@ export const BillHistoryPage: React.FC = () => {
     recordRefundAtomic,
     updateBillNotes,
   } = useBillingData();
-  const { isAdmin, userAccount, activeUid } = useAuth();
+  const { isAdmin, userAccount, activeUid, language } = useAuth();
 
   const [sectionTab, setSectionTab] = useState<HistorySectionTab>(() => (isAdmin ? 'all' : 'bills'));
   const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>('all');
@@ -213,25 +226,33 @@ export const BillHistoryPage: React.FC = () => {
       {isAdmin ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <MotionCard delay={0} className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
-            <div className="text-[11px] font-semibold text-slate-500">Bills ({scopedBills.length})</div>
+            <div className="text-[11px] font-semibold text-slate-500">
+              {tr(language, 'Bills', 'బిల్లులు')} ({scopedBills.length})
+            </div>
             <div className="mt-1 text-base font-bold font-mono text-[#0B1F44]">
               <AnimatedNumber value={totals.billSales} format={(n) => formatCurrency(n)} />
             </div>
           </MotionCard>
           <MotionCard delay={0.04} className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
-            <div className="text-[11px] font-semibold text-slate-500">Labour Work ({labourWorks.length})</div>
+            <div className="text-[11px] font-semibold text-slate-500">
+              {tr(language, 'Labour Work', 'లేబర్ పని')} ({labourWorks.length})
+            </div>
             <div className="mt-1 text-base font-bold font-mono text-[#1D4ED8]">
               <AnimatedNumber value={totals.labourTotal} format={(n) => formatCurrency(n)} />
             </div>
           </MotionCard>
           <MotionCard delay={0.08} className="bg-white border border-emerald-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
-            <div className="text-[11px] font-semibold text-emerald-700">Shop Income</div>
+            <div className="text-[11px] font-semibold text-emerald-700">
+              {tr(language, 'Shop Income', 'షాప్ ఆదాయం')}
+            </div>
             <div className="mt-1 text-base font-bold font-mono text-emerald-700">
               +<AnimatedNumber value={totals.shopIncome} format={(n) => formatCurrency(n)} />
             </div>
           </MotionCard>
           <MotionCard delay={0.12} className="bg-white border border-rose-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
-            <div className="text-[11px] font-semibold text-rose-700">Shop Expenses</div>
+            <div className="text-[11px] font-semibold text-rose-700">
+              {tr(language, 'Shop Expenses', 'షాప్ ఖర్చులు')}
+            </div>
             <div className="mt-1 text-base font-bold font-mono text-rose-700">
               -<AnimatedNumber value={totals.shopExpense} format={(n) => formatCurrency(n)} />
             </div>
@@ -240,13 +261,17 @@ export const BillHistoryPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-2 gap-3">
           <MotionCard delay={0} className="bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
-            <div className="text-[11px] font-semibold text-slate-500">My Bills ({scopedBills.length})</div>
+            <div className="text-[11px] font-semibold text-slate-500">
+              {tr(language, 'My Bills', 'నా బిల్లులు')} ({scopedBills.length})
+            </div>
             <div className="mt-1 text-base font-bold font-mono text-[#0B1F44]">
               <AnimatedNumber value={totals.billSales} format={(n) => formatCurrency(n)} />
             </div>
           </MotionCard>
           <MotionCard delay={0.05} className="bg-white border border-amber-100 rounded-2xl p-3.5 shadow-sm slp-card-lift">
-            <div className="text-[11px] font-semibold text-amber-700">My Bills Due</div>
+            <div className="text-[11px] font-semibold text-amber-700">
+              {tr(language, 'My Bills Due', 'నా బిల్లుల బాకీ')}
+            </div>
             <div className="mt-1 text-base font-bold font-mono text-amber-700">
               <AnimatedNumber value={totals.pendingTotal} format={(n) => formatCurrency(n)} />
             </div>
@@ -259,10 +284,10 @@ export const BillHistoryPage: React.FC = () => {
         <div className="grid grid-cols-4 gap-1.5 p-1 rounded-2xl bg-blue-100/70 border border-blue-200/70">
           {(
             [
-              { id: 'all', label: 'All' },
-              { id: 'bills', label: `Bills (${scopedBills.length})` },
-              { id: 'labour', label: `Labour (${labourWorks.length})` },
-              { id: 'cashbook', label: `Income & Expenses (${sortedCashbook.length})` },
+              { id: 'all', label: tr(language, 'All', 'అన్నీ') },
+              { id: 'bills', label: `${tr(language, 'Bills', 'బిల్లులు')} (${scopedBills.length})` },
+              { id: 'labour', label: `${tr(language, 'Labour', 'లేబర్')} (${labourWorks.length})` },
+              { id: 'cashbook', label: `${tr(language, 'Income & Expenses', 'ఆదాయం & ఖర్చులు')} (${sortedCashbook.length})` },
             ] as Array<{ id: HistorySectionTab; label: string }>
           ).map((tab) => {
             const active = sectionTab === tab.id;
@@ -300,7 +325,7 @@ export const BillHistoryPage: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search barcode, customer name, product..."
+                placeholder={tr(language, 'Search barcode, customer name, product...', 'బార్‌కోడ్, కస్టమర్ పేరు, ఉత్పత్తి వెతకండి...')}
                 className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
               />
             </div>
@@ -311,16 +336,16 @@ export const BillHistoryPage: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold shrink-0 transition"
             >
               <Camera className="w-3.5 h-3.5 text-cyan-300" />
-              <span>Scan Barcode</span>
+              <span>{tr(language, 'Scan Barcode', 'బార్‌కోడ్ స్కాన్')}</span>
             </motion.button>
           </div>
           {isAdmin && (
             <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-blue-50 border border-blue-100 shrink-0">
               {(
                 [
-                  { id: 'all', label: 'All Bills' },
-                  { id: 'staff', label: 'Staff Bills' },
-                  { id: 'mine', label: 'My Bills' },
+                  { id: 'all', label: tr(language, 'All Bills', 'అన్ని బిల్లులు') },
+                  { id: 'staff', label: tr(language, 'Staff Bills', 'సిబ్బంది బిల్లులు') },
+                  { id: 'mine', label: tr(language, 'My Bills', 'నా బిల్లులు') },
                 ] as Array<{ id: CreatorFilter; label: string }>
               ).map((f) => (
                 <button
@@ -349,8 +374,8 @@ export const BillHistoryPage: React.FC = () => {
               <ReceiptText className="w-4 h-4 text-[#1D4ED8]" />
               <span>
                 {isAdmin
-                  ? `Bills History (${scopedBills.length})`
-                  : `My Created Bills (${scopedBills.length})`}
+                  ? `${tr(language, 'Bills History', 'బిల్లుల చరిత్ర')} (${scopedBills.length})`
+                  : `${tr(language, 'My Created Bills', 'నేను చేసిన బిల్లులు')} (${scopedBills.length})`}
               </span>
             </div>
             {deletableScopedBills.length > 0 && (
@@ -362,7 +387,11 @@ export const BillHistoryPage: React.FC = () => {
                     onChange={toggleSelectAllVisible}
                     className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] cursor-pointer"
                   />
-                  <span>{allVisibleSelected ? 'Deselect All' : 'Select All'}</span>
+                  <span>
+                    {allVisibleSelected
+                      ? tr(language, 'Deselect All', 'అన్నీ తీసివేయి')
+                      : tr(language, 'Select All', 'అన్నీ ఎంచుకో')}
+                  </span>
                 </label>
                 {visibleSelectedBills.length > 0 && (
                   <button
@@ -374,7 +403,7 @@ export const BillHistoryPage: React.FC = () => {
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold shadow-xs transition"
                   >
                     <Trash2 className="w-3 h-3" />
-                    Delete ({visibleSelectedBills.length})
+                    {tr(language, 'Delete', 'తొలగించు')} ({visibleSelectedBills.length})
                   </button>
                 )}
               </div>
@@ -415,10 +444,10 @@ export const BillHistoryPage: React.FC = () => {
               >
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="px-2 py-0.5 rounded-md bg-[#1D4ED8] font-bold font-mono">
-                    {visibleSelectedBills.length} selected
+                    {visibleSelectedBills.length} {tr(language, 'selected', 'ఎంచుకున్నవి')}
                   </span>
                   <span className="text-blue-100">
-                    Total:{' '}
+                    {tr(language, 'Total:', 'మొత్తం:')}{' '}
                     <strong className="font-mono text-white">
                       {formatCurrency(selectedTotalAmount)}
                     </strong>
@@ -431,7 +460,7 @@ export const BillHistoryPage: React.FC = () => {
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold transition"
                   >
                     <X className="w-3 h-3" />
-                    Clear
+                    {tr(language, 'Clear', 'క్లియర్')}
                   </button>
                   <button
                     type="button"
@@ -442,7 +471,7 @@ export const BillHistoryPage: React.FC = () => {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold shadow-sm transition"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    Delete Selected ({visibleSelectedBills.length})
+                    {tr(language, 'Delete Selected', 'ఎంచుకున్నవి తొలగించు')} ({visibleSelectedBills.length})
                   </button>
                 </div>
               </motion.div>
@@ -454,8 +483,8 @@ export const BillHistoryPage: React.FC = () => {
             {scopedBills.length === 0 ? (
               <div className="py-10 px-4 text-center text-xs text-slate-400">
                 {isAdmin
-                  ? 'No bills recorded yet.'
-                  : 'You have not created any bills yet. Open New Billing to create one.'}
+                  ? tr(language, 'No bills recorded yet.', 'ఇంకా బిల్లులు నమోదు కాలేదు.')
+                  : tr(language, 'You have not created any bills yet. Open New Billing to create one.', 'మీరు ఇంకా బిల్లులు చేయలేదు. కొత్త బిల్లు తెరిచి సృష్టించండి.')}
               </div>
             ) : (
               scopedBills.map((bill) => {
@@ -477,7 +506,7 @@ export const BillHistoryPage: React.FC = () => {
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleBillSelection(bill.id)}
-                            aria-label={`Select bill ${getBillVerificationBarcode(bill)}`}
+                            aria-label={`${tr(language, 'Select bill', 'బిల్ ఎంచుకో')} ${getBillVerificationBarcode(bill)}`}
                             className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] shrink-0 cursor-pointer"
                           />
                         )}
@@ -496,19 +525,22 @@ export const BillHistoryPage: React.FC = () => {
                                   : 'bg-amber-50 text-amber-700'
                               }`}
                             >
-                              {bill.paymentStatus}
+                              {translateStatus(bill.paymentStatus, language)}
                             </span>
                             {Boolean(bill.editedAt) && (
                               <span className="px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] text-[10px] font-bold">
-                                Edited
+                                {tr(language, 'Edited', 'సవరించబడింది')}
                               </span>
                             )}
                           </div>
                           <div className="text-xs font-semibold text-slate-900 mt-0.5 truncate">
-                            {bill.customerName} {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
+                            {translateCustomerName(bill.customerName, language)}{' '}
+                            {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
                           </div>
                           <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                            {bill.itemsSummary || `${bill.itemCount} items`}
+                            {bill.itemsSummary
+                              ? translateItemsSummary(bill.itemsSummary, products, language)
+                              : `${bill.itemCount} ${tr(language, 'items', 'వస్తువులు')}`}
                           </div>
                         </div>
                       </div>
@@ -518,7 +550,7 @@ export const BillHistoryPage: React.FC = () => {
                         </div>
                         {bill.pendingBalance > 0 && (
                           <div className="font-mono text-[11px] font-semibold text-amber-700">
-                            Due {formatCurrency(bill.pendingBalance)}
+                            {tr(language, 'Due', 'బాకీ')} {formatCurrency(bill.pendingBalance)}
                           </div>
                         )}
                       </div>
@@ -526,12 +558,12 @@ export const BillHistoryPage: React.FC = () => {
 
                     <div className="flex items-center justify-between text-[11px] text-slate-500">
                       <span className="font-mono">
-                        {dt.toLocaleDateString('en-IN')} ·{' '}
-                        {dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        {formatAppDate(dt, language)} ·{' '}
+                        {dt.toLocaleTimeString(getAppLocale(language), { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <span className="truncate max-w-[140px]">
-                        By: <strong className="text-slate-700">{bill.createdByName}</strong>
-                        {!isOwnBill && isAdmin ? ' (Staff)' : ''}
+                        {tr(language, 'By:', 'ద్వారా:')} <strong className="text-slate-700">{bill.createdByName}</strong>
+                        {!isOwnBill && isAdmin ? ` (${tr(language, 'Staff', 'సిబ్బంది')})` : ''}
                       </span>
                     </div>
 
@@ -542,7 +574,7 @@ export const BillHistoryPage: React.FC = () => {
                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#1D4ED8] text-white text-[11px] font-bold"
                       >
                         <Share2 className="w-3.5 h-3.5" />
-                        Share / Receipt
+                        {tr(language, 'Share / Receipt', 'షేర్ / రసీదు')}
                       </button>
                       {isAdmin && bill.billStatus === 'active' && (
                         <button
@@ -551,7 +583,7 @@ export const BillHistoryPage: React.FC = () => {
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-bold"
                         >
                           <Pencil className="w-3 h-3" />
-                          Edit Bill
+                          {tr(language, 'Edit Bill', 'బిల్ సవరించు')}
                         </button>
                       )}
                       {bill.billStatus === 'active' && bill.pendingBalance > 0 && (
@@ -561,7 +593,7 @@ export const BillHistoryPage: React.FC = () => {
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 text-emerald-700 text-[11px] font-semibold"
                         >
                           <Wallet className="w-3 h-3" />
-                          Pay
+                          {tr(language, 'Pay', 'చెల్లించు')}
                         </button>
                       )}
                       {canCancel && bill.billStatus === 'active' && (
@@ -571,7 +603,7 @@ export const BillHistoryPage: React.FC = () => {
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-700 text-[11px] font-semibold"
                         >
                           <Ban className="w-3 h-3" />
-                          Cancel
+                          {tr(language, 'Cancel', 'రద్దు')}
                         </button>
                       )}
                       {(isAdmin || isOwnBill) && (
@@ -584,7 +616,7 @@ export const BillHistoryPage: React.FC = () => {
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 text-rose-700 text-[11px] font-semibold"
                         >
                           <Trash2 className="w-3 h-3" />
-                          Delete
+                          {tr(language, 'Delete', 'తొలగించు')}
                         </button>
                       )}
                     </div>
@@ -606,19 +638,19 @@ export const BillHistoryPage: React.FC = () => {
                       checked={allVisibleSelected}
                       disabled={deletableScopedBills.length === 0}
                       onChange={toggleSelectAllVisible}
-                      aria-label="Select all bills"
+                      aria-label={tr(language, 'Select all bills', 'అన్ని బిల్లులను ఎంచుకో')}
                       className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] cursor-pointer disabled:opacity-40"
                     />
                   </th>
-                  <th className="py-3 px-4 font-semibold">Barcode</th>
-                  <th className="py-3 px-4 font-semibold">Date &amp; Time</th>
-                  <th className="py-3 px-4 font-semibold">Customer</th>
-                  <th className="py-3 px-4 font-semibold">Products</th>
-                  <th className="py-3 px-4 font-semibold text-right">Total</th>
-                  <th className="py-3 px-4 font-semibold text-right">Balance</th>
-                  <th className="py-3 px-4 font-semibold">Payment</th>
-                  <th className="py-3 px-4 font-semibold">Creator</th>
-                  <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  <th className="py-3 px-4 font-semibold">{tr(language, 'Barcode', 'బార్‌కోడ్')}</th>
+                  <th className="py-3 px-4 font-semibold">{tr(language, 'Date & Time', 'తేదీ & సమయం')}</th>
+                  <th className="py-3 px-4 font-semibold">{tr(language, 'Customer', 'కస్టమర్')}</th>
+                  <th className="py-3 px-4 font-semibold">{tr(language, 'Products', 'ఉత్పత్తులు')}</th>
+                  <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Total', 'మొత్తం')}</th>
+                  <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Balance', 'బాకీ')}</th>
+                  <th className="py-3 px-4 font-semibold">{tr(language, 'Payment', 'చెల్లింపు')}</th>
+                  <th className="py-3 px-4 font-semibold">{tr(language, 'Creator', 'బిల్ చేసినవారు')}</th>
+                  <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Actions', 'చర్యలు')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -626,8 +658,8 @@ export const BillHistoryPage: React.FC = () => {
                   <tr>
                     <td colSpan={10} className="py-10 text-center text-slate-400">
                       {isAdmin
-                        ? 'No bills recorded yet.'
-                        : 'You have not created any bills yet.'}
+                        ? tr(language, 'No bills recorded yet.', 'ఇంకా బిల్లులు నమోదు కాలేదు.')
+                        : tr(language, 'You have not created any bills yet.', 'మీరు ఇంకా బిల్లులు చేయలేదు.')}
                     </td>
                   </tr>
                 ) : (
@@ -649,7 +681,7 @@ export const BillHistoryPage: React.FC = () => {
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleBillSelection(bill.id)}
-                              aria-label={`Select bill ${getBillVerificationBarcode(bill)}`}
+                              aria-label={`${tr(language, 'Select bill', 'బిల్ ఎంచుకో')} ${getBillVerificationBarcode(bill)}`}
                               className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] cursor-pointer"
                             />
                           )}
@@ -661,22 +693,26 @@ export const BillHistoryPage: React.FC = () => {
                           </div>
                           {Boolean(bill.editedAt) && (
                             <span className="block w-fit mt-0.5 px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] text-[10px] font-sans font-bold">
-                              Edited
+                              {tr(language, 'Edited', 'సవరించబడింది')}
                             </span>
                           )}
                         </td>
                         <td className="py-3 px-4 text-slate-500 whitespace-nowrap font-mono">
-                          {dt.toLocaleDateString('en-IN')} ·{' '}
-                          {dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          {formatAppDate(dt, language)} ·{' '}
+                          {dt.toLocaleTimeString(getAppLocale(language), { hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-900">{bill.customerName}</div>
+                          <div className="font-semibold text-slate-900">
+                            {translateCustomerName(bill.customerName, language)}
+                          </div>
                           {bill.customerMobile && (
                             <div className="text-[11px] font-mono text-slate-500">{bill.customerMobile}</div>
                           )}
                         </td>
                         <td className="py-3 px-4 max-w-[220px] truncate text-slate-600">
-                          {bill.itemsSummary || `${bill.itemCount} items`}
+                          {bill.itemsSummary
+                            ? translateItemsSummary(bill.itemsSummary, products, language)
+                            : `${bill.itemCount} ${tr(language, 'items', 'వస్తువులు')}`}
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-semibold tabular-nums whitespace-nowrap">
                           {formatCurrency(bill.grandTotal)}
@@ -685,7 +721,9 @@ export const BillHistoryPage: React.FC = () => {
                           {formatCurrency(bill.pendingBalance)}
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="font-medium text-slate-800">{bill.paymentMethod}</span>
+                          <span className="font-medium text-slate-800">
+                            {translatePaymentMethod(bill.paymentMethod, language)}
+                          </span>
                           <span className="text-slate-400"> · </span>
                           <span
                             className={
@@ -696,14 +734,14 @@ export const BillHistoryPage: React.FC = () => {
                                 : 'text-amber-600 font-semibold uppercase'
                             }
                           >
-                            {bill.paymentStatus}
+                            {translateStatus(bill.paymentStatus, language)}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                           <span className="font-medium">{bill.createdByName}</span>
                           {isAdmin && !isOwnBill && (
                             <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-bold">
-                              Staff
+                              {tr(language, 'Staff', 'సిబ్బంది')}
                             </span>
                           )}
                         </td>
@@ -712,16 +750,16 @@ export const BillHistoryPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => setActiveBill(bill)}
-                              title="Share Bill to Customer"
+                              title={tr(language, 'Share Bill to Customer', 'కస్టమర్‌కు బిల్ పంపండి')}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#1D4ED8] text-white text-[11px] font-semibold hover:bg-[#1E40AF]"
                             >
                               <Share2 className="w-3 h-3" />
-                              Share
+                              {tr(language, 'Share', 'షేర్')}
                             </button>
                             <button
                               type="button"
                               onClick={() => setActiveBill(bill)}
-                              title="View & Print Receipt"
+                              title={tr(language, 'View & Print Receipt', 'రసీదు చూడండి & ప్రింట్')}
                               className="p-1.5 rounded-md border border-slate-200 text-slate-700 hover:bg-slate-100"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -730,18 +768,18 @@ export const BillHistoryPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setEditingFullBill(bill)}
-                                title="Admin Edit Bill Items, Prices & Total"
+                                title={tr(language, 'Admin Edit Bill Items, Prices & Total', 'బిల్ వస్తువులు, ధరలు సవరించండి')}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#0B1F44] text-white text-[11px] font-semibold hover:bg-[#13326b]"
                               >
                                 <Pencil className="w-3 h-3" />
-                                Edit
+                                {tr(language, 'Edit', 'సవరించు')}
                               </button>
                             )}
                             {bill.billStatus === 'active' && bill.pendingBalance > 0 && (
                               <button
                                 type="button"
                                 onClick={() => setPaymentModalBill(bill)}
-                                title="Record Payment"
+                                title={tr(language, 'Record Payment', 'చెల్లింపు నమోదు చేయి')}
                                 className="p-1.5 rounded-md border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                               >
                                 <Wallet className="w-3.5 h-3.5" />
@@ -751,7 +789,7 @@ export const BillHistoryPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setEditNotesBill(bill)}
-                                title="Edit Notes"
+                                title={tr(language, 'Edit Notes', 'గమనికలు సవరించు')}
                                 className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
@@ -761,7 +799,7 @@ export const BillHistoryPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setRefundModalBill(bill)}
-                                title="Record Refund"
+                                title={tr(language, 'Record Refund', 'వాపసు నమోదు చేయి')}
                                 className="p-1.5 rounded-md border border-amber-200 text-amber-700 hover:bg-amber-50"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
@@ -771,7 +809,7 @@ export const BillHistoryPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setCancelModalBill(bill)}
-                                title="Cancel Bill"
+                                title={tr(language, 'Cancel Bill', 'బిల్ రద్దు చేయి')}
                                 className="p-1.5 rounded-md border border-rose-200 text-rose-700 hover:bg-rose-50"
                               >
                                 <Ban className="w-3.5 h-3.5" />
@@ -784,7 +822,7 @@ export const BillHistoryPage: React.FC = () => {
                                   setDeleteError(null);
                                   setDeleteModalBill(bill);
                                 }}
-                                title="Delete Bill (Moves to Settings for 10 Days)"
+                                title={tr(language, 'Delete Bill (Moves to Settings for 10 Days)', 'బిల్ తొలగించు (10 రోజులు సెట్టింగ్స్‌లో ఉంటుంది)')}
                                 className="p-1.5 rounded-md border border-rose-200 bg-rose-50/70 text-rose-700 hover:bg-rose-100"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -808,7 +846,7 @@ export const BillHistoryPage: React.FC = () => {
           <div className="px-4 py-3 bg-[#F4F8FF] border-b border-blue-100 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-[#0B1F44]">
               <HardHat className="w-4 h-4 text-[#1D4ED8]" />
-              <span>Labour Work ({sortedLabour.length})</span>
+              <span>{tr(language, 'Labour Work', 'లేబర్ పని')} ({sortedLabour.length})</span>
             </div>
             <span className="text-xs font-mono font-bold text-[#1D4ED8]">
               {formatCurrency(totals.labourTotal)}
@@ -817,7 +855,7 @@ export const BillHistoryPage: React.FC = () => {
 
           {sortedLabour.length === 0 ? (
             <div className="py-10 text-center text-xs text-slate-400">
-              No labour work entries recorded yet.
+              {tr(language, 'No labour work entries recorded yet.', 'లేబర్ పని వివరాలు ఇంకా నమోదు కాలేదు.')}
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -836,11 +874,15 @@ export const BillHistoryPage: React.FC = () => {
                             : 'bg-emerald-50 text-emerald-700'
                         }`}
                       >
-                        {work.paymentMethod}
+                        {translatePaymentMethod(work.paymentMethod, language)}
                       </span>
                     </div>
                     <div className="text-xs text-slate-700 mt-1">{work.workDone}</div>
-                    {work.note && <div className="text-[11px] text-slate-500 mt-0.5">Note: {work.note}</div>}
+                    {work.note && (
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        {tr(language, 'Note:', 'గమనిక:')} {translateSystemText(work.note, language)}
+                      </div>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <div className="font-mono font-bold text-xs text-[#0B1F44]">
@@ -863,17 +905,23 @@ export const BillHistoryPage: React.FC = () => {
           <div className="px-4 py-3 bg-[#F4F8FF] border-b border-blue-100 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-bold text-[#0B1F44]">
               <Wallet className="w-4 h-4 text-[#1D4ED8]" />
-              <span>Shop Cashbook · Income &amp; Expenses ({sortedCashbook.length})</span>
+              <span>
+                {tr(language, 'Shop Cashbook · Income & Expenses', 'షాప్ నగదు పుస్తకం · ఆదాయం & ఖర్చులు')} ({sortedCashbook.length})
+              </span>
             </div>
             <div className="flex items-center gap-3 text-[11px] font-mono font-bold">
-              <span className="text-emerald-700">In: +{formatCurrency(totals.shopIncome)}</span>
-              <span className="text-rose-700">Out: -{formatCurrency(totals.shopExpense)}</span>
+              <span className="text-emerald-700">
+                {tr(language, 'In:', 'ఆదాయం:')} +{formatCurrency(totals.shopIncome)}
+              </span>
+              <span className="text-rose-700">
+                {tr(language, 'Out:', 'ఖర్చు:')} -{formatCurrency(totals.shopExpense)}
+              </span>
             </div>
           </div>
 
           {sortedCashbook.length === 0 ? (
             <div className="py-10 text-center text-xs text-slate-400">
-              No shop income or expense entries recorded yet.
+              {tr(language, 'No shop income or expense entries recorded yet.', 'ఆదాయం లేదా ఖర్చు వివరాలు ఇంకా నమోదు కాలేదు.')}
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -891,7 +939,9 @@ export const BillHistoryPage: React.FC = () => {
                       </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-xs font-bold text-[#0B1F44]">{entry.title}</span>
+                          <span className="text-xs font-bold text-[#0B1F44]">
+                            {translateSystemText(entry.title, language)}
+                          </span>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
                               isIncome
@@ -901,15 +951,21 @@ export const BillHistoryPage: React.FC = () => {
                                 : 'bg-rose-50 text-rose-700'
                             }`}
                           >
-                            {entry.isLabourDerived ? 'Labour Expense' : entry.type}
+                            {entry.isLabourDerived
+                              ? tr(language, 'Labour Expense', 'లేబర్ ఖర్చు')
+                              : translateStatus(entry.type, language)}
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5">
                           <span className="font-mono">{entry.entryDate}</span>
-                          {entry.category && <span>· {entry.category}</span>}
-                          <span>· {entry.paymentMethod}</span>
+                          {entry.category && <span>· {translateCategory(entry.category, [], language)}</span>}
+                          <span>· {translatePaymentMethod(entry.paymentMethod, language)}</span>
                         </div>
-                        {entry.note && <div className="text-[11px] text-slate-500 mt-0.5">Note: {entry.note}</div>}
+                        {entry.note && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {tr(language, 'Note:', 'గమనిక:')} {translateSystemText(entry.note, language)}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div
@@ -953,12 +1009,13 @@ export const BillHistoryPage: React.FC = () => {
       {/* Record Payment Modal */}
       {paymentModalBill && (
         <SimpleActionModal
-          title={`Record Payment · ${getBillVerificationBarcode(paymentModalBill)}`}
-          subtitle={`Pending Balance: ${formatCurrency(paymentModalBill.pendingBalance)}`}
+          title={`${tr(language, 'Record Payment', 'చెల్లింపు నమోదు')} · ${getBillVerificationBarcode(paymentModalBill)}`}
+          subtitle={`${tr(language, 'Pending Balance:', 'బాకీ మొత్తం:')} ${formatCurrency(paymentModalBill.pendingBalance)}`}
           defaultAmount={paymentModalBill.pendingBalance}
           showMethod
-          reasonLabel="Payment Reference / Notes"
-          confirmLabel="Confirm Payment"
+          reasonLabel={tr(language, 'Payment Reference / Notes', 'చెల్లింపు రిఫరెన్స్ / గమనికలు')}
+          confirmLabel={tr(language, 'Confirm Payment', 'చెల్లింపు నిర్ధారించు')}
+          language={language}
           onClose={() => setPaymentModalBill(null)}
           onSubmit={async ({ amount, method, reason }) => {
             await recordPaymentAtomic({
@@ -975,12 +1032,17 @@ export const BillHistoryPage: React.FC = () => {
       {/* Cancel Bill Modal */}
       {cancelModalBill && (
         <SimpleActionModal
-          title={`Cancel Bill · ${getBillVerificationBarcode(cancelModalBill)}`}
-          subtitle="Stock will be automatically restocked and an immutable audit entry recorded."
-          reasonLabel="Cancellation Reason *"
+          title={`${tr(language, 'Cancel Bill', 'బిల్ రద్దు చేయి')} · ${getBillVerificationBarcode(cancelModalBill)}`}
+          subtitle={tr(
+            language,
+            'Stock will be automatically restocked and an immutable audit entry recorded.',
+            'స్టాక్ స్వయంచాలకంగా తిరిగి చేర్చబడుతుంది మరియు ఆడిట్ రికార్డు నమోదు అవుతుంది.'
+          )}
+          reasonLabel={tr(language, 'Cancellation Reason *', 'రద్దు చేయడానికి కారణం *')}
           requireReason
-          confirmLabel="Confirm Cancellation"
+          confirmLabel={tr(language, 'Confirm Cancellation', 'రద్దు నిర్ధారించు')}
           danger
+          language={language}
           onClose={() => setCancelModalBill(null)}
           onSubmit={async ({ reason }) => {
             await cancelBillAtomic(cancelModalBill.id, reason);
@@ -992,14 +1054,15 @@ export const BillHistoryPage: React.FC = () => {
       {/* Refund Modal */}
       {refundModalBill && (
         <SimpleActionModal
-          title={`Record Refund · ${getBillVerificationBarcode(refundModalBill)}`}
-          subtitle={`Max refundable: ${formatCurrency(refundModalBill.amountPaid)}`}
+          title={`${tr(language, 'Record Refund', 'వాపసు నమోదు')} · ${getBillVerificationBarcode(refundModalBill)}`}
+          subtitle={`${tr(language, 'Max refundable:', 'గరిష్ట వాపసు మొత్తం:')} ${formatCurrency(refundModalBill.amountPaid)}`}
           defaultAmount={refundModalBill.amountPaid}
           showMethod
-          reasonLabel="Refund Reason *"
+          reasonLabel={tr(language, 'Refund Reason *', 'వాపసు కారణం *')}
           requireReason
-          confirmLabel="Record Refund"
+          confirmLabel={tr(language, 'Record Refund', 'వాపసు నమోదు చేయి')}
           danger
+          language={language}
           onClose={() => setRefundModalBill(null)}
           onSubmit={async ({ amount, method, reason }) => {
             await recordRefundAtomic({
@@ -1016,11 +1079,12 @@ export const BillHistoryPage: React.FC = () => {
       {/* Edit Notes Modal */}
       {editNotesBill && (
         <SimpleActionModal
-          title={`Edit Notes · ${getBillVerificationBarcode(editNotesBill)}`}
-          subtitle="Financial figures remain locked for audit compliance."
-          reasonLabel="Bill Notes"
+          title={`${tr(language, 'Edit Notes', 'గమనికలు సవరించు')} · ${getBillVerificationBarcode(editNotesBill)}`}
+          subtitle={tr(language, 'Financial figures remain locked for audit compliance.', 'ఆడిట్ భద్రత కోసం బిల్ లెక్కలు లాక్ చేయబడ్డాయి.')}
+          reasonLabel={tr(language, 'Bill Notes', 'బిల్ గమనికలు')}
           defaultReason={editNotesBill.notes || ''}
-          confirmLabel="Save Notes"
+          confirmLabel={tr(language, 'Save Notes', 'గమనికలు సేవ్ చేయి')}
+          language={language}
           onClose={() => setEditNotesBill(null)}
           onSubmit={async ({ reason }) => {
             await updateBillNotes(editNotesBill.id, reason);
@@ -1036,10 +1100,10 @@ export const BillHistoryPage: React.FC = () => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-[#0B1F44]">
-                  Delete Bill · {getBillVerificationBarcode(deleteModalBill)}?
+                  {tr(language, 'Delete Bill', 'బిల్ తొలగించు')} · {getBillVerificationBarcode(deleteModalBill)}?
                 </h3>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  {deleteModalBill.customerName} ·{' '}
+                  {translateCustomerName(deleteModalBill.customerName, language)} ·{' '}
                   <span className="font-mono font-bold text-[#0B1F44]">
                     {formatCurrency(deleteModalBill.grandTotal)}
                   </span>
@@ -1055,7 +1119,15 @@ export const BillHistoryPage: React.FC = () => {
             </div>
 
             <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 leading-relaxed">
-              This bill will be moved to <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept safely for <strong>10 days</strong> so an Admin can restore it anytime before permanent deletion.
+              {language === 'te' ? (
+                <>
+                  ఈ బిల్ <strong>సెట్టింగ్స్ &rarr; తొలగించిన బిల్లులు &amp; ఉత్పత్తులు</strong> లోకి తరలించబడుతుంది మరియు శాశ్వత తొలగింపుకు ముందు <strong>10 రోజులు</strong> సురక్షితంగా ఉంటుంది.
+                </>
+              ) : (
+                <>
+                  This bill will be moved to <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept safely for <strong>10 days</strong> so an Admin can restore it anytime before permanent deletion.
+                </>
+              )}
             </div>
 
             {deleteError && (
@@ -1071,7 +1143,7 @@ export const BillHistoryPage: React.FC = () => {
                 onClick={() => setDeleteModalBill(null)}
                 className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {tr(language, 'Cancel', 'రద్దు')}
               </button>
               <button
                 type="button"
@@ -1084,7 +1156,7 @@ export const BillHistoryPage: React.FC = () => {
                     setSelectedBillIds((prev) => prev.filter((id) => id !== deleteModalBill.id));
                     setDeleteModalBill(null);
                   } catch (err) {
-                    setDeleteError(err instanceof Error ? err.message : 'Failed to delete bill.');
+                    setDeleteError(err instanceof Error ? err.message : tr(language, 'Failed to delete bill.', 'బిల్ తొలగించడం విఫలమైంది.'));
                   } finally {
                     setDeletingBill(false);
                   }
@@ -1092,7 +1164,9 @@ export const BillHistoryPage: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                {deletingBill ? 'Moving...' : 'Move to Removed Bills'}
+                {deletingBill
+                  ? tr(language, 'Moving...', 'తరలిస్తోంది...')
+                  : tr(language, 'Move to Removed Bills', 'తొలగించిన జాబితాకు తరలించు')}
               </button>
             </div>
           </div>
@@ -1106,10 +1180,12 @@ export const BillHistoryPage: React.FC = () => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-[#0B1F44]">
-                  Delete {visibleSelectedBills.length} Selected Bill{visibleSelectedBills.length === 1 ? '' : 's'}?
+                  {language === 'te'
+                    ? `ఎంచుకున్న ${visibleSelectedBills.length} బిల్లులను తొలగించాలా?`
+                    : `Delete ${visibleSelectedBills.length} Selected Bill${visibleSelectedBills.length === 1 ? '' : 's'}?`}
                 </h3>
                 <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                  Combined Value:{' '}
+                  {tr(language, 'Combined Value:', 'మొత్తం విలువ:')}{' '}
                   <span className="font-mono font-bold text-[#0B1F44]">
                     {formatCurrency(selectedTotalAmount)}
                   </span>
@@ -1135,7 +1211,7 @@ export const BillHistoryPage: React.FC = () => {
                     <span className="font-mono font-bold text-[#0B1F44]">
                       {getBillVerificationBarcode(bill)}
                     </span>{' '}
-                    · {bill.customerName}
+                    · {translateCustomerName(bill.customerName, language)}
                   </span>
                   <span className="font-mono font-semibold text-slate-900 shrink-0">
                     {formatCurrency(bill.grandTotal)}
@@ -1144,14 +1220,23 @@ export const BillHistoryPage: React.FC = () => {
               ))}
               {visibleSelectedBills.length > 5 && (
                 <div className="text-[11px] font-semibold text-slate-500 pt-1 border-t border-slate-200">
-                  +{visibleSelectedBills.length - 5} more selected bill
-                  {visibleSelectedBills.length - 5 === 1 ? '' : 's'}
+                  {language === 'te'
+                    ? `+మరో ${visibleSelectedBills.length - 5} ఎంచుకున్న బిల్లులు`
+                    : `+${visibleSelectedBills.length - 5} more selected bill${visibleSelectedBills.length - 5 === 1 ? '' : 's'}`}
                 </div>
               )}
             </div>
 
             <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 leading-relaxed">
-              These bills will be moved to <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept safely for <strong>10 days</strong> so an Admin can restore them anytime before permanent deletion.
+              {language === 'te' ? (
+                <>
+                  ఈ బిల్లులు <strong>సెట్టింగ్స్ &rarr; తొలగించిన బిల్లులు &amp; ఉత్పత్తులు</strong> లోకి తరలించబడతాయి మరియు శాశ్వత తొలగింపుకు ముందు <strong>10 రోజులు</strong> సురక్షితంగా ఉంటాయి.
+                </>
+              ) : (
+                <>
+                  These bills will be moved to <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept safely for <strong>10 days</strong> so an Admin can restore them anytime before permanent deletion.
+                </>
+              )}
             </div>
 
             {bulkDeleteError && (
@@ -1167,7 +1252,7 @@ export const BillHistoryPage: React.FC = () => {
                 onClick={() => setBulkDeleteModalOpen(false)}
                 className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {tr(language, 'Cancel', 'రద్దు')}
               </button>
               <button
                 type="button"
@@ -1182,11 +1267,17 @@ export const BillHistoryPage: React.FC = () => {
                     setSelectedBillIds([]);
                     setBulkDeleteModalOpen(false);
                     setBulkNotice(
-                      `Moved ${movedCount} bill${movedCount === 1 ? '' : 's'} to Settings → Removed Bills & Products (kept for 10 days).`
+                      tr(
+                        language,
+                        `Moved ${movedCount} bill${movedCount === 1 ? '' : 's'} to Settings → Removed Bills & Products (kept for 10 days).`,
+                        `${movedCount} బిల్లులు సెట్టింగ్స్ → తొలగించిన బిల్లులు & ఉత్పత్తులలోకి తరలించబడ్డాయి (10 రోజులు ఉంటాయి).`
+                      )
                     );
                   } catch (err) {
                     setBulkDeleteError(
-                      err instanceof Error ? err.message : 'Failed to delete selected bills.'
+                      err instanceof Error
+                        ? err.message
+                        : tr(language, 'Failed to delete selected bills.', 'ఎంచుకున్న బిల్లులను తొలగించడం విఫలమైంది.')
                     );
                   } finally {
                     setBulkDeleting(false);
@@ -1196,8 +1287,8 @@ export const BillHistoryPage: React.FC = () => {
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {bulkDeleting
-                  ? 'Moving...'
-                  : `Move ${visibleSelectedBills.length} to Removed`}
+                  ? tr(language, 'Moving...', 'తరలిస్తోంది...')
+                  : tr(language, `Move ${visibleSelectedBills.length} to Removed`, `${visibleSelectedBills.length} తొలగించిన జాబితాకు తరలించు`)}
               </button>
             </div>
           </div>
@@ -1210,8 +1301,8 @@ export const BillHistoryPage: React.FC = () => {
         products={products}
         bills={bills}
         onBillFound={(b) => setActiveBill(b)}
-        onProductFound={(p) => setSearchQuery(p.name)}
-        title="Scan Bill or Product Barcode"
+        onProductFound={(p) => setSearchQuery(translateProductName(p, language))}
+        title={tr(language, 'Scan Bill or Product Barcode', 'బిల్ లేదా ఉత్పత్తి బార్‌కోడ్ స్కాన్ చేయండి')}
       />
     </div>
   );
@@ -1236,6 +1327,7 @@ const EditBillModal: React.FC<{
     notes?: string;
   }) => Promise<void>;
 }> = ({ bill, existingItems, products, taxEnabled, onClose, onSave }) => {
+  const { language } = useAuth();
   const [customerName, setCustomerName] = useState(bill.customerName);
   const [customerMobile, setCustomerMobile] = useState(bill.customerMobile || '');
   const [customerAddress, setCustomerAddress] = useState(bill.customerAddress || '');
@@ -1319,11 +1411,11 @@ const EditBillModal: React.FC<{
     e.preventDefault();
     setErr(null);
     if (!customerName.trim()) {
-      setErr('Customer name is required.');
+      setErr(tr(language, 'Customer name is required.', 'కస్టమర్ పేరు తప్పనిసరి.'));
       return;
     }
     if (items.length === 0) {
-      setErr('Bill must contain at least one product.');
+      setErr(tr(language, 'Bill must contain at least one product.', 'బిల్‌లో కనీసం ఒక ఉత్పత్తి ఉండాలి.'));
       return;
     }
     setSaving(true);
@@ -1341,7 +1433,7 @@ const EditBillModal: React.FC<{
         notes: notes.trim(),
       });
     } catch (error) {
-      setErr(error instanceof Error ? error.message : 'Failed to update bill.');
+      setErr(error instanceof Error ? error.message : tr(language, 'Failed to update bill.', 'బిల్ సవరించడం విఫలమైంది.'));
     } finally {
       setSaving(false);
     }
@@ -1355,9 +1447,12 @@ const EditBillModal: React.FC<{
       >
         <div className="px-5 py-3.5 bg-[#0B1F44] text-white flex items-center justify-between">
           <div>
-            <h3 className="text-sm sm:text-base font-bold">Edit Bill · {getBillVerificationBarcode(bill)}</h3>
+            <h3 className="text-sm sm:text-base font-bold">
+              {tr(language, 'Edit Bill', 'బిల్ సవరించు')} · {getBillVerificationBarcode(bill)}
+            </h3>
             <p className="text-[11px] text-blue-200">
-              Created by {bill.createdByName} · Modify prices, quantities, customer &amp; payment
+              {tr(language, 'Created by', 'చేసినవారు:')} {bill.createdByName} ·{' '}
+              {tr(language, 'Modify prices, quantities, customer & payment', 'ధరలు, పరిమాణాలు, కస్టమర్ & చెల్లింపు మార్చండి')}
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-blue-100 hover:bg-white/10">
@@ -1368,7 +1463,9 @@ const EditBillModal: React.FC<{
         <div className="p-4 sm:p-5 space-y-4 max-h-[82vh] overflow-y-auto text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div>
-              <label className="block font-semibold text-slate-600 mb-1">Customer Name *</label>
+              <label className="block font-semibold text-slate-600 mb-1">
+                {tr(language, 'Customer Name *', 'కస్టమర్ పేరు *')}
+              </label>
               <input
                 required
                 value={customerName}
@@ -1377,7 +1474,9 @@ const EditBillModal: React.FC<{
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-600 mb-1">Mobile</label>
+              <label className="block font-semibold text-slate-600 mb-1">
+                {tr(language, 'Mobile', 'మొబైల్')}
+              </label>
               <input
                 value={customerMobile}
                 onChange={(e) => setCustomerMobile(e.target.value)}
@@ -1385,7 +1484,9 @@ const EditBillModal: React.FC<{
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-600 mb-1">Address / Site</label>
+              <label className="block font-semibold text-slate-600 mb-1">
+                {tr(language, 'Address / Site', 'చిరునామా / స్థలం')}
+              </label>
               <input
                 value={customerAddress}
                 onChange={(e) => setCustomerAddress(e.target.value)}
@@ -1396,17 +1497,19 @@ const EditBillModal: React.FC<{
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[#0B1F44]">Line Items ({items.length})</span>
+              <span className="font-bold text-[#0B1F44]">
+                {tr(language, 'Line Items', 'వస్తువులు')} ({items.length})
+              </span>
               <div className="flex items-center gap-1.5">
                 <select
                   value={addProductId}
                   onChange={(e) => setAddProductId(e.target.value)}
                   className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 max-w-[180px]"
                 >
-                  <option value="">+ Add Product...</option>
+                  <option value="">{tr(language, '+ Add Product...', '+ ఉత్పత్తి చేర్చు...')}</option>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} (₹{p.sellingPrice})
+                      {translateProductName(p, language)} (₹{p.sellingPrice})
                     </option>
                   ))}
                 </select>
@@ -1416,19 +1519,22 @@ const EditBillModal: React.FC<{
                   disabled={!addProductId}
                   className="px-2.5 py-1.5 rounded-lg bg-[#1D4ED8] text-white font-semibold disabled:opacity-40"
                 >
-                  Add
+                  {tr(language, 'Add', 'చేర్చు')}
                 </button>
               </div>
             </div>
 
-            {items.map((item, idx) => (
+            {items.map((item, idx) => {
+              const matchedProd = products.find((p) => p.id === item.productId);
+              return (
               <div
                 key={`${item.productId}-${idx}`}
                 className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-semibold text-[#0B1F44] truncate">
-                    {item.productName} {item.variantLabel ? `(${item.variantLabel})` : ''}
+                    {translateProductName(matchedProd, language, item.productName)}{' '}
+                    {item.variantLabel ? `(${translateVariantLabel(item.variantLabel, language)})` : ''}
                   </div>
                   <button
                     type="button"
@@ -1440,7 +1546,9 @@ const EditBillModal: React.FC<{
                 </div>
                 <div className="grid grid-cols-3 gap-2 items-center">
                   <div>
-                    <label className="text-[10px] text-slate-500 block">Rate (₹)</label>
+                    <label className="text-[10px] text-slate-500 block">
+                      {tr(language, 'Rate (₹)', 'ధర (₹)')}
+                    </label>
                     <input
                       type="number"
                       min={0}
@@ -1457,7 +1565,9 @@ const EditBillModal: React.FC<{
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-slate-500 block">Qty</label>
+                    <label className="text-[10px] text-slate-500 block">
+                      {tr(language, 'Qty', 'సంఖ్య')}
+                    </label>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -1501,7 +1611,9 @@ const EditBillModal: React.FC<{
                     </div>
                   </div>
                   <div>
-                    <label className="text-[10px] text-slate-500 block">Disc (₹)</label>
+                    <label className="text-[10px] text-slate-500 block">
+                      {tr(language, 'Disc (₹)', 'తగ్గింపు (₹)')}
+                    </label>
                     <input
                       type="number"
                       min={0}
@@ -1518,12 +1630,15 @@ const EditBillModal: React.FC<{
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div>
-              <label className="block text-slate-600 mb-1">Extra Discount (₹)</label>
+              <label className="block text-slate-600 mb-1">
+                {tr(language, 'Extra Discount (₹)', 'అదనపు తగ్గింపు (₹)')}
+              </label>
               <input
                 type="number"
                 min={0}
@@ -1533,34 +1648,40 @@ const EditBillModal: React.FC<{
               />
             </div>
             <div>
-              <label className="block text-slate-600 mb-1">GST Mode</label>
+              <label className="block text-slate-600 mb-1">
+                {tr(language, 'GST Mode', 'జీఎస్టీ విధానం')}
+              </label>
               <select
                 value={taxEnabled ? gstType : 'NONE'}
                 disabled={!taxEnabled}
                 onChange={(e) => setGstType(e.target.value as GstType)}
                 className="w-full px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50"
               >
-                <option value="NONE">No GST</option>
-                <option value="CGST_SGST">CGST + SGST</option>
-                <option value="IGST">IGST</option>
+                <option value="NONE">{tr(language, 'No GST', 'జీఎస్టీ లేదు')}</option>
+                <option value="CGST_SGST">{tr(language, 'CGST + SGST', 'సీజీఎస్టీ + ఎస్‌జీఎస్టీ')}</option>
+                <option value="IGST">{tr(language, 'IGST', 'ఐజీఎస్టీ')}</option>
               </select>
             </div>
             <div>
-              <label className="block text-slate-600 mb-1">Payment Method</label>
+              <label className="block text-slate-600 mb-1">
+                {tr(language, 'Payment Method', 'చెల్లింపు విధానం')}
+              </label>
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
                 className="w-full px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50"
               >
-                <option value="Cash">Cash</option>
-                <option value="UPI">UPI</option>
-                <option value="Bank Transfer">Bank Transfer</option>
-                <option value="Other">Other</option>
-                <option value="Unpaid">Unpaid</option>
+                <option value="Cash">{translatePaymentMethod('Cash', language)}</option>
+                <option value="UPI">{translatePaymentMethod('UPI', language)}</option>
+                <option value="Bank Transfer">{translatePaymentMethod('Bank Transfer', language)}</option>
+                <option value="Other">{translatePaymentMethod('Other', language)}</option>
+                <option value="Unpaid">{translatePaymentMethod('Unpaid', language)}</option>
               </select>
             </div>
             <div>
-              <label className="block text-slate-600 mb-1">Amount Paid (₹)</label>
+              <label className="block text-slate-600 mb-1">
+                {tr(language, 'Amount Paid (₹)', 'చెల్లించిన మొత్తం (₹)')}
+              </label>
               <input
                 type="number"
                 min={0}
@@ -1574,25 +1695,32 @@ const EditBillModal: React.FC<{
           </div>
 
           <div>
-            <label className="block text-slate-600 mb-1">Bill Notes</label>
+            <label className="block text-slate-600 mb-1">
+              {tr(language, 'Bill Notes', 'బిల్ గమనికలు')}
+            </label>
             <input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional notes"
+              placeholder={tr(language, 'Optional notes', 'ఐచ్ఛిక గమనికలు')}
               className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50"
             />
           </div>
 
           <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-100 flex flex-wrap items-center justify-between gap-2 font-mono">
             <div>
-              <div className="text-[11px] text-slate-500">New Grand Total</div>
+              <div className="text-[11px] text-slate-500">
+                {tr(language, 'New Grand Total', 'కొత్త మొత్తం బిల్లు')}
+              </div>
               <div className="text-base font-bold text-[#0B1F44]">{formatCurrency(preview.grandTotal)}</div>
             </div>
             <div className="text-right">
               <div className="text-[11px] text-slate-500">
-                Paid: {formatCurrency(preview.paid)} · Due: {formatCurrency(preview.pending)}
+                {tr(language, 'Paid:', 'చెల్లించినది:')} {formatCurrency(preview.paid)} ·{' '}
+                {tr(language, 'Due:', 'బాకీ:')} {formatCurrency(preview.pending)}
               </div>
-              <div className="text-[11px] text-slate-500">Previous Total: {formatCurrency(bill.grandTotal)}</div>
+              <div className="text-[11px] text-slate-500">
+                {tr(language, 'Previous Total:', 'పాత మొత్తం:')} {formatCurrency(bill.grandTotal)}
+              </div>
             </div>
           </div>
 
@@ -1605,14 +1733,14 @@ const EditBillModal: React.FC<{
             onClick={onClose}
             className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
           >
-            Cancel
+            {tr(language, 'Cancel', 'రద్దు')}
           </button>
           <button
             type="submit"
             disabled={saving}
             className="px-4 py-2 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-bold disabled:opacity-50"
           >
-            {saving ? 'Saving Bill Changes...' : 'Save Updated Bill'}
+            {saving ? tr(language, 'Saving Bill Changes...', 'మార్పులు సేవ్ అవుతున్నాయి...') : tr(language, 'Save Updated Bill', 'మార్చిన బిల్ సేవ్ చేయి')}
           </button>
         </div>
       </form>
@@ -1630,6 +1758,7 @@ const SimpleActionModal: React.FC<{
   requireReason?: boolean;
   confirmLabel: string;
   danger?: boolean;
+  language: 'en' | 'te';
   onClose: () => void;
   onSubmit: (vals: { amount: number; method: 'Cash' | 'UPI' | 'Bank Transfer' | 'Other'; reason: string }) => Promise<void>;
 }> = ({
@@ -1642,6 +1771,7 @@ const SimpleActionModal: React.FC<{
   requireReason,
   confirmLabel,
   danger,
+  language,
   onClose,
   onSubmit,
 }) => {
@@ -1654,7 +1784,7 @@ const SimpleActionModal: React.FC<{
   const handle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (requireReason && !reason.trim()) {
-      setErr('Please provide a reason.');
+      setErr(tr(language, 'Please provide a reason.', 'దయచేసి కారణం నమోదు చేయండి.'));
       return;
     }
     setBusy(true);
@@ -1662,7 +1792,7 @@ const SimpleActionModal: React.FC<{
     try {
       await onSubmit({ amount, method, reason });
     } catch (error) {
-      setErr(error instanceof Error ? error.message : 'Action failed.');
+      setErr(error instanceof Error ? error.message : tr(language, 'Action failed.', 'చర్య విఫలమైంది.'));
     } finally {
       setBusy(false);
     }
@@ -1678,7 +1808,9 @@ const SimpleActionModal: React.FC<{
 
         {defaultAmount !== undefined && (
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Amount (₹)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              {tr(language, 'Amount (₹)', 'మొత్తం (₹)')}
+            </label>
             <input
               type="number"
               step="0.01"
@@ -1693,16 +1825,18 @@ const SimpleActionModal: React.FC<{
 
         {showMethod && (
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              {tr(language, 'Payment Method', 'చెల్లింపు విధానం')}
+            </label>
             <select
               value={method}
               onChange={(e) => setMethod(e.target.value as 'Cash' | 'UPI' | 'Bank Transfer' | 'Other')}
               className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white"
             >
-              <option value="Cash">Cash</option>
-              <option value="UPI">UPI</option>
-              <option value="Bank Transfer">Bank Transfer</option>
-              <option value="Other">Other</option>
+              <option value="Cash">{translatePaymentMethod('Cash', language)}</option>
+              <option value="UPI">{translatePaymentMethod('UPI', language)}</option>
+              <option value="Bank Transfer">{translatePaymentMethod('Bank Transfer', language)}</option>
+              <option value="Other">{translatePaymentMethod('Other', language)}</option>
             </select>
           </div>
         )}
@@ -1721,7 +1855,7 @@ const SimpleActionModal: React.FC<{
 
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200">
-            Cancel
+            {tr(language, 'Cancel', 'రద్దు')}
           </button>
           <button
             type="submit"
@@ -1730,7 +1864,7 @@ const SimpleActionModal: React.FC<{
               danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-[#0B1F44] hover:bg-[#13326b]'
             }`}
           >
-            {busy ? 'Processing...' : confirmLabel}
+            {busy ? tr(language, 'Processing...', 'ప్రాసెస్ అవుతోంది...') : confirmLabel}
           </button>
         </div>
       </form>

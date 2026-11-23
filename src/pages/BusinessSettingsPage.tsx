@@ -18,6 +18,15 @@ import { formatTimestamp } from '../lib/firebase';
 import { formatCurrency } from '../lib/upiAndExport';
 import { resolveBusinessLogoUrl } from '../lib/seedData';
 import { PWAInstallButton } from '../components/PWAInstallButton';
+import {
+  formatAppDate,
+  tr,
+  translateCategory,
+  translateCustomerName,
+  translateItemsSummary,
+  translateProductName,
+  translateUnit,
+} from '../lib/i18n';
 
 const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
@@ -104,7 +113,7 @@ export const BusinessSettingsPage: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 350 * 1024) {
-      setError('Logo image must be under 350 KB.');
+      setError(tr(language, 'Logo image must be under 350 KB.', 'లోగో చిత్రం 350 కేబీ కంటే తక్కువగా ఉండాలి.'));
       return;
     }
     const reader = new FileReader();
@@ -117,7 +126,13 @@ export const BusinessSettingsPage: React.FC = () => {
   const handleSaveAll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
-      setError('Only administrators can modify central business settings.');
+      setError(
+        tr(
+          language,
+          'Only administrators can modify central business settings.',
+          'వ్యాపార సెట్టింగ్స్‌ను అడ్మిన్ మాత్రమే మార్చగలరు.'
+        )
+      );
       return;
     }
     setSaving(true);
@@ -145,9 +160,19 @@ export const BusinessSettingsPage: React.FC = () => {
         footerMessage: footerMessage.trim(),
         invoiceNotes: invoiceNotes.trim(),
       });
-      setFeedback('All business settings saved and synchronized across every terminal.');
+      setFeedback(
+        tr(
+          language,
+          'All business settings saved and synchronized across every terminal.',
+          'అన్ని వ్యాపార సెట్టింగ్స్ సేవ్ చేయబడి, అన్ని పరికరాల్లో సింక్ చేయబడ్డాయి.'
+        )
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr(language, 'Failed to save settings.', 'సెట్టింగ్స్ సేవ్ చేయడం విఫలమైంది.')
+      );
     } finally {
       setSaving(false);
     }
@@ -180,10 +205,14 @@ export const BusinessSettingsPage: React.FC = () => {
       const text = await file.text();
       const parsed = JSON.parse(text);
       setRestorePreview(
-        `Verified backup from ${parsed.exportedAt || 'unknown date'}: ${parsed.products?.length || 0} products, ${parsed.customers?.length || 0} customers, ${parsed.bills?.length || 0} bills, ${parsed.payments?.length || 0} payments.`
+        tr(
+          language,
+          `Verified backup from ${parsed.exportedAt || 'unknown date'}: ${parsed.products?.length || 0} products, ${parsed.customers?.length || 0} customers, ${parsed.bills?.length || 0} bills, ${parsed.payments?.length || 0} payments.`,
+          `ధృవీకరించబడిన బ్యాకప్ (${parsed.exportedAt || 'తెలియని తేదీ'}): ${parsed.products?.length || 0} ఉత్పత్తులు, ${parsed.customers?.length || 0} కస్టమర్లు, ${parsed.bills?.length || 0} బిల్లులు, ${parsed.payments?.length || 0} చెల్లింపులు.`
+        )
       );
     } catch {
-      setRestorePreview('Invalid JSON backup archive.');
+      setRestorePreview(tr(language, 'Invalid JSON backup archive.', 'చెల్లని బ్యాకప్ ఫైల్.'));
     }
   };
 
@@ -215,8 +244,16 @@ export const BusinessSettingsPage: React.FC = () => {
       {/* Language Preference */}
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Catalog Language</h3>
-          <p className="text-xs text-slate-500">Switch product names between English and Telugu.</p>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+            {tr(language, 'Catalog & App Language', 'యాప్ & కేటలాగ్ భాష')}
+          </h3>
+          <p className="text-xs text-slate-500">
+            {tr(
+              language,
+              'Switch product names and the entire app between English and Telugu.',
+              'ఉత్పత్తుల పేర్లు మరియు మొత్తం యాప్‌ను తెలుగు లేదా ఇంగ్లీష్ లోకి మార్చుకోండి.'
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -225,7 +262,7 @@ export const BusinessSettingsPage: React.FC = () => {
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-blue-200 bg-blue-50/70 text-[#0B1F44] text-xs font-semibold hover:bg-blue-100"
           >
             <Globe className="w-4 h-4 text-[#1D4ED8]" />
-            Catalog Language: {language === 'te' ? 'తెలుగు (Telugu)' : 'English'}
+            {language === 'te' ? 'యాప్ భాష: తెలుగు' : 'Catalog Language: English'}
           </button>
         </div>
       </div>
@@ -235,21 +272,23 @@ export const BusinessSettingsPage: React.FC = () => {
         <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
           <Building2 className="w-4 h-4 text-[#1D4ED8]" />
           <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-            Business Identity, GST & Invoice Numbering
+            {tr(language, 'Business Identity, GST & Invoice Numbering', 'వ్యాపార వివరాలు, జీఎస్టీ & బిల్ నంబర్లు')}
           </h3>
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
           <img
             src={resolveBusinessLogoUrl(logoUrl)}
-            alt="Business Emblem"
+            alt={tr(language, 'Business Emblem', 'వ్యాపార లోగో')}
             className="w-16 h-16 rounded-xl object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700"
           />
           <div className="space-y-1 text-xs">
-            <div className="font-medium text-slate-700 dark:text-slate-300">Business Seal / Logo</div>
+            <div className="font-medium text-slate-700 dark:text-slate-300">
+              {tr(language, 'Business Seal / Logo', 'వ్యాపార సీల్ / లోగో')}
+            </div>
             {isAdmin && (
               <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
-                <Upload className="w-3.5 h-3.5" /> Upload Logo Image
+                <Upload className="w-3.5 h-3.5" /> {tr(language, 'Upload Logo Image', 'లోగో చిత్రం అప్‌లోడ్ చేయండి')}
                 <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
               </label>
             )}
@@ -258,7 +297,9 @@ export const BusinessSettingsPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Business Name *</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Business Name *', 'వ్యాపార పేరు *')}
+            </label>
             <input
               required
               disabled={!isAdmin}
@@ -268,7 +309,9 @@ export const BusinessSettingsPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Proprietor Name</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Proprietor Name', 'యజమాని పేరు')}
+            </label>
             <input
               disabled={!isAdmin}
               value={proprietor}
@@ -277,7 +320,9 @@ export const BusinessSettingsPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Phone Number', 'ఫోన్ నంబర్')}
+            </label>
             <input
               disabled={!isAdmin}
               value={phone}
@@ -286,17 +331,21 @@ export const BusinessSettingsPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">GSTIN (Optional)</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'GSTIN (Optional)', 'జీఎస్టీఐఎన్ (ఐచ్ఛికం)')}
+            </label>
             <input
               disabled={!isAdmin}
               value={gstin}
               onChange={(e) => setGstin(e.target.value)}
-              placeholder="e.g. 37AAAAA0000A1Z5"
+              placeholder={tr(language, 'e.g. 37AAAAA0000A1Z5', 'ఉదా. 37AAAAA0000A1Z5')}
               className="w-full px-3 py-2 font-mono uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
             />
           </div>
           <div className="md:col-span-2">
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Yard / Shop Address</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Yard / Shop Address', 'యార్డ్ / షాప్ చిరునామా')}
+            </label>
             <input
               disabled={!isAdmin}
               value={address}
@@ -305,7 +354,9 @@ export const BusinessSettingsPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Invoice Prefix</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Invoice Prefix', 'ఇన్వాయిస్ ప్రిఫిక్స్')}
+            </label>
             <input
               disabled={!isAdmin}
               value={billPrefix}
@@ -314,7 +365,9 @@ export const BusinessSettingsPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Next Bill Number</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Next Bill Number', 'తదుపరి బిల్ నంబర్')}
+            </label>
             <input
               type="number"
               disabled={!isAdmin}
@@ -332,11 +385,13 @@ export const BusinessSettingsPage: React.FC = () => {
               onChange={(e) => setTaxEnabled(e.target.checked)}
             />
             <label htmlFor="taxEnabled" className="font-medium text-slate-700 dark:text-slate-300">
-              Enable GST Tax Calculation by Default
+              {tr(language, 'Enable GST Tax Calculation by Default', 'డిఫాల్ట్‌గా జీఎస్టీ పన్ను లెక్కింపును ప్రారంభించు')}
             </label>
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Default GST Rate (%)</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Default GST Rate (%)', 'డిఫాల్ట్ జీఎస్టీ శాతం (%)')}
+            </label>
             <input
               type="number"
               min={0}
@@ -355,38 +410,44 @@ export const BusinessSettingsPage: React.FC = () => {
         <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
           <Printer className="w-4 h-4 text-[#1D4ED8]" />
           <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-            Thermal Printer & Receipt Customization
+            {tr(language, 'Thermal Printer & Receipt Customization', 'థర్మల్ ప్రింటర్ & రసీదు సెట్టింగ్స్')}
           </h3>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Thermal Paper Width</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Thermal Paper Width', 'థర్మల్ పేపర్ వెడల్పు')}
+            </label>
             <select
               disabled={!isAdmin}
               value={paperWidth}
               onChange={(e) => setPaperWidth(e.target.value as '58mm' | '80mm')}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
             >
-              <option value="58mm">58mm Compact Thermal</option>
-              <option value="80mm">80mm Standard POS Thermal</option>
+              <option value="58mm">{tr(language, '58mm Compact Thermal', '58 మి.మీ. కాంపాక్ట్ థర్మల్')}</option>
+              <option value="80mm">{tr(language, '80mm Standard POS Thermal', '80 మి.మీ. స్టాండర్డ్ థర్మల్')}</option>
             </select>
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Receipt Font Density</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Receipt Font Density', 'రసీదు అక్షరాల పరిమాణం')}
+            </label>
             <select
               disabled={!isAdmin}
               value={fontSize}
               onChange={(e) => setFontSize(e.target.value as 'sm' | 'md' | 'lg')}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
             >
-              <option value="sm">Compact</option>
-              <option value="md">Standard</option>
-              <option value="lg">Large Print</option>
+              <option value="sm">{tr(language, 'Compact', 'చిన్నది')}</option>
+              <option value="md">{tr(language, 'Standard', 'మధ్యస్థం')}</option>
+              <option value="lg">{tr(language, 'Large Print', 'పెద్దది')}</option>
             </select>
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">Receipt Thank-You Footer</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'Receipt Thank-You Footer', 'రసీదు ధన్యవాద సందేశం')}
+            </label>
             <input
               disabled={!isAdmin}
               value={footerMessage}
@@ -395,7 +456,9 @@ export const BusinessSettingsPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">A4 Invoice Terms / Notes</label>
+            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              {tr(language, 'A4 Invoice Terms / Notes', 'ఏ4 ఇన్వాయిస్ నియమాలు / గమనికలు')}
+            </label>
             <input
               disabled={!isAdmin}
               value={invoiceNotes}
@@ -407,10 +470,14 @@ export const BusinessSettingsPage: React.FC = () => {
             <label className="flex items-start justify-between gap-3 rounded-xl border border-blue-100 dark:border-slate-800 bg-blue-50/40 dark:bg-slate-950 p-3 cursor-pointer">
               <div>
                 <div className="font-semibold text-[#0B1F44] dark:text-white">
-                  Print Business Logo on Thermal Receipts
+                  {tr(language, 'Print Business Logo on Thermal Receipts', 'థర్మల్ రసీదులపై వ్యాపార లోగో ముద్రించండి')}
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Turn off to skip logo bitmap printing on 58mm / 80mm thermal receipts and optimize printer memory &amp; print speed.
+                  {tr(
+                    language,
+                    'Turn off to skip logo bitmap printing on 58mm / 80mm thermal receipts and optimize printer memory & print speed.',
+                    '58 మి.మీ. / 80 మి.మీ. థర్మల్ రసీదులపై వేగంగా ప్రింట్ కావడానికి లోగోను ఆఫ్ చేయవచ్చు.'
+                  )}
                 </div>
               </div>
               <input
@@ -424,7 +491,7 @@ export const BusinessSettingsPage: React.FC = () => {
             <div className="flex flex-wrap gap-5 pt-1">
               <label className="inline-flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" disabled={!isAdmin} checked={showLogo} onChange={(e) => setShowLogo(e.target.checked)} />
-                Print Business Logo on A4 Invoices
+                {tr(language, 'Print Business Logo on A4 Invoices', 'ఏ4 ఇన్వాయిస్‌లపై వ్యాపార లోగో ముద్రించు')}
               </label>
               <label className="inline-flex items-center gap-2 cursor-pointer">
                 <input
@@ -433,7 +500,7 @@ export const BusinessSettingsPage: React.FC = () => {
                   checked={showQrCode}
                   onChange={(e) => setShowQrCode(e.target.checked)}
                 />
-                Print UPI QR Code on Invoices &amp; Receipts
+                {tr(language, 'Print UPI QR Code on Invoices & Receipts', 'ఇన్వాయిస్‌లు & రసీదులపై యూపీఐ క్యూఆర్ కోడ్ ముద్రించు')}
               </label>
             </div>
           </div>
@@ -442,17 +509,19 @@ export const BusinessSettingsPage: React.FC = () => {
 
       {/* Backup & Restore */}
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-3">
-        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Cloud Data Backup & Verification</h3>
+        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+          {tr(language, 'Cloud Data Backup & Verification', 'క్లౌడ్ డేటా బ్యాకప్ & ధృవీకరణ')}
+        </h3>
         <div className="flex flex-wrap items-center gap-3 text-xs">
           <button
             type="button"
             onClick={handleExportCloudBackup}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800"
           >
-            <Download className="w-3.5 h-3.5" /> Export Full JSON Cloud Backup
+            <Download className="w-3.5 h-3.5" /> {tr(language, 'Export Full JSON Cloud Backup', 'పూర్తి క్లౌడ్ బ్యాకప్ డౌన్‌లోడ్ చేయి')}
           </button>
           <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
-            <Upload className="w-3.5 h-3.5" /> Verify Backup File
+            <Upload className="w-3.5 h-3.5" /> {tr(language, 'Verify Backup File', 'బ్యాకప్ ఫైల్ తనిఖీ చేయి')}
             <input type="file" accept="application/json" onChange={handleInspectBackupFile} className="hidden" />
           </label>
         </div>
@@ -466,7 +535,10 @@ export const BusinessSettingsPage: React.FC = () => {
             disabled={saving}
             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
           >
-            <Save className="w-4 h-4" /> {saving ? 'Saving Settings...' : 'Save & Sync All Settings'}
+            <Save className="w-4 h-4" />{' '}
+            {saving
+              ? tr(language, 'Saving Settings...', 'సెట్టింగ్స్ సేవ్ అవుతున్నాయి...')
+              : tr(language, 'Save & Sync All Settings', 'అన్ని సెట్టింగ్స్ సేవ్ & సింక్ చేయి')}
           </button>
         </div>
       )}
@@ -478,14 +550,18 @@ export const BusinessSettingsPage: React.FC = () => {
           <div>
             <h3 className="text-sm font-bold text-[#0B1F44] dark:text-white flex items-center gap-2">
               <Trash2 className="w-4 h-4 text-rose-600" />
-              Removed Bills &amp; Products
+              {tr(language, 'Removed Bills & Products', 'తొలగించిన బిల్లులు & ఉత్పత్తులు')}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Deleted bills and products stay here for 10 days so you can restore them anytime, then auto-delete permanently.
+              {tr(
+                language,
+                'Deleted bills and products stay here for 10 days so you can restore them anytime, then auto-delete permanently.',
+                'తొలగించిన బిల్లులు మరియు ఉత్పత్తులు 10 రోజుల పాటు ఇక్కడ ఉంటాయి. మీరు ఎప్పుడైనా పునరుద్ధరించవచ్చు, ఆ తర్వాత శాశ్వతంగా తొలగించబడతాయి.'
+              )}
             </p>
           </div>
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold">
-            <Clock className="w-3.5 h-3.5" /> 10-Day Auto-Purge
+            <Clock className="w-3.5 h-3.5" /> {tr(language, '10-Day Auto-Purge', '10-రోజుల ఆటో తొలగింపు')}
           </span>
         </div>
 
@@ -503,7 +579,7 @@ export const BusinessSettingsPage: React.FC = () => {
             }`}
           >
             <ReceiptText className="w-3.5 h-3.5" />
-            Removed Bills ({removedBills.length})
+            {tr(language, 'Removed Bills', 'తొలగించిన బిల్లులు')} ({removedBills.length})
           </button>
           <button
             type="button"
@@ -518,7 +594,7 @@ export const BusinessSettingsPage: React.FC = () => {
             }`}
           >
             <Package className="w-3.5 h-3.5" />
-            Removed Products ({removedProducts.length})
+            {tr(language, 'Removed Products', 'తొలగించిన ఉత్పత్తులు')} ({removedProducts.length})
           </button>
         </div>
 
@@ -537,15 +613,15 @@ export const BusinessSettingsPage: React.FC = () => {
         {recoveryTab === 'bills' ? (
           removedBills.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">
-              No removed bills in the 10-day recovery bin.
+              {tr(language, 'No removed bills in the 10-day recovery bin.', '10-రోజుల రికవరీ బిన్‌లో తొలగించిన బిల్లులు ఏవీ లేవు.')}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {removedBills.map((bill) => {
                 const daysLeft = computeDaysLeft(bill.deletedAtMs, bill.deleteExpiresAtMs);
                 const deletedDate = bill.deletedAtMs
-                  ? new Date(bill.deletedAtMs).toLocaleDateString('en-IN')
-                  : formatTimestamp(bill.updatedAt).toLocaleDateString('en-IN');
+                  ? formatAppDate(new Date(bill.deletedAtMs), language)
+                  : formatAppDate(formatTimestamp(bill.updatedAt), language);
                 const isBusy = recoveryBusyId === bill.id;
                 const isConfirming = confirmPermanentId === bill.id;
                 return (
@@ -562,16 +638,24 @@ export const BusinessSettingsPage: React.FC = () => {
                           {formatCurrency(bill.grandTotal)}
                         </span>
                         <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
-                          {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left
+                          {daysLeft}{' '}
+                          {language === 'te'
+                            ? daysLeft === 1
+                              ? 'రోజు మిగిలి ఉంది'
+                              : 'రోజులు మిగిలి ఉన్నాయి'
+                            : `${daysLeft === 1 ? 'day' : 'days'} left`}
                         </span>
                       </div>
                       <div className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
-                        {bill.customerName} {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
+                        {translateCustomerName(bill.customerName, language)}{' '}
+                        {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
                       </div>
                       <div className="text-[11px] text-slate-500">
-                        Removed on {deletedDate}
-                        {bill.deletedByName ? ` by ${bill.deletedByName}` : ''} ·{' '}
-                        {bill.itemsSummary || `${bill.itemCount} items`}
+                        {tr(language, 'Removed on', 'తొలగించిన తేదీ')} {deletedDate}
+                        {bill.deletedByName ? ` ${tr(language, 'by', '·')} ${bill.deletedByName}` : ''} ·{' '}
+                        {bill.itemsSummary
+                          ? translateItemsSummary(bill.itemsSummary, products, language)
+                          : `${bill.itemCount} ${tr(language, 'items', 'వస్తువులు')}`}
                       </div>
                     </div>
 
@@ -587,12 +671,19 @@ export const BusinessSettingsPage: React.FC = () => {
                               await restoreDeletedBillAtomic(bill.id);
                               setRecoveryNotice({
                                 type: 'ok',
-                                text: `Restored bill ${bill.billNumber} back to Bill History.`,
+                                text: tr(
+                                  language,
+                                  `Restored bill ${bill.billNumber} back to Bill History.`,
+                                  `బిల్ ${bill.billNumber} తిరిగి బిల్ చరిత్రలోకి పునరుద్ధరించబడింది.`
+                                ),
                               });
                             } catch (err) {
                               setRecoveryNotice({
                                 type: 'err',
-                                text: err instanceof Error ? err.message : 'Failed to restore bill.',
+                                text:
+                                  err instanceof Error
+                                    ? err.message
+                                    : tr(language, 'Failed to restore bill.', 'బిల్ పునరుద్ధరణ విఫలమైంది.'),
                               });
                             } finally {
                               setRecoveryBusyId(null);
@@ -601,7 +692,7 @@ export const BusinessSettingsPage: React.FC = () => {
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
-                          Restore
+                          {tr(language, 'Restore', 'పునరుద్ధరించు')}
                         </button>
                         {isConfirming ? (
                           <div className="flex items-center gap-1.5">
@@ -616,7 +707,11 @@ export const BusinessSettingsPage: React.FC = () => {
                                   setConfirmPermanentId(null);
                                   setRecoveryNotice({
                                     type: 'ok',
-                                    text: `Permanently removed bill ${bill.billNumber}.`,
+                                    text: tr(
+                                      language,
+                                      `Permanently removed bill ${bill.billNumber}.`,
+                                      `బిల్ ${bill.billNumber} శాశ్వతంగా తొలగించబడింది.`
+                                    ),
                                   });
                                 } catch (err) {
                                   setRecoveryNotice({
@@ -624,7 +719,11 @@ export const BusinessSettingsPage: React.FC = () => {
                                     text:
                                       err instanceof Error
                                         ? err.message
-                                        : 'Failed to delete bill permanently.',
+                                        : tr(
+                                            language,
+                                            'Failed to delete bill permanently.',
+                                            'బిల్ శాశ్వతంగా తొలగించడం విఫలమైంది.'
+                                          ),
                                   });
                                 } finally {
                                   setRecoveryBusyId(null);
@@ -632,7 +731,7 @@ export const BusinessSettingsPage: React.FC = () => {
                               }}
                               className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50"
                             >
-                              Confirm Delete
+                              {tr(language, 'Confirm Delete', 'తొలగింపు నిర్ధారించు')}
                             </button>
                             <button
                               type="button"
@@ -640,7 +739,7 @@ export const BusinessSettingsPage: React.FC = () => {
                               onClick={() => setConfirmPermanentId(null)}
                               className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600"
                             >
-                              Cancel
+                              {tr(language, 'Cancel', 'రద్దు')}
                             </button>
                           </div>
                         ) : (
@@ -651,7 +750,7 @@ export const BusinessSettingsPage: React.FC = () => {
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold disabled:opacity-50"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                            Delete Permanently
+                            {tr(language, 'Delete Permanently', 'శాశ్వతంగా తొలగించు')}
                           </button>
                         )}
                       </div>
@@ -663,17 +762,22 @@ export const BusinessSettingsPage: React.FC = () => {
           )
         ) : removedProducts.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-400">
-            No removed products in the 10-day recovery bin.
+            {tr(
+              language,
+              'No removed products in the 10-day recovery bin.',
+              '10-రోజుల రికవరీ బిన్‌లో తొలగించిన ఉత్పత్తులు ఏవీ లేవు.'
+            )}
           </div>
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {removedProducts.map((product) => {
               const daysLeft = computeDaysLeft(product.deletedAtMs, product.deleteExpiresAtMs);
               const deletedDate = product.deletedAtMs
-                ? new Date(product.deletedAtMs).toLocaleDateString('en-IN')
-                : formatTimestamp(product.updatedAt).toLocaleDateString('en-IN');
+                ? formatAppDate(new Date(product.deletedAtMs), language)
+                : formatAppDate(formatTimestamp(product.updatedAt), language);
               const isBusy = recoveryBusyId === product.id;
               const isConfirming = confirmPermanentId === product.id;
+              const dispProdName = translateProductName(product, language);
               return (
                 <div
                   key={product.id}
@@ -682,22 +786,28 @@ export const BusinessSettingsPage: React.FC = () => {
                   <div className="min-w-0 space-y-0.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-xs text-[#0B1F44] dark:text-white">
-                        {product.name}
+                        {dispProdName}
                       </span>
                       <span className="font-mono text-xs text-[#1D4ED8] font-bold">
                         {formatCurrency(product.sellingPrice)}
                       </span>
                       <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold">
-                        {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left
+                        {daysLeft}{' '}
+                        {language === 'te'
+                          ? daysLeft === 1
+                            ? 'రోజు మిగిలి ఉంది'
+                            : 'రోజులు మిగిలి ఉన్నాయి'
+                          : `${daysLeft === 1 ? 'day' : 'days'} left`}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      {product.category} · <span className="font-mono">{product.productCode}</span> · Stock:{' '}
-                      {product.stock} {product.unit}
+                      {translateCategory(product.category, categories, language)} ·{' '}
+                      <span className="font-mono">{product.productCode}</span> ·{' '}
+                      {tr(language, 'Stock:', 'స్టాక్:')} {product.stock} {translateUnit(product.unit, language)}
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      Removed on {deletedDate}
-                      {product.deletedByName ? ` by ${product.deletedByName}` : ''}
+                      {tr(language, 'Removed on', 'తొలగించిన తేదీ')} {deletedDate}
+                      {product.deletedByName ? ` ${tr(language, 'by', '·')} ${product.deletedByName}` : ''}
                     </div>
                   </div>
 
@@ -713,12 +823,19 @@ export const BusinessSettingsPage: React.FC = () => {
                             await restoreDeletedProduct(product.id);
                             setRecoveryNotice({
                               type: 'ok',
-                              text: `Restored product "${product.name}" back to Products.`,
+                              text: tr(
+                                language,
+                                `Restored product "${product.name}" back to Products.`,
+                                `ఉత్పత్తి "${dispProdName}" తిరిగి ఉత్పత్తులలోకి పునరుద్ధరించబడింది.`
+                              ),
                             });
                           } catch (err) {
                             setRecoveryNotice({
                               type: 'err',
-                              text: err instanceof Error ? err.message : 'Failed to restore product.',
+                              text:
+                                err instanceof Error
+                                  ? err.message
+                                  : tr(language, 'Failed to restore product.', 'ఉత్పత్తి పునరుద్ధరణ విఫలమైంది.'),
                             });
                           } finally {
                             setRecoveryBusyId(null);
@@ -727,7 +844,7 @@ export const BusinessSettingsPage: React.FC = () => {
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        Restore
+                        {tr(language, 'Restore', 'పునరుద్ధరించు')}
                       </button>
                       {isConfirming ? (
                         <div className="flex items-center gap-1.5">
@@ -742,7 +859,11 @@ export const BusinessSettingsPage: React.FC = () => {
                                 setConfirmPermanentId(null);
                                 setRecoveryNotice({
                                   type: 'ok',
-                                  text: `Permanently removed product "${product.name}".`,
+                                  text: tr(
+                                    language,
+                                    `Permanently removed product "${product.name}".`,
+                                    `ఉత్పత్తి "${dispProdName}" శాశ్వతంగా తొలగించబడింది.`
+                                  ),
                                 });
                               } catch (err) {
                                 setRecoveryNotice({
@@ -750,7 +871,11 @@ export const BusinessSettingsPage: React.FC = () => {
                                   text:
                                     err instanceof Error
                                       ? err.message
-                                      : 'Failed to delete product permanently.',
+                                      : tr(
+                                          language,
+                                          'Failed to delete product permanently.',
+                                          'ఉత్పత్తిని శాశ్వతంగా తొలగించడం విఫలమైంది.'
+                                        ),
                                 });
                               } finally {
                                 setRecoveryBusyId(null);
@@ -758,7 +883,7 @@ export const BusinessSettingsPage: React.FC = () => {
                             }}
                             className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50"
                           >
-                            Confirm Delete
+                            {tr(language, 'Confirm Delete', 'తొలగింపు నిర్ధారించు')}
                           </button>
                           <button
                             type="button"
@@ -766,7 +891,7 @@ export const BusinessSettingsPage: React.FC = () => {
                             onClick={() => setConfirmPermanentId(null)}
                             className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600"
                           >
-                            Cancel
+                            {tr(language, 'Cancel', 'రద్దు')}
                           </button>
                         </div>
                       ) : (
@@ -777,7 +902,7 @@ export const BusinessSettingsPage: React.FC = () => {
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold disabled:opacity-50"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          Delete Permanently
+                          {tr(language, 'Delete Permanently', 'శాశ్వతంగా తొలగించు')}
                         </button>
                       )}
                     </div>
