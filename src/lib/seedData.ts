@@ -3,8 +3,23 @@ import { db, handleFirestoreError, OperationType } from './firebase';
 import { ProductVariant } from '../types/billing';
 
 export const DEFAULT_BUSINESS_ID = 'slp_main';
-export const DEFAULT_BUSINESS_LOGO = '/assets/aistudio/Screenshot_2026-11-19-20-18-11-98_0982bb9e9580655b32fc37322556fc15_366049ad.jpg';
+export const LEGACY_DEFAULT_BUSINESS_LOGO = '/assets/aistudio/Screenshot_2026-11-19-20-18-11-98_0982bb9e9580655b32fc37322556fc15_366049ad.jpg';
+export const DEFAULT_BUSINESS_LOGO = '/app-logo-hd.png';
 export const BOOT_ADMIN_EMAIL = 'armuripradeepkumar@gmail.com';
+
+export function resolveBusinessLogoUrl(logoUrl?: string | null): string {
+  const trimmed = (logoUrl || '').trim();
+  if (!trimmed || trimmed === LEGACY_DEFAULT_BUSINESS_LOGO) {
+    return DEFAULT_BUSINESS_LOGO;
+  }
+  return trimmed;
+}
+
+export function getCopyrightNotice(businessName?: string | null): string {
+  const year = new Date().getFullYear();
+  const owner = (businessName || '').trim() || 'Sri Lakshmi Penchil Narasimha Swamy Cement Work';
+  return `© ${year} ${owner}. All Rights Reserved.`;
+}
 
 export const SEED_CATEGORIES = [
   { id: 'cat_darwaja', name: 'Darwaja', nameTe: 'దర్వాజా' },

@@ -12,14 +12,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
+        includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'app-logo-hd.png'],
         manifest: {
           id: '/',
           name: 'Sri Lakshmi Penchil Narasimha Swamy Cement Work',
           short_name: 'SLP Cement',
           description: 'Offline-ready cloud billing, POS, labour cashbook, and inventory management for Sri Lakshmi Penchil Narasimha Swamy Cement Work.',
           theme_color: '#0B1F44',
-          background_color: '#F4F8FF',
+          background_color: '#FFFFFF',
           display: 'standalone',
           orientation: 'portrait',
           categories: ['business', 'finance', 'productivity'],
@@ -35,6 +35,12 @@ export default defineConfig(() => {
             {
               src: '/pwa-512x512.png',
               sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/app-logo-hd.png',
+              sizes: '1024x1024',
               type: 'image/png',
               purpose: 'any',
             },

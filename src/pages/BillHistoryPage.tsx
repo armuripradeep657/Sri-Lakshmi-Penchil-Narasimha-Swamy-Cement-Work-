@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { motion } from 'motion/react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Ban,
   Barcode,
   Camera,
+  CheckCircle2,
   Edit3,
   Eye,
   HardHat,
@@ -45,6 +46,7 @@ export const BillHistoryPage: React.FC = () => {
     recordPaymentAtomic,
     cancelBillAtomic,
     softDeleteBillAtomic,
+    softDeleteBillsBulkAtomic,
     recordRefundAtomic,
     updateBillNotes,
   } = useBillingData();
@@ -62,7 +64,13 @@ export const BillHistoryPage: React.FC = () => {
   const [deleteModalBill, setDeleteModalBill] = useState<Bill | null>(null);
   const [deletingBill, setDeletingBill] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [selectedBillIds, setSelectedBillIds] = useState<string[]>([]);
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
 
   const scopedBills = useMemo(() => {
     const myUid = activeUid || '';
@@ -147,6 +155,57 @@ export const BillHistoryPage: React.FC = () => {
   const canEditNotes = isAdmin || Boolean(userAccount?.canEditBills);
   const canCancel = isAdmin || Boolean(userAccount?.canCancelBills);
   const showBillsSection = !isAdmin || sectionTab === 'all' || sectionTab === 'bills';
+
+  const deletableScopedBills = useMemo(
+    () => scopedBills.filter((b) => isAdmin || b.createdByUid === activeUid),
+    [scopedBills, isAdmin, activeUid]
+  );
+
+  const selectedIdSet = useMemo(() => new Set(selectedBillIds), [selectedBillIds]);
+
+  const visibleSelectedBills = useMemo(
+    () => deletableScopedBills.filter((b) => selectedIdSet.has(b.id)),
+    [deletableScopedBills, selectedIdSet]
+  );
+
+  const allVisibleSelected =
+    deletableScopedBills.length > 0 && visibleSelectedBills.length === deletableScopedBills.length;
+  const someVisibleSelected =
+    visibleSelectedBills.length > 0 && visibleSelectedBills.length < deletableScopedBills.length;
+
+  const selectedTotalAmount = useMemo(
+    () => visibleSelectedBills.reduce((sum, b) => sum + Number(b.grandTotal || 0), 0),
+    [visibleSelectedBills]
+  );
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  const toggleBillSelection = (billId: string) => {
+    setBulkNotice(null);
+    setSelectedBillIds((prev) =>
+      prev.includes(billId) ? prev.filter((id) => id !== billId) : [...prev, billId]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    setBulkNotice(null);
+    if (allVisibleSelected) {
+      const visibleIds = new Set(deletableScopedBills.map((b) => b.id));
+      setSelectedBillIds((prev) => prev.filter((id) => !visibleIds.has(id)));
+    } else {
+      const merged = new Set(selectedBillIds);
+      deletableScopedBills.forEach((b) => merged.add(b.id));
+      setSelectedBillIds(Array.from(merged));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedBillIds([]);
+  };
 
   return (
     <div className="space-y-4">
@@ -285,7 +344,7 @@ export const BillHistoryPage: React.FC = () => {
       {/* Bills History Section */}
       {showBillsSection && (
         <div className="bg-white border border-blue-100 rounded-2xl overflow-hidden shadow-sm">
-          <div className="px-4 py-3 bg-[#F4F8FF] border-b border-blue-100 flex items-center justify-between">
+          <div className="px-4 py-3 bg-[#F4F8FF] border-b border-blue-100 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-bold text-[#0B1F44]">
               <ReceiptText className="w-4 h-4 text-[#1D4ED8]" />
               <span>
@@ -294,7 +353,101 @@ export const BillHistoryPage: React.FC = () => {
                   : `My Created Bills (${scopedBills.length})`}
               </span>
             </div>
+            {deletableScopedBills.length > 0 && (
+              <div className="flex items-center gap-2.5">
+                <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#0B1F44] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] cursor-pointer"
+                  />
+                  <span>{allVisibleSelected ? 'Deselect All' : 'Select All'}</span>
+                </label>
+                {visibleSelectedBills.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkDeleteError(null);
+                      setBulkDeleteModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold shadow-xs transition"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Delete ({visibleSelectedBills.length})
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+
+          <AnimatePresence>
+            {bulkNotice && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-2 text-xs font-medium text-emerald-800"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  {bulkNotice}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBulkNotice(null)}
+                  className="p-0.5 text-emerald-600 hover:text-emerald-900"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {visibleSelectedBills.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18 }}
+                className="px-4 py-2.5 bg-[#0B1F44] text-white flex flex-wrap items-center justify-between gap-2"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="px-2 py-0.5 rounded-md bg-[#1D4ED8] font-bold font-mono">
+                    {visibleSelectedBills.length} selected
+                  </span>
+                  <span className="text-blue-100">
+                    Total:{' '}
+                    <strong className="font-mono text-white">
+                      {formatCurrency(selectedTotalAmount)}
+                    </strong>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold transition"
+                  >
+                    <X className="w-3 h-3" />
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkDeleteError(null);
+                      setBulkDeleteModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold shadow-sm transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Selected ({visibleSelectedBills.length})
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Mobile Card Layout (No Horizontal Scroll Overflow) */}
           <div className="md:hidden divide-y divide-slate-100">
@@ -308,37 +461,55 @@ export const BillHistoryPage: React.FC = () => {
               scopedBills.map((bill) => {
                 const dt = formatTimestamp(bill.createdAt);
                 const isOwnBill = bill.createdByUid === activeUid;
+                const canSelect = isAdmin || isOwnBill;
+                const isSelected = selectedIdSet.has(bill.id);
                 return (
-                  <div key={bill.id} className="p-3.5 space-y-2.5">
+                  <div
+                    key={bill.id}
+                    className={`p-3.5 space-y-2.5 transition-colors ${
+                      isSelected ? 'bg-blue-50/70' : ''
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-[#0B1F44]">
-                            <Barcode className="w-3.5 h-3.5 text-[#1D4ED8]" />
-                            {getBillVerificationBarcode(bill)}
-                          </span>
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              bill.paymentStatus === 'paid'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : bill.paymentStatus === 'cancelled' || bill.paymentStatus === 'refunded'
-                                ? 'bg-rose-50 text-rose-700'
-                                : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
-                            {bill.paymentStatus}
-                          </span>
-                          {Boolean(bill.editedAt) && (
-                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] text-[10px] font-bold">
-                              Edited
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {canSelect && (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleBillSelection(bill.id)}
+                            aria-label={`Select bill ${getBillVerificationBarcode(bill)}`}
+                            className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] shrink-0 cursor-pointer"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-[#0B1F44]">
+                              <Barcode className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                              {getBillVerificationBarcode(bill)}
                             </span>
-                          )}
-                        </div>
-                        <div className="text-xs font-semibold text-slate-900 mt-0.5 truncate">
-                          {bill.customerName} {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                          {bill.itemsSummary || `${bill.itemCount} items`}
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                bill.paymentStatus === 'paid'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : bill.paymentStatus === 'cancelled' || bill.paymentStatus === 'refunded'
+                                  ? 'bg-rose-50 text-rose-700'
+                                  : 'bg-amber-50 text-amber-700'
+                              }`}
+                            >
+                              {bill.paymentStatus}
+                            </span>
+                            {Boolean(bill.editedAt) && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] text-[10px] font-bold">
+                                Edited
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs font-semibold text-slate-900 mt-0.5 truncate">
+                            {bill.customerName} {bill.customerMobile ? `· ${bill.customerMobile}` : ''}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                            {bill.itemsSummary || `${bill.itemCount} items`}
+                          </div>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -428,6 +599,17 @@ export const BillHistoryPage: React.FC = () => {
             <table className="w-full text-xs text-left">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
                 <tr>
+                  <th className="py-3 pl-4 pr-2 w-10">
+                    <input
+                      ref={selectAllCheckboxRef}
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      disabled={deletableScopedBills.length === 0}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Select all bills"
+                      className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] cursor-pointer disabled:opacity-40"
+                    />
+                  </th>
                   <th className="py-3 px-4 font-semibold">Barcode</th>
                   <th className="py-3 px-4 font-semibold">Date &amp; Time</th>
                   <th className="py-3 px-4 font-semibold">Customer</th>
@@ -442,7 +624,7 @@ export const BillHistoryPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {scopedBills.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-10 text-center text-slate-400">
+                    <td colSpan={10} className="py-10 text-center text-slate-400">
                       {isAdmin
                         ? 'No bills recorded yet.'
                         : 'You have not created any bills yet.'}
@@ -452,8 +634,26 @@ export const BillHistoryPage: React.FC = () => {
                   scopedBills.map((bill) => {
                     const dt = formatTimestamp(bill.createdAt);
                     const isOwnBill = bill.createdByUid === activeUid;
+                    const canSelect = isAdmin || isOwnBill;
+                    const isSelected = selectedIdSet.has(bill.id);
                     return (
-                      <tr key={bill.id} className="hover:bg-blue-50/40">
+                      <tr
+                        key={bill.id}
+                        className={`transition-colors ${
+                          isSelected ? 'bg-blue-50/70 hover:bg-blue-50' : 'hover:bg-blue-50/40'
+                        }`}
+                      >
+                        <td className="py-3 pl-4 pr-2 align-middle">
+                          {canSelect && (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleBillSelection(bill.id)}
+                              aria-label={`Select bill ${getBillVerificationBarcode(bill)}`}
+                              className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8] accent-[#1D4ED8] cursor-pointer"
+                            />
+                          )}
+                        </td>
                         <td className="py-3 px-4 font-mono font-semibold text-[#0B1F44] whitespace-nowrap">
                           <div className="inline-flex items-center gap-1.5">
                             <Barcode className="w-3.5 h-3.5 text-[#1D4ED8]" />
@@ -881,6 +1081,7 @@ export const BillHistoryPage: React.FC = () => {
                   setDeleteError(null);
                   try {
                     await softDeleteBillAtomic(deleteModalBill.id);
+                    setSelectedBillIds((prev) => prev.filter((id) => id !== deleteModalBill.id));
                     setDeleteModalBill(null);
                   } catch (err) {
                     setDeleteError(err instanceof Error ? err.message : 'Failed to delete bill.');
@@ -892,6 +1093,111 @@ export const BillHistoryPage: React.FC = () => {
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {deletingBill ? 'Moving...' : 'Move to Removed Bills'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Selected Bills Modal */}
+      {bulkDeleteModalOpen && visibleSelectedBills.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white border border-rose-200 shadow-2xl p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[#0B1F44]">
+                  Delete {visibleSelectedBills.length} Selected Bill{visibleSelectedBills.length === 1 ? '' : 's'}?
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Combined Value:{' '}
+                  <span className="font-mono font-bold text-[#0B1F44]">
+                    {formatCurrency(selectedTotalAmount)}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={() => setBulkDeleteModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-1.5 max-h-36 overflow-y-auto">
+              {visibleSelectedBills.slice(0, 5).map((bill) => (
+                <div
+                  key={bill.id}
+                  className="flex items-center justify-between gap-2 text-xs text-slate-700"
+                >
+                  <span className="truncate font-medium">
+                    <span className="font-mono font-bold text-[#0B1F44]">
+                      {getBillVerificationBarcode(bill)}
+                    </span>{' '}
+                    · {bill.customerName}
+                  </span>
+                  <span className="font-mono font-semibold text-slate-900 shrink-0">
+                    {formatCurrency(bill.grandTotal)}
+                  </span>
+                </div>
+              ))}
+              {visibleSelectedBills.length > 5 && (
+                <div className="text-[11px] font-semibold text-slate-500 pt-1 border-t border-slate-200">
+                  +{visibleSelectedBills.length - 5} more selected bill
+                  {visibleSelectedBills.length - 5 === 1 ? '' : 's'}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 leading-relaxed">
+              These bills will be moved to <strong>Settings &rarr; Removed Bills &amp; Products</strong> and kept safely for <strong>10 days</strong> so an Admin can restore them anytime before permanent deletion.
+            </div>
+
+            {bulkDeleteError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-700">
+                {bulkDeleteError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={() => setBulkDeleteModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={async () => {
+                  setBulkDeleting(true);
+                  setBulkDeleteError(null);
+                  try {
+                    const movedCount = await softDeleteBillsBulkAtomic(
+                      visibleSelectedBills.map((b) => b.id)
+                    );
+                    setSelectedBillIds([]);
+                    setBulkDeleteModalOpen(false);
+                    setBulkNotice(
+                      `Moved ${movedCount} bill${movedCount === 1 ? '' : 's'} to Settings → Removed Bills & Products (kept for 10 days).`
+                    );
+                  } catch (err) {
+                    setBulkDeleteError(
+                      err instanceof Error ? err.message : 'Failed to delete selected bills.'
+                    );
+                  } finally {
+                    setBulkDeleting(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {bulkDeleting
+                  ? 'Moving...'
+                  : `Move ${visibleSelectedBills.length} to Removed`}
               </button>
             </div>
           </div>

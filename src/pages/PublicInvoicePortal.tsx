@@ -23,7 +23,7 @@ import {
   getPublicInvoiceVerificationBarcode,
 } from '../lib/barcodeAndBillImage';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
-import { DEFAULT_BUSINESS_LOGO } from '../lib/seedData';
+import { DEFAULT_BUSINESS_LOGO, getCopyrightNotice, resolveBusinessLogoUrl } from '../lib/seedData';
 import { Bill, BillItem, Business, PublicInvoice, UpiSetting } from '../types/billing';
 
 interface ParsedPublicItem {
@@ -358,7 +358,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
     }
   };
 
-  const portalLogo = invoice?.businessLogoUrl || DEFAULT_BUSINESS_LOGO;
+  const portalLogo = resolveBusinessLogoUrl(invoice?.businessLogoUrl);
 
   if (loading) {
     return (
@@ -371,7 +371,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             src={DEFAULT_BUSINESS_LOGO}
             alt=""
             referrerPolicy="no-referrer"
-            className="w-56 h-56 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.06] mix-blend-multiply select-none"
+            className="w-60 h-60 sm:w-72 sm:h-72 rounded-3xl object-contain opacity-[0.06] mix-blend-multiply select-none"
           />
         </div>
         <div className="relative z-10 max-w-lg w-full bg-white rounded-2xl border border-blue-100 p-8 space-y-4 animate-pulse shadow-sm">
@@ -417,7 +417,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
           src={portalLogo}
           alt=""
           referrerPolicy="no-referrer"
-          className="w-56 h-56 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.06] mix-blend-multiply select-none"
+          className="w-60 h-60 sm:w-72 sm:h-72 rounded-3xl object-contain opacity-[0.06] mix-blend-multiply select-none"
         />
       </div>
 
@@ -428,7 +428,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
               src={portalLogo}
               alt={invoice.businessName}
               referrerPolicy="no-referrer"
-              className="w-7 h-7 rounded-full object-cover border border-blue-200 shrink-0"
+              className="w-8 h-8 rounded-xl object-contain bg-white p-0.5 border border-blue-200 shrink-0"
             />
             <span className="text-xs font-bold text-[#0B1F44] truncate">
               {invoice.businessName}
@@ -470,12 +470,12 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
         <div className="print-only-container bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-[#0B1F44] text-white p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              {invoice.businessLogoUrl && (
+              {portalLogo && (
                 <img
-                  src={invoice.businessLogoUrl}
+                  src={portalLogo}
                   alt={invoice.businessName}
                   referrerPolicy="no-referrer"
-                  className="w-12 h-12 rounded-full object-cover bg-white p-0.5 shrink-0"
+                  className="w-14 h-14 rounded-xl object-contain bg-white p-0.5 shrink-0"
                 />
               )}
               <div>
@@ -672,6 +672,10 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             )}
           </div>
         </div>
+
+        <footer className="text-center text-xs text-slate-500 pt-1 pb-3">
+          {getCopyrightNotice(invoice.businessName)}
+        </footer>
       </div>
     </div>
   );

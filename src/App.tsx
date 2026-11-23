@@ -37,7 +37,7 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import { PostBillActionsModal } from './components/InvoiceViews';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BillingDataProvider, CartItemInput, useBillingData } from './context/BillingDataContext';
-import { DEFAULT_BUSINESS_LOGO } from './lib/seedData';
+import { DEFAULT_BUSINESS_LOGO, getCopyrightNotice, resolveBusinessLogoUrl } from './lib/seedData';
 import { getDefaultProductImage, resolveProductImage } from './lib/productImages';
 import { formatCurrency } from './lib/upiAndExport';
 import { Bill, NavPageId, Product } from './types/billing';
@@ -317,7 +317,8 @@ const AuthenticatedShell: React.FC = () => {
     }
   };
 
-  const logoSrc = business?.logoUrl || DEFAULT_BUSINESS_LOGO;
+  const logoSrc = resolveBusinessLogoUrl(business?.logoUrl);
+  const copyrightText = getCopyrightNotice(business?.name);
 
   return (
     <div className="min-h-screen bg-[#F4F8FF] text-slate-900 flex overflow-x-hidden">
@@ -333,7 +334,7 @@ const AuthenticatedShell: React.FC = () => {
               src={logoSrc}
               alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
               referrerPolicy="no-referrer"
-              className="w-9 h-9 rounded-full object-cover border border-white/25 shrink-0"
+              className="w-10 h-10 rounded-xl object-contain bg-white p-0.5 border border-white/30 shadow-sm shrink-0"
             />
             {!sidebarCollapsed && (
               <div className="min-w-0">
@@ -455,6 +456,11 @@ const AuthenticatedShell: React.FC = () => {
             <LogOut className="w-3.5 h-3.5" />
             {!sidebarCollapsed && <span>{userAccount?.mpinEnabled ? 'Lock / Sign Out' : 'Sign Out'}</span>}
           </button>
+          {!sidebarCollapsed && (
+            <div className="pt-1 text-center text-[10px] leading-tight text-blue-200/80">
+              {copyrightText}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -469,7 +475,7 @@ const AuthenticatedShell: React.FC = () => {
           src={logoSrc}
           alt=""
           referrerPolicy="no-referrer"
-          className="w-56 h-56 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.055] mix-blend-multiply select-none animate-slp-breathe"
+          className="w-60 h-60 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.055] mix-blend-multiply select-none animate-slp-breathe"
         />
       </div>
 
@@ -484,12 +490,12 @@ const AuthenticatedShell: React.FC = () => {
           >
             <Menu className="w-4 h-4" />
           </button>
-          <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
+          <div className="flex-1 flex items-center justify-center gap-2.5 min-w-0">
             <img
               src={logoSrc}
               alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
               referrerPolicy="no-referrer"
-              className="w-8 h-8 rounded-full object-cover border border-white/30 lg:border-blue-200 shrink-0 shadow-sm"
+              className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-white/30 lg:border-blue-200 shrink-0 shadow-sm"
             />
             <h1 className="font-display font-bold text-xs sm:text-base tracking-tight leading-tight line-clamp-1 text-center">
               Sri Lakshmi Penchil Narasimha Swamy Cement Work
@@ -558,6 +564,10 @@ const AuthenticatedShell: React.FC = () => {
               {renderPage()}
             </motion.div>
           </AnimatePresence>
+
+          <footer className="pt-4 pb-2 text-center text-[11px] font-medium text-slate-500 border-t border-blue-100/80">
+            {copyrightText}
+          </footer>
         </main>
       </div>
 
@@ -641,7 +651,7 @@ const AuthenticatedShell: React.FC = () => {
                     src={logoSrc}
                     alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
                     referrerPolicy="no-referrer"
-                    className="w-8 h-8 rounded-full object-cover border border-white/30 shrink-0"
+                    className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-white/30 shrink-0"
                   />
                   <span className="font-display font-bold text-xs leading-snug line-clamp-2">
                     Sri Lakshmi Penchil Narasimha Swamy Cement Work
@@ -704,6 +714,9 @@ const AuthenticatedShell: React.FC = () => {
                 >
                   <LogOut className="w-4 h-4" /> Sign Out ({userAccount?.displayName})
                 </button>
+                <div className="pt-1 text-center text-[10px] leading-tight text-blue-200/80">
+                  {copyrightText}
+                </div>
               </div>
             </motion.div>
             <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
@@ -863,7 +876,7 @@ const RootRouter: React.FC = () => {
               src={DEFAULT_BUSINESS_LOGO}
               alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
               referrerPolicy="no-referrer"
-              className="relative w-20 h-20 rounded-full object-cover border-2 border-cyan-300/70 shadow-xl"
+              className="relative w-24 h-24 rounded-2xl object-contain bg-white p-1.5 border-2 border-cyan-300/70 shadow-xl"
             />
           </div>
           <motion.div
@@ -877,6 +890,7 @@ const RootRouter: React.FC = () => {
             <p className="text-xs text-cyan-200 mt-1">Opening SLP Billing...</p>
           </motion.div>
           <div className="w-7 h-7 border-2 border-cyan-300 border-t-transparent rounded-full animate-spin" />
+          <p className="text-[11px] text-blue-200/80 pt-3">{getCopyrightNotice()}</p>
         </motion.div>
       </div>
     );

@@ -244,7 +244,7 @@ export const LoginPage: React.FC = () => {
           src={DEFAULT_BUSINESS_LOGO}
           alt=""
           referrerPolicy="no-referrer"
-          className="w-60 h-60 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.065] mix-blend-multiply select-none animate-slp-breathe"
+          className="w-64 h-64 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.065] mix-blend-multiply select-none animate-slp-breathe"
         />
       </div>
 
@@ -259,7 +259,7 @@ export const LoginPage: React.FC = () => {
             src={DEFAULT_BUSINESS_LOGO}
             alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
             referrerPolicy="no-referrer"
-            className="w-10 h-10 rounded-full object-cover border-2 border-[#1D4ED8]/30 shrink-0"
+            className="w-11 h-11 rounded-xl object-contain bg-white p-0.5 border border-[#1D4ED8]/25 shadow-xs shrink-0"
           />
           <span className="font-display font-bold text-sm sm:text-base text-[#0B1F44] tracking-tight leading-tight line-clamp-2">
             Sri Lakshmi Penchil Narasimha Swamy Cement Work
@@ -282,7 +282,7 @@ export const LoginPage: React.FC = () => {
             src={DEFAULT_BUSINESS_LOGO}
             alt="Sri Lakshmi Penchil Narasimha Swamy Cement Work"
             referrerPolicy="no-referrer"
-            className="w-16 h-16 rounded-full object-cover border-2 border-[#1D4ED8]/30 shadow-sm"
+            className="w-20 h-20 rounded-2xl object-contain bg-white p-1 border-2 border-[#1D4ED8]/25 shadow-sm"
           />
           <h1 className="mt-3 text-lg sm:text-xl font-bold text-[#0B1F44] text-balance">
             Sri Lakshmi Penchil Narasimha Swamy Cement Work
@@ -873,9 +873,9 @@ export const LoginPage: React.FC = () => {
         )}
       </motion.div>
 
-      <div className="relative z-10 text-center text-xs text-slate-400">
-        Sri Lakshmi Penchil Narasimha Swamy Cement Work · Offline-Ready Cloud Sync
-      </div>
+      <footer className="relative z-10 text-center text-xs text-slate-500 pb-2">
+        © {new Date().getFullYear()} Sri Lakshmi Penchil Narasimha Swamy Cement Work. All Rights Reserved.
+      </footer>
     </div>
   );
 };

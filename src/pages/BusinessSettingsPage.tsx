@@ -16,6 +16,7 @@ import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { formatTimestamp } from '../lib/firebase';
 import { formatCurrency } from '../lib/upiAndExport';
+import { resolveBusinessLogoUrl } from '../lib/seedData';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 
 const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
@@ -239,13 +240,11 @@ export const BusinessSettingsPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
-          {logoUrl && (
-            <img
-              src={logoUrl}
-              alt="Business Emblem"
-              className="w-16 h-16 rounded-full object-cover border border-slate-200 dark:border-slate-700"
-            />
-          )}
+          <img
+            src={resolveBusinessLogoUrl(logoUrl)}
+            alt="Business Emblem"
+            className="w-16 h-16 rounded-xl object-contain bg-white p-0.5 border border-slate-200 dark:border-slate-700"
+          />
           <div className="space-y-1 text-xs">
             <div className="font-medium text-slate-700 dark:text-slate-300">Business Seal / Logo</div>
             {isAdmin && (

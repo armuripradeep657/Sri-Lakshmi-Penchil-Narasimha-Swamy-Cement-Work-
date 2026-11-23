@@ -167,6 +167,7 @@ interface BillingDataContextValue {
   }) => Promise<void>;
   cancelBillAtomic: (billId: string, reason: string) => Promise<void>;
   softDeleteBillAtomic: (billId: string) => Promise<void>;
+  softDeleteBillsBulkAtomic: (billIds: string[]) => Promise<number>;
   restoreDeletedBillAtomic: (billId: string) => Promise<void>;
   permanentlyDeleteBillAtomic: (billId: string) => Promise<void>;
   recordRefundAtomic: (params: {
@@ -2341,6 +2342,96 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice]
   );
 
+  const softDeleteBillsBulkAtomic = useCallback(
+    async (billIds: string[]): Promise<number> => {
+      if (!actorUser || !userAccount) throw new Error('Authentication required.');
+      const uniqueIds = Array.from(new Set(billIds.filter(Boolean)));
+      if (uniqueIds.length === 0) return 0;
+
+      const targets = uniqueIds
+        .map((id) => rawBills.find((b) => b.id === id))
+        .filter((b): b is Bill => Boolean(b && !b.isDeleted));
+
+      if (targets.length === 0) {
+        throw new Error('No eligible active bills found to delete.');
+      }
+
+      if (!isAdmin) {
+        const unauthorized = targets.find((b) => b.createdByUid !== actorUser.uid);
+        if (unauthorized) {
+          throw new Error('You can only delete bills created by your account.');
+        }
+      }
+
+      const nowMs = Date.now();
+      const expiresAtMs = nowMs + TEN_DAYS_MS;
+      const actorName = (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120);
+
+      // Each bill may enqueue up to 4 writes (bill, invoice, publicInvoice, auditLog).
+      // Chunk by 100 bills (<= 400 writes) to stay safely under Firestore's 500-op batch limit.
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
+        const chunk = targets.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+
+        for (const target of chunk) {
+          batch.update(doc(db, 'bills', target.id), {
+            isDeleted: true,
+            deletedAt: serverTimestamp(),
+            deletedAtMs: nowMs,
+            deleteExpiresAtMs: expiresAtMs,
+            deletedByUid: actorUser.uid,
+            deletedByName: actorName,
+            publicLinkRevoked: true,
+            updatedAt: serverTimestamp(),
+          });
+
+          const inv = invoices.find((entry) => entry.billId === target.id);
+          if (inv) {
+            batch.update(doc(db, 'invoices', inv.id), {
+              revoked: true,
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          if (target.publicToken) {
+            batch.update(doc(db, 'publicInvoices', target.publicToken), {
+              revoked: true,
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          const audId = generateSafeId('aud');
+          batch.set(doc(db, 'auditLogs', audId), {
+            id: audId,
+            businessId,
+            ownerUid: accessContext.ownerUid,
+            authorizedUids: accessContext.authorizedUids,
+            authorizedEmails: accessContext.authorizedEmails,
+            action: 'SOFT_DELETE_BILL',
+            entityType: 'bill',
+            entityId: target.id,
+            summary: `Bulk moved bill ${target.billNumber} (${target.customerName}) to 10-day Removed Bills & Products bin`.slice(0, 400),
+            actorUid: actorUser.uid,
+            actorEmail: actorUser.email || '',
+            actorName,
+            createdAt: serverTimestamp(),
+          });
+        }
+
+        await commitWithOfflineSupport(batch.commit());
+      }
+
+      if (!navigator.onLine) {
+        setSyncState('offline');
+        showNotice('offline', `${targets.length} bills moved to Removed bin offline · Auto-syncs later`);
+      }
+
+      return targets.length;
+    },
+    [actorUser, userAccount, rawBills, isAdmin, invoices, businessId, accessContext, showNotice]
+  );
+
   const restoreDeletedBillAtomic = useCallback(
     async (billId: string) => {
       if (!actorUser || !userAccount || !isAdmin) {
@@ -3373,6 +3464,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         recordPaymentAtomic,
         cancelBillAtomic,
         softDeleteBillAtomic,
+        softDeleteBillsBulkAtomic,
         restoreDeletedBillAtomic,
         permanentlyDeleteBillAtomic,
         recordRefundAtomic,

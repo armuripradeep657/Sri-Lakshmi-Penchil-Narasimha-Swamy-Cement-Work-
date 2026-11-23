@@ -24,6 +24,7 @@ import {
 } from '../lib/barcodeAndBillImage';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
 import { formatTimestamp } from '../lib/firebase';
+import { getCopyrightNotice, resolveBusinessLogoUrl } from '../lib/seedData';
 import { useBillingData } from '../context/BillingDataContext';
 
 interface PostBillActionsModalProps {
@@ -407,12 +408,12 @@ export const A4InvoicePreview: React.FC<{
     <div className="print-only-container w-full max-w-[780px] bg-white text-slate-900 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="bg-[#0B1F44] text-white px-6 py-5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          {business.logoUrl && settings?.showLogo !== false && (
+          {settings?.showLogo !== false && (
             <img
-              src={business.logoUrl}
+              src={resolveBusinessLogoUrl(business.logoUrl)}
               alt={business.name}
               referrerPolicy="no-referrer"
-              className="w-14 h-14 rounded-full object-cover bg-white p-0.5 shrink-0"
+              className="w-16 h-16 rounded-xl object-contain bg-white p-1 shrink-0"
             />
           )}
           <div>
@@ -618,6 +619,9 @@ export const A4InvoicePreview: React.FC<{
             Verify Code: <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> ·{' '}
             {settings?.footerMessage || 'Thank you for your business!'}
           </div>
+          <div className="text-[10px] text-slate-400">
+            {getCopyrightNotice(business.name)}
+          </div>
         </div>
       </div>
     </div>
@@ -644,12 +648,12 @@ export const ThermalReceiptPreview: React.FC<{
       className={`print-only-container ${widthClass} bg-white text-black font-mono ${fontSizeClass} p-4 rounded border border-slate-300 shadow-sm leading-snug`}
     >
       <div className="text-center space-y-1 pb-2 border-b border-dashed border-slate-400">
-        {business.logoUrl && (settings?.showThermalLogo ?? settings?.showLogo) !== false && (
+        {(settings?.showThermalLogo ?? settings?.showLogo) !== false && (
           <img
-            src={business.logoUrl}
+            src={resolveBusinessLogoUrl(business.logoUrl)}
             alt={business.name}
             referrerPolicy="no-referrer"
-            className="w-12 h-12 rounded-full mx-auto object-cover grayscale"
+            className="w-14 h-14 rounded-lg mx-auto object-contain grayscale"
           />
         )}
         <div className="font-bold text-xs uppercase">{business.name}</div>

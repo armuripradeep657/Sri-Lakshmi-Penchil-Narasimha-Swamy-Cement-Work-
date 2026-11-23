@@ -2,6 +2,7 @@ import QRCode from 'qrcode';
 import { Bill, BillItem, Business, UpiSetting } from '../types/billing';
 import { formatTimestamp } from './firebase';
 import { getDefaultProductImage } from './productImages';
+import { getCopyrightNotice, resolveBusinessLogoUrl } from './seedData';
 import { buildUpiUri, formatCurrency } from './upiAndExport';
 
 // Official ISO/IEC 15417 Code128 bar/space patterns (values 0..106)
@@ -248,17 +249,17 @@ export async function generateShareableBillImage(params: {
   ctx.fillStyle = '#0B1F44';
   ctx.fillRect(0, 0, width, headerH);
 
-  // Logo
-  const logoImg = await loadImageSafe(business.logoUrl);
+  // Logo (Uncropped Rounded Square HD Badge)
+  const logoImg = await loadImageSafe(resolveBusinessLogoUrl(business.logoUrl));
   if (logoImg) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(68, 76, 38, 0, Math.PI * 2);
+    ctx.roundRect(30, 38, 76, 76, 14);
     ctx.closePath();
     ctx.clip();
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(30, 38, 76, 76);
-    ctx.drawImage(logoImg, 30, 38, 76, 76);
+    ctx.drawImage(logoImg, 32, 40, 72, 72);
     ctx.restore();
   }
 
@@ -522,7 +523,7 @@ export async function generateShareableBillImage(params: {
   ctx.fillStyle = '#64748B';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(`Scan barcode to verify bill · ${business.name}`, width / 2, totalHeight - 16);
+  ctx.fillText(`Scan barcode to verify bill · ${getCopyrightNotice(business.name)}`, width / 2, totalHeight - 16);
   ctx.textAlign = 'left';
 
   const blob = await new Promise<Blob>((resolve, reject) => {

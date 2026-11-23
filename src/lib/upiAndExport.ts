@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { Bill, BillItem, Business, BusinessSettings, UpiSetting } from '../types/billing';
 import { formatTimestamp } from './firebase';
 import { drawCode128OnCanvas, getBillVerificationBarcode } from './barcodeAndBillImage';
+import { resolveBusinessLogoUrl } from './seedData';
 
 export function buildUpiUri(params: {
   upiId: string;
@@ -316,7 +317,8 @@ export async function generateThermalReceiptPdf(params: {
   const widthMm = paperWidth === '58mm' ? 58 : 80;
   const margin = 4;
   const contentWidth = widthMm - margin * 2;
-  const logoDataUrl = showLogo && business.logoUrl ? await loadMonochromeLogoDataUrl(business.logoUrl) : null;
+  const resolvedLogoUrl = resolveBusinessLogoUrl(business.logoUrl);
+  const logoDataUrl = showLogo && resolvedLogoUrl ? await loadMonochromeLogoDataUrl(resolvedLogoUrl) : null;
   const estHeight = 128 + (logoDataUrl ? 16 : 0) + items.length * 10 + (bill.pendingBalance > 0 && showQrCode ? 34 : 10);
 
   const doc = new jsPDF({
