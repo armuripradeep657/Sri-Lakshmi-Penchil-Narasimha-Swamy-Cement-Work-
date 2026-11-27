@@ -260,6 +260,22 @@ export async function generateA4InvoicePdf(params: {
     }
   }
 
+  if ((bill.labourCharge || 0) > 0) {
+    const labLabel =
+      (bill.labourRatePerPiece || 0) > 0
+        ? `Labour (Rs.${Number(bill.labourRatePerPiece).toFixed(2)}/pc):`
+        : `Labour Charges:`;
+    doc.text(labLabel, 140, y);
+    doc.text(`+ Rs. ${(bill.labourCharge || 0).toFixed(2)}`, 196, y, { align: 'right' });
+    y += 6;
+  }
+
+  if ((bill.autoCharge || 0) > 0) {
+    doc.text(`Auto Charges:`, 140, y);
+    doc.text(`+ Rs. ${(bill.autoCharge || 0).toFixed(2)}`, 196, y, { align: 'right' });
+    y += 6;
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.text(`Grand Total:`, 140, y + 2);
@@ -365,10 +381,13 @@ async function renderTeluguThermalReceiptCanvas(params: {
   const pad = 22;
   const resolvedLogoUrl = showLogo ? resolveBusinessLogoUrl(business.logoUrl) : '';
   const hasQr = bill.pendingBalance > 0 && showQrCode && Boolean(upi?.upiId);
+  const extraRowsCount =
+    ((bill.labourCharge || 0) > 0 ? 1 : 0) + ((bill.autoCharge || 0) > 0 ? 1 : 0);
   const estHeight =
     340 +
     (resolvedLogoUrl ? 92 : 0) +
     items.length * 56 +
+    extraRowsCount * 24 +
     (hasQr ? 190 : 54) +
     150;
 
@@ -494,6 +513,8 @@ async function renderTeluguThermalReceiptCanvas(params: {
   rowKV('ఉప మొత్తం', bill.subtotal.toFixed(2));
   if (bill.discountAmount > 0) rowKV('తగ్గింపు', `-${bill.discountAmount.toFixed(2)}`);
   if (bill.totalTax > 0) rowKV(`పన్ను (${translateGstType(bill.gstType, 'te')})`, bill.totalTax.toFixed(2));
+  if ((bill.labourCharge || 0) > 0) rowKV('లేబర్ ఛార్జీలు', `+${Number(bill.labourCharge || 0).toFixed(2)}`);
+  if ((bill.autoCharge || 0) > 0) rowKV('ఆటో ఛార్జీలు', `+${Number(bill.autoCharge || 0).toFixed(2)}`);
   rowKV('మొత్తం విలువ', `₹${bill.grandTotal.toFixed(2)}`, true);
   rowKV(`చెల్లించినది (${translatePaymentMethod(bill.paymentMethod, 'te')})`, `₹${bill.amountPaid.toFixed(2)}`);
   rowKV('బాకీ మొత్తం', `₹${bill.pendingBalance.toFixed(2)}`);
@@ -606,7 +627,14 @@ export async function generateThermalReceiptPdf(params: {
   const contentWidth = widthMm - margin * 2;
   const resolvedLogoUrl = resolveBusinessLogoUrl(business.logoUrl);
   const logoDataUrl = showLogo && resolvedLogoUrl ? await loadMonochromeLogoDataUrl(resolvedLogoUrl) : null;
-  const estHeight = 128 + (logoDataUrl ? 16 : 0) + items.length * 10 + (bill.pendingBalance > 0 && showQrCode ? 34 : 10);
+  const extraThermalRows =
+    ((bill.labourCharge || 0) > 0 ? 1 : 0) + ((bill.autoCharge || 0) > 0 ? 1 : 0);
+  const estHeight =
+    128 +
+    (logoDataUrl ? 16 : 0) +
+    items.length * 10 +
+    extraThermalRows * 4 +
+    (bill.pendingBalance > 0 && showQrCode ? 34 : 10);
 
   const doc = new jsPDF({
     unit: 'mm',
@@ -683,6 +711,16 @@ export async function generateThermalReceiptPdf(params: {
     doc.text(bill.totalTax.toFixed(2), widthMm - margin, y, { align: 'right' });
     y += 3.5;
   }
+  if ((bill.labourCharge || 0) > 0) {
+    doc.text(`Labour Charges`, margin, y);
+    doc.text(`+${Number(bill.labourCharge || 0).toFixed(2)}`, widthMm - margin, y, { align: 'right' });
+    y += 3.5;
+  }
+  if ((bill.autoCharge || 0) > 0) {
+    doc.text(`Auto Charges`, margin, y);
+    doc.text(`+${Number(bill.autoCharge || 0).toFixed(2)}`, widthMm - margin, y, { align: 'right' });
+    y += 3.5;
+  }
 
   doc.setFont('courier', 'bold');
   doc.setFontSize(paperWidth === '58mm' ? 9.5 : 11);
@@ -753,6 +791,8 @@ export function buildEscPosReceiptBytes(bill: Bill, items: BillItem[], business:
   lines.push(`SUBTOTAL : Rs.${bill.subtotal.toFixed(2)}`);
   if (bill.discountAmount > 0) lines.push(`DISCOUNT : -Rs.${bill.discountAmount.toFixed(2)}`);
   if (bill.totalTax > 0) lines.push(`TAX      : Rs.${bill.totalTax.toFixed(2)}`);
+  if ((bill.labourCharge || 0) > 0) lines.push(`LABOUR   : +Rs.${Number(bill.labourCharge || 0).toFixed(2)}`);
+  if ((bill.autoCharge || 0) > 0) lines.push(`AUTO CHG : +Rs.${Number(bill.autoCharge || 0).toFixed(2)}`);
   lines.push(`GRAND TOTAL: Rs.${bill.grandTotal.toFixed(2)}`);
   lines.push(`PAID (${bill.paymentMethod}): Rs.${bill.amountPaid.toFixed(2)}`);
   lines.push(`BALANCE  : Rs.${bill.pendingBalance.toFixed(2)}`);

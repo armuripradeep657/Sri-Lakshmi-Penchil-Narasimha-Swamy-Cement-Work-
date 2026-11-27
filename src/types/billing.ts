@@ -208,6 +208,9 @@ export interface Bill {
   sgstAmount?: number;
   igstAmount?: number;
   totalTax: number;
+  labourCharge?: number;
+  labourRatePerPiece?: number;
+  autoCharge?: number;
   grandTotal: number;
   amountPaid: number;
   pendingBalance: number;
@@ -316,6 +319,9 @@ export interface PublicInvoice {
   sgstAmount?: number;
   igstAmount?: number;
   totalTax?: number;
+  labourCharge?: number;
+  labourRatePerPiece?: number;
+  autoCharge?: number;
   grandTotal: number;
   amountPaid?: number;
   pendingBalance?: number;

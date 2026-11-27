@@ -245,7 +245,9 @@ export async function generateShareableBillImage(params: {
   const custH = 112;
   const tableHeaderH = 40;
   const itemsH = Math.max(1, items.length) * rowHeight;
-  const totalsAndQrH = 260;
+  const extraChargeRows =
+    ((bill.labourCharge || 0) > 0 ? 1 : 0) + ((bill.autoCharge || 0) > 0 ? 1 : 0);
+  const totalsAndQrH = 260 + extraChargeRows * 28;
   const barcodeFooterH = 128;
   const totalHeight = headerH + custH + tableHeaderH + itemsH + totalsAndQrH + barcodeFooterH;
 
@@ -503,6 +505,38 @@ export async function generateShareableBillImage(params: {
     ctx.textAlign = 'right';
     ctx.font = '15px monospace';
     ctx.fillText(formatCurrency(bill.totalTax), rx, ty);
+    ctx.textAlign = 'left';
+    ty += 28;
+  }
+
+  if ((bill.labourCharge || 0) > 0) {
+    ctx.fillStyle = '#334155';
+    ctx.font = '15px sans-serif';
+    ctx.fillText(
+      (bill.labourRatePerPiece || 0) > 0
+        ? tr(
+            language,
+            `Labour (₹${Number(bill.labourRatePerPiece).toFixed(2)}/pc)`,
+            `లేబర్ (₹${Number(bill.labourRatePerPiece).toFixed(2)}/పీస్)`
+          )
+        : tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు'),
+      lx,
+      ty
+    );
+    ctx.textAlign = 'right';
+    ctx.font = '15px monospace';
+    ctx.fillText(`+${formatCurrency(bill.labourCharge || 0)}`, rx, ty);
+    ctx.textAlign = 'left';
+    ty += 28;
+  }
+
+  if ((bill.autoCharge || 0) > 0) {
+    ctx.fillStyle = '#334155';
+    ctx.font = '15px sans-serif';
+    ctx.fillText(tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు'), lx, ty);
+    ctx.textAlign = 'right';
+    ctx.font = '15px monospace';
+    ctx.fillText(`+${formatCurrency(bill.autoCharge || 0)}`, rx, ty);
     ctx.textAlign = 'left';
     ty += 28;
   }

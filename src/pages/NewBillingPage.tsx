@@ -11,6 +11,8 @@ import {
   AlertCircle,
   Loader2,
   ReceiptText,
+  HardHat,
+  Truck,
 } from 'lucide-react';
 import { useBillingData, CartItemInput } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
@@ -82,6 +84,12 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   }, [language]);
 
   const [overallDiscount, setOverallDiscount] = useState(0);
+  const [labourApplicable, setLabourApplicable] = useState(false);
+  const [labourMode, setLabourMode] = useState<'per_piece' | 'fixed'>('per_piece');
+  const [labourRatePerPiece, setLabourRatePerPiece] = useState<string>('');
+  const [labourFixedAmount, setLabourFixedAmount] = useState<string>('');
+  const [autoApplicable, setAutoApplicable] = useState(false);
+  const [autoChargeInput, setAutoChargeInput] = useState<string>('');
   const [gstType, setGstType] = useState<GstType>(business?.taxEnabled ? 'CGST_SGST' : 'NONE');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [amountPaidInput, setAmountPaidInput] = useState<string>('');
@@ -186,6 +194,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
     setCart((prev) => prev.filter((_, idx) => idx !== index));
   };
 
+  const totalUnitsInCart = useMemo(() => cart.reduce((sum, i) => sum + i.quantity, 0), [cart]);
+
   const totals = useMemo(() => {
     const taxEnabled = Boolean(business?.taxEnabled) && gstType !== 'NONE';
     let subtotal = 0;
@@ -207,7 +217,21 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
     const taxableAmount = Math.max(0, subtotal - totalDiscount);
     const factor = subtotal - itemDiscounts > 0 ? taxableAmount / (subtotal - itemDiscounts) : 1;
     const totalTax = taxEnabled ? Math.round(rawTax * factor * 100) / 100 : 0;
-    const grandTotal = Math.round((taxableAmount + totalTax) * 100) / 100;
+
+    const ratePerPieceNum =
+      labourApplicable && labourMode === 'per_piece'
+        ? Math.max(0, Math.round((Number(labourRatePerPiece) || 0) * 100) / 100)
+        : 0;
+    const labourCharge = !labourApplicable
+      ? 0
+      : labourMode === 'per_piece'
+      ? Math.round(totalUnitsInCart * ratePerPieceNum * 100) / 100
+      : Math.max(0, Math.round((Number(labourFixedAmount) || 0) * 100) / 100);
+    const autoCharge = autoApplicable
+      ? Math.max(0, Math.round((Number(autoChargeInput) || 0) * 100) / 100)
+      : 0;
+
+    const grandTotal = Math.round((taxableAmount + totalTax + labourCharge + autoCharge) * 100) / 100;
 
     const paidNum =
       amountPaidInput === ''
@@ -223,11 +247,28 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
       totalDiscount: Math.round(totalDiscount * 100) / 100,
       taxableAmount: Math.round(taxableAmount * 100) / 100,
       totalTax,
+      labourRatePerPiece: ratePerPieceNum,
+      labourCharge,
+      autoCharge,
       grandTotal,
       paidNum,
       pendingBalance,
     };
-  }, [cart, overallDiscount, gstType, business?.taxEnabled, amountPaidInput, paymentMethod]);
+  }, [
+    cart,
+    totalUnitsInCart,
+    overallDiscount,
+    gstType,
+    business?.taxEnabled,
+    labourApplicable,
+    labourMode,
+    labourRatePerPiece,
+    labourFixedAmount,
+    autoApplicable,
+    autoChargeInput,
+    amountPaidInput,
+    paymentMethod,
+  ]);
 
   const handleSelectCustomer = (custId: string) => {
     setSelectedCustomerId(custId);
@@ -269,6 +310,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
         items: cart,
         overallDiscount,
         gstType: business?.taxEnabled ? gstType : 'NONE',
+        labourCharge: totals.labourCharge,
+        labourRatePerPiece: totals.labourRatePerPiece,
+        autoCharge: totals.autoCharge,
         amountPaid: totals.paidNum,
         paymentMethod: totals.paidNum === 0 ? 'Unpaid' : paymentMethod,
         paymentReference,
@@ -277,6 +321,11 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
       setSavedBill(created);
       setCart([]);
       setOverallDiscount(0);
+      setLabourApplicable(false);
+      setLabourRatePerPiece('');
+      setLabourFixedAmount('');
+      setAutoApplicable(false);
+      setAutoChargeInput('');
       setAmountPaidInput('');
       setPaymentReference('');
       setNotes('');
@@ -298,8 +347,6 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
     if (!activeModalBill) return [];
     return billItems.filter((bi) => bi.billId === activeModalBill.id);
   }, [activeModalBill, billItems]);
-
-  const totalUnitsInCart = useMemo(() => cart.reduce((sum, i) => sum + i.quantity, 0), [cart]);
 
   return (
     <div className="space-y-4 animate-slp-in pb-24 lg:pb-0">
@@ -764,6 +811,136 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               </div>
             </div>
 
+            {/* Optional Labour Charges (per-piece or total) & Auto Charges */}
+            <div className="p-3 rounded-xl border border-blue-100 dark:border-slate-800 bg-blue-50/40 dark:bg-slate-950/80 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-[#0B1F44] dark:text-slate-200">
+                  {tr(language, 'Additional Charges (If Applicable)', 'అదనపు ఛార్జీలు (వర్తిస్తే)')}
+                </span>
+                {cart.length > 0 && (
+                  <span className="text-[11px] font-mono font-semibold text-[#1D4ED8] dark:text-sky-400">
+                    {tr(language, `Cart: ${totalUnitsInCart} pcs`, `కార్ట్: ${totalUnitsInCart} పీసులు`)}
+                  </span>
+                )}
+              </div>
+
+              {/* Labour Charge Toggle + Per-Piece / Fixed Controls */}
+              <div className="space-y-2">
+                <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
+                  <span className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={labourApplicable}
+                      onChange={(e) => setLabourApplicable(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
+                    />
+                    <HardHat className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                    <span>{tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}</span>
+                  </span>
+                  {labourApplicable && (
+                    <span className="font-mono font-bold text-[#0B1F44] dark:text-white">
+                      +{formatCurrency(totals.labourCharge)}
+                    </span>
+                  )}
+                </label>
+
+                {labourApplicable && (
+                  <div className="pl-6 space-y-2">
+                    <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => setLabourMode('per_piece')}
+                        className={`py-1 px-2 rounded-md text-[11px] font-semibold transition ${
+                          labourMode === 'per_piece'
+                            ? 'bg-[#0B1F44] text-white shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {tr(language, `Per Piece (×${totalUnitsInCart})`, `పీస్‌కు (×${totalUnitsInCart})`)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabourMode('fixed')}
+                        className={`py-1 px-2 rounded-md text-[11px] font-semibold transition ${
+                          labourMode === 'fixed'
+                            ? 'bg-[#0B1F44] text-white shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {tr(language, 'Total Amount', 'మొత్తం విలువ')}
+                      </button>
+                    </div>
+
+                    {labourMode === 'per_piece' ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={labourRatePerPiece}
+                          onChange={(e) => setLabourRatePerPiece(e.target.value)}
+                          placeholder={tr(language, 'Rate per piece (₹)', 'ఒక్కో పీస్ ధర (₹)')}
+                          className="w-32 px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                        />
+                        <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                          {totalUnitsInCart} {tr(language, 'pcs', 'పీసులు')} × ₹
+                          {(Number(labourRatePerPiece) || 0).toFixed(2)} ={' '}
+                          <strong className="text-[#0B1F44] dark:text-white">
+                            {formatCurrency(totals.labourCharge)}
+                          </strong>
+                        </span>
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={labourFixedAmount}
+                        onChange={(e) => setLabourFixedAmount(e.target.value)}
+                        placeholder={tr(language, 'Total labour charges (₹)', 'మొత్తం లేబర్ ఛార్జీ (₹)')}
+                        className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Auto / Transport Charges Toggle + Amount */}
+              <div className="space-y-2 pt-1.5 border-t border-blue-100/80 dark:border-slate-800">
+                <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
+                  <span className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={autoApplicable}
+                      onChange={(e) => setAutoApplicable(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
+                    />
+                    <Truck className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                    <span>{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
+                  </span>
+                  {autoApplicable && (
+                    <span className="font-mono font-bold text-[#0B1F44] dark:text-white">
+                      +{formatCurrency(totals.autoCharge)}
+                    </span>
+                  )}
+                </label>
+
+                {autoApplicable && (
+                  <div className="pl-6">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={autoChargeInput}
+                      onChange={(e) => setAutoChargeInput(e.target.value)}
+                      placeholder={tr(language, 'Auto / transport charge (₹)', 'ఆటో / రవాణా ఛార్జీ (₹)')}
+                      className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-slate-500 mb-1">
@@ -842,6 +1019,26 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   {tr(language, `GST (${gstType})`, `జీఎస్టీ (${translateGstType(gstType, language)})`)}
                 </span>
                 <span className="tabular-nums">{formatCurrency(totals.totalTax)}</span>
+              </div>
+            )}
+            {totals.labourCharge > 0 && (
+              <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                <span className="font-sans">
+                  {totals.labourRatePerPiece > 0
+                    ? tr(
+                        language,
+                        `Labour (${totalUnitsInCart} pcs × ₹${totals.labourRatePerPiece.toFixed(2)})`,
+                        `లేబర్ ఛార్జీలు (${totalUnitsInCart} పీసులు × ₹${totals.labourRatePerPiece.toFixed(2)})`
+                      )
+                    : tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}
+                </span>
+                <span className="tabular-nums">+{formatCurrency(totals.labourCharge)}</span>
+              </div>
+            )}
+            {totals.autoCharge > 0 && (
+              <div className="flex justify-between text-slate-700 dark:text-slate-300">
+                <span className="font-sans">{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
+                <span className="tabular-nums">+{formatCurrency(totals.autoCharge)}</span>
               </div>
             )}
             <div className="flex justify-between text-base font-bold text-[#0B1F44] dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">

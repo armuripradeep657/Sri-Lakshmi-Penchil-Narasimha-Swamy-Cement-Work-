@@ -109,6 +109,9 @@ export interface CreateBillPayload {
   items: CartItemInput[];
   overallDiscount: number;
   gstType: GstType;
+  labourCharge?: number;
+  labourRatePerPiece?: number;
+  autoCharge?: number;
   amountPaid: number;
   paymentMethod: PaymentMethod;
   paymentReference?: string;
@@ -123,6 +126,9 @@ export interface EditBillPayload {
   items: CartItemInput[];
   overallDiscount: number;
   gstType: GstType;
+  labourCharge?: number;
+  labourRatePerPiece?: number;
+  autoCharge?: number;
   amountPaid: number;
   paymentMethod: PaymentMethod;
   notes?: string;
@@ -249,6 +255,8 @@ function calculateBillTotalsLocal(params: {
   overallDiscount: number;
   taxEnabled: boolean;
   gstType: GstType;
+  labourCharge?: number;
+  autoCharge?: number;
   amountPaid: number;
 }) {
   let subtotal = 0;
@@ -301,7 +309,9 @@ function calculateBillTotalsLocal(params: {
   );
   const totalDiscount = Math.round((totalItemDiscount + clampedOverallDisc) * 100) / 100;
   const taxableAmount = Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100);
-  const grandTotal = Math.round((taxableAmount + totalTax) * 100) / 100;
+  const labourCharge = Math.max(0, Math.round((Number(params.labourCharge) || 0) * 100) / 100);
+  const autoCharge = Math.max(0, Math.round((Number(params.autoCharge) || 0) * 100) / 100);
+  const grandTotal = Math.round((taxableAmount + totalTax + labourCharge + autoCharge) * 100) / 100;
 
   let cgstAmount = 0;
   let sgstAmount = 0;
@@ -330,6 +340,8 @@ function calculateBillTotalsLocal(params: {
     sgstAmount,
     igstAmount,
     totalTax,
+    labourCharge,
+    autoCharge,
     grandTotal,
     amountPaid: paid,
     pendingBalance,
@@ -683,6 +695,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 overallDiscount: payload.overallDiscount,
                 taxEnabled: Boolean(business.taxEnabled),
                 gstType: business.taxEnabled ? payload.gstType : 'NONE',
+                labourCharge: payload.labourCharge || 0,
+                autoCharge: payload.autoCharge || 0,
                 amountPaid: payload.amountPaid,
               }),
             });
@@ -701,6 +715,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               overallDiscount: payload.overallDiscount,
               taxEnabled: Boolean(business.taxEnabled),
               gstType: business.taxEnabled ? payload.gstType : 'NONE',
+              labourCharge: payload.labourCharge || 0,
+              autoCharge: payload.autoCharge || 0,
               amountPaid: payload.amountPaid,
             });
           }
@@ -710,6 +726,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             overallDiscount: payload.overallDiscount,
             taxEnabled: Boolean(business.taxEnabled),
             gstType: business.taxEnabled ? payload.gstType : 'NONE',
+            labourCharge: payload.labourCharge || 0,
+            autoCharge: payload.autoCharge || 0,
             amountPaid: payload.amountPaid,
           });
         }
@@ -761,6 +779,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             sgstAmount: calcData.sgstAmount,
             igstAmount: calcData.igstAmount,
             totalTax: calcData.totalTax,
+            labourCharge: calcData.labourCharge,
+            labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+            autoCharge: calcData.autoCharge,
             grandTotal: calcData.grandTotal,
             amountPaid: calcData.amountPaid,
             pendingBalance: calcData.pendingBalance,
@@ -944,6 +965,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             sgstAmount: calcData.sgstAmount,
             igstAmount: calcData.igstAmount,
             totalTax: calcData.totalTax,
+            labourCharge: calcData.labourCharge,
+            labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+            autoCharge: calcData.autoCharge,
             grandTotal: calcData.grandTotal,
             amountPaid: calcData.amountPaid,
             pendingBalance: calcData.pendingBalance,
@@ -1057,6 +1081,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             sgstAmount: calcData.sgstAmount,
             igstAmount: calcData.igstAmount,
             totalTax: calcData.totalTax,
+            labourCharge: calcData.labourCharge,
+            labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+            autoCharge: calcData.autoCharge,
             grandTotal: calcData.grandTotal,
             amountPaid: calcData.amountPaid,
             pendingBalance: calcData.pendingBalance,
@@ -1267,6 +1294,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             sgstAmount: calcData.sgstAmount,
             igstAmount: calcData.igstAmount,
             totalTax: calcData.totalTax,
+            labourCharge: calcData.labourCharge,
+            labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+            autoCharge: calcData.autoCharge,
             grandTotal: calcData.grandTotal,
             amountPaid: calcData.amountPaid,
             pendingBalance: calcData.pendingBalance,
@@ -1359,6 +1389,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           sgstAmount: calcData.sgstAmount,
           igstAmount: calcData.igstAmount,
           totalTax: calcData.totalTax,
+          labourCharge: calcData.labourCharge,
+          labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+          autoCharge: calcData.autoCharge,
           grandTotal: calcData.grandTotal,
           amountPaid: calcData.amountPaid,
           pendingBalance: calcData.pendingBalance,
@@ -1861,6 +1894,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               overallDiscount: payload.overallDiscount,
               taxEnabled: Boolean(business.taxEnabled),
               gstType: business.taxEnabled ? payload.gstType : 'NONE',
+              labourCharge: payload.labourCharge || 0,
+              autoCharge: payload.autoCharge || 0,
               amountPaid: payload.amountPaid,
             }),
           });
@@ -1878,6 +1913,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             overallDiscount: payload.overallDiscount,
             taxEnabled: Boolean(business.taxEnabled),
             gstType: business.taxEnabled ? payload.gstType : 'NONE',
+            labourCharge: payload.labourCharge || 0,
+            autoCharge: payload.autoCharge || 0,
             amountPaid: payload.amountPaid,
           });
         }
@@ -1887,6 +1924,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           overallDiscount: payload.overallDiscount,
           taxEnabled: Boolean(business.taxEnabled),
           gstType: business.taxEnabled ? payload.gstType : 'NONE',
+          labourCharge: payload.labourCharge || 0,
+          autoCharge: payload.autoCharge || 0,
           amountPaid: payload.amountPaid,
         });
       }
@@ -1938,6 +1977,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           sgstAmount: calcData.sgstAmount,
           igstAmount: calcData.igstAmount,
           totalTax: calcData.totalTax,
+          labourCharge: calcData.labourCharge,
+          labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+          autoCharge: calcData.autoCharge,
           grandTotal: calcData.grandTotal,
           amountPaid: calcData.amountPaid,
           pendingBalance: calcData.pendingBalance,
@@ -2069,6 +2111,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           sgstAmount: calcData.sgstAmount,
           igstAmount: calcData.igstAmount,
           totalTax: calcData.totalTax,
+          labourCharge: calcData.labourCharge,
+          labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+          autoCharge: calcData.autoCharge,
           grandTotal: calcData.grandTotal,
           amountPaid: calcData.amountPaid,
           pendingBalance: calcData.pendingBalance,

@@ -709,6 +709,26 @@ export const A4InvoicePreview: React.FC<{
                 )}
               </>
             )}
+            {(bill.labourCharge || 0) > 0 && (
+              <div className="flex justify-between text-slate-700">
+                <span className="font-sans">
+                  {(bill.labourRatePerPiece || 0) > 0
+                    ? tr(
+                        language,
+                        `Labour Charges (₹${Number(bill.labourRatePerPiece).toFixed(2)}/pc)`,
+                        `లేబర్ ఛార్జీలు (₹${Number(bill.labourRatePerPiece).toFixed(2)}/పీస్)`
+                      )
+                    : tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}
+                </span>
+                <span className="tabular-nums">+{formatCurrency(bill.labourCharge || 0)}</span>
+              </div>
+            )}
+            {(bill.autoCharge || 0) > 0 && (
+              <div className="flex justify-between text-slate-700">
+                <span className="font-sans">{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
+                <span className="tabular-nums">+{formatCurrency(bill.autoCharge || 0)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-base font-bold text-[#0B1F44] pt-2 border-t border-slate-200">
               <span className="font-sans">{tr(language, 'Grand Total', 'మొత్తం విలువ')}</span>
               <span className="tabular-nums">{formatCurrency(bill.grandTotal)}</span>
@@ -850,6 +870,18 @@ export const ThermalReceiptPreview: React.FC<{
               {tr(language, 'Tax', 'పన్ను')} ({translateGstType(bill.gstType, language)})
             </span>
             <span>{bill.totalTax.toFixed(2)}</span>
+          </div>
+        )}
+        {(bill.labourCharge || 0) > 0 && (
+          <div className="flex justify-between">
+            <span>{tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}</span>
+            <span>+{Number(bill.labourCharge || 0).toFixed(2)}</span>
+          </div>
+        )}
+        {(bill.autoCharge || 0) > 0 && (
+          <div className="flex justify-between">
+            <span>{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
+            <span>+{Number(bill.autoCharge || 0).toFixed(2)}</span>
           </div>
         )}
         <div className="flex justify-between font-bold text-sm pt-1 border-t border-dotted border-slate-400">

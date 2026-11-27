@@ -236,6 +236,9 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
       taxableAmount: invoice.grandTotal - (invoice.totalTax || 0),
       gstType: 'NONE',
       totalTax: invoice.totalTax || 0,
+      labourCharge: invoice.labourCharge || 0,
+      labourRatePerPiece: invoice.labourRatePerPiece || 0,
+      autoCharge: invoice.autoCharge || 0,
       grandTotal: invoice.grandTotal,
       amountPaid: invoice.amountPaid || 0,
       pendingBalance: invoice.pendingBalance || 0,
@@ -365,6 +368,14 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
     });
 
     y += 6;
+    if ((invoice.labourCharge || 0) > 0) {
+      pdf.text(`Labour Charges: + Rs. ${Number(invoice.labourCharge || 0).toFixed(2)}`, 14, y);
+      y += 6;
+    }
+    if ((invoice.autoCharge || 0) > 0) {
+      pdf.text(`Auto Charges: + Rs. ${Number(invoice.autoCharge || 0).toFixed(2)}`, 14, y);
+      y += 6;
+    }
     pdf.setFont('helvetica', 'bold');
     pdf.text(`Grand Total: Rs. ${Number(invoice.grandTotal || 0).toFixed(2)}`, 14, y);
     y += 6;
@@ -810,6 +821,26 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                   <div className="flex justify-between text-slate-600">
                     <span className="font-sans">{tr(language, 'Tax (GST)', 'పన్ను (జీఎస్టీ)')}</span>
                     <span>{formatCurrency(invoice.totalTax || 0)}</span>
+                  </div>
+                )}
+                {(invoice.labourCharge || 0) > 0 && (
+                  <div className="flex justify-between text-slate-700">
+                    <span className="font-sans">
+                      {(invoice.labourRatePerPiece || 0) > 0
+                        ? tr(
+                            language,
+                            `Labour Charges (₹${Number(invoice.labourRatePerPiece).toFixed(2)}/pc)`,
+                            `లేబర్ ఛార్జీలు (₹${Number(invoice.labourRatePerPiece).toFixed(2)}/పీస్)`
+                          )
+                        : tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}
+                    </span>
+                    <span>+{formatCurrency(invoice.labourCharge || 0)}</span>
+                  </div>
+                )}
+                {(invoice.autoCharge || 0) > 0 && (
+                  <div className="flex justify-between text-slate-700">
+                    <span className="font-sans">{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
+                    <span>+{formatCurrency(invoice.autoCharge || 0)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-bold text-[#0B1F44] pt-2 border-t border-slate-200">

@@ -308,7 +308,7 @@ service cloud.firestore {
 
     function isValidBill(data) {
       return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'billNumber', 'customerName', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'createdByUid', 'createdByName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'billNumber', 'customerId', 'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'verificationBarcode', 'createdByUid', 'createdByName', 'editedByUid', 'editedByName', 'editedAt', 'notes', 'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'billNumber', 'customerId', 'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'verificationBarcode', 'createdByUid', 'createdByName', 'editedByUid', 'editedByName', 'editedAt', 'notes', 'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'createdAt', 'updatedAt']) &&
         isValidId(data.id) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
@@ -329,6 +329,9 @@ service cloud.firestore {
         (!('sgstAmount' in data) || (data.sgstAmount is number && data.sgstAmount >= 0)) &&
         (!('igstAmount' in data) || (data.igstAmount is number && data.igstAmount >= 0)) &&
         data.totalTax is number && data.totalTax >= 0 &&
+        (!('labourCharge' in data) || (data.labourCharge is number && data.labourCharge >= 0)) &&
+        (!('labourRatePerPiece' in data) || (data.labourRatePerPiece is number && data.labourRatePerPiece >= 0)) &&
+        (!('autoCharge' in data) || (data.autoCharge is number && data.autoCharge >= 0)) &&
         data.grandTotal is number && data.grandTotal >= 0 &&
         data.amountPaid is number && data.amountPaid >= 0 &&
         data.pendingBalance is number && data.pendingBalance >= 0 &&
@@ -422,7 +425,7 @@ service cloud.firestore {
 
     function isValidPublicInvoice(data) {
       return data.keys().hasAll(['token', 'businessId', 'ownerUid', 'revoked', 'invoiceNumber', 'businessName', 'customerName', 'grandTotal', 'paymentStatus', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['token', 'businessId', 'ownerUid', 'revoked', 'invoiceNumber', 'issuedAtIso', 'businessName', 'businessPhone', 'businessAddress', 'businessGstin', 'businessLogoUrl', 'customerName', 'customerPhoneMasked', 'customerAddress', 'itemsSummary', 'itemsJson', 'subtotal', 'discountAmount', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'upiId', 'upiName', 'verificationBarcode', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['token', 'businessId', 'ownerUid', 'revoked', 'invoiceNumber', 'issuedAtIso', 'businessName', 'businessPhone', 'businessAddress', 'businessGstin', 'businessLogoUrl', 'customerName', 'customerPhoneMasked', 'customerAddress', 'itemsSummary', 'itemsJson', 'subtotal', 'discountAmount', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'upiId', 'upiName', 'verificationBarcode', 'createdAt', 'updatedAt']) &&
         isValidId(data.token) && data.token.size() >= 16 &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
@@ -445,6 +448,9 @@ service cloud.firestore {
         (!('sgstAmount' in data) || data.sgstAmount is number) &&
         (!('igstAmount' in data) || data.igstAmount is number) &&
         (!('totalTax' in data) || data.totalTax is number) &&
+        (!('labourCharge' in data) || (data.labourCharge is number && data.labourCharge >= 0)) &&
+        (!('labourRatePerPiece' in data) || (data.labourRatePerPiece is number && data.labourRatePerPiece >= 0)) &&
+        (!('autoCharge' in data) || (data.autoCharge is number && data.autoCharge >= 0)) &&
         data.grandTotal is number && data.grandTotal >= 0 &&
         (!('amountPaid' in data) || data.amountPaid is number) &&
         (!('pendingBalance' in data) || data.pendingBalance is number) &&

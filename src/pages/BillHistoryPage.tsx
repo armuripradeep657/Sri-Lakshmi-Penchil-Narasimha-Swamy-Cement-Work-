@@ -1322,6 +1322,9 @@ const EditBillModal: React.FC<{
     items: CartItemInput[];
     overallDiscount: number;
     gstType: GstType;
+    labourCharge?: number;
+    labourRatePerPiece?: number;
+    autoCharge?: number;
     amountPaid: number;
     paymentMethod: PaymentMethod;
     notes?: string;
@@ -1355,12 +1358,25 @@ const EditBillModal: React.FC<{
     Math.max(0, Math.round((Number(bill.discountAmount || 0) - itemDiscountsSum) * 100) / 100)
   );
   const [gstType, setGstType] = useState<GstType>(taxEnabled ? bill.gstType : 'NONE');
+  const [labourApplicable, setLabourApplicable] = useState<boolean>(Number(bill.labourCharge || 0) > 0);
+  const [labourMode, setLabourMode] = useState<'per_piece' | 'fixed'>(() =>
+    Number(bill.labourRatePerPiece || 0) > 0 ? 'per_piece' : 'fixed'
+  );
+  const [labourRatePerPiece, setLabourRatePerPiece] = useState<number>(() => Number(bill.labourRatePerPiece || 0));
+  const [labourFixedAmount, setLabourFixedAmount] = useState<number>(() => Number(bill.labourCharge || 0));
+  const [autoApplicable, setAutoApplicable] = useState<boolean>(Number(bill.autoCharge || 0) > 0);
+  const [autoCharge, setAutoCharge] = useState<number>(() => Number(bill.autoCharge || 0));
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(bill.paymentMethod);
   const [amountPaid, setAmountPaid] = useState<number>(bill.amountPaid);
   const [notes, setNotes] = useState(bill.notes || '');
   const [addProductId, setAddProductId] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const totalPieces = useMemo(
+    () => items.reduce((sum, it) => sum + Number(it.quantity || 0), 0),
+    [items]
+  );
 
   const preview = useMemo(() => {
     let subtotal = 0;
@@ -1380,11 +1396,43 @@ const EditBillModal: React.FC<{
     const taxable = Math.max(0, subtotal - totalDisc);
     const factor = subtotal - itemDisc > 0 ? taxable / (subtotal - itemDisc) : 1;
     const totalTax = taxEnabled && gstType !== 'NONE' ? Math.round(rawTax * factor * 100) / 100 : 0;
-    const grandTotal = Math.round((taxable + totalTax) * 100) / 100;
+    const resolvedLabourRate =
+      labourApplicable && labourMode === 'per_piece' ? Math.max(0, labourRatePerPiece || 0) : 0;
+    const resolvedLabour = !labourApplicable
+      ? 0
+      : labourMode === 'per_piece'
+      ? Math.round(totalPieces * resolvedLabourRate * 100) / 100
+      : Math.max(0, Math.round((labourFixedAmount || 0) * 100) / 100);
+    const resolvedAuto = autoApplicable ? Math.max(0, Math.round((autoCharge || 0) * 100) / 100) : 0;
+    const grandTotal = Math.round((taxable + totalTax + resolvedLabour + resolvedAuto) * 100) / 100;
     const paid = paymentMethod === 'Unpaid' ? 0 : Math.min(grandTotal, Math.max(0, amountPaid));
     const pending = Math.max(0, Math.round((grandTotal - paid) * 100) / 100);
-    return { subtotal, totalDisc, totalTax, grandTotal, paid, pending };
-  }, [items, overallDiscount, gstType, taxEnabled, amountPaid, paymentMethod]);
+    return {
+      subtotal,
+      totalDisc,
+      totalTax,
+      labourRate: resolvedLabourRate,
+      labourCharge: resolvedLabour,
+      autoCharge: resolvedAuto,
+      grandTotal,
+      paid,
+      pending,
+    };
+  }, [
+    items,
+    totalPieces,
+    overallDiscount,
+    gstType,
+    taxEnabled,
+    labourApplicable,
+    labourMode,
+    labourRatePerPiece,
+    labourFixedAmount,
+    autoApplicable,
+    autoCharge,
+    amountPaid,
+    paymentMethod,
+  ]);
 
   const handleAddProduct = () => {
     if (!addProductId) return;
@@ -1428,6 +1476,9 @@ const EditBillModal: React.FC<{
         items,
         overallDiscount,
         gstType: taxEnabled ? gstType : 'NONE',
+        labourCharge: preview.labourCharge,
+        labourRatePerPiece: preview.labourRate,
+        autoCharge: preview.autoCharge,
         amountPaid: preview.paid,
         paymentMethod: preview.paid === 0 ? 'Unpaid' : paymentMethod,
         notes: notes.trim(),
@@ -1691,6 +1742,111 @@ const EditBillModal: React.FC<{
                 onChange={(e) => setAmountPaid(Math.max(0, Number(e.target.value) || 0))}
                 className="w-full px-2.5 py-2 font-mono rounded-xl border border-slate-200 bg-slate-50"
               />
+            </div>
+          </div>
+
+          {/* Optional Labour & Auto Charges */}
+          <div className="p-3 rounded-xl border border-blue-100 bg-blue-50/40 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#0B1F44]">
+                {tr(language, 'Additional Charges (If Applicable)', 'అదనపు ఛార్జీలు (వర్తిస్తే)')}
+              </span>
+              <span className="font-mono text-[11px] font-semibold text-[#1D4ED8]">
+                {tr(language, `Cart: ${totalPieces} pcs`, `కార్ట్: ${totalPieces} పీసులు`)}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="flex items-center justify-between gap-2 cursor-pointer">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={labourApplicable}
+                      onChange={(e) => setLabourApplicable(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded"
+                    />
+                    {tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}
+                  </span>
+                  {labourApplicable && (
+                    <span className="font-mono font-bold text-[#0B1F44]">{formatCurrency(preview.labourCharge)}</span>
+                  )}
+                </label>
+                {labourApplicable && (
+                  <div className="space-y-1.5 pl-5">
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setLabourMode('per_piece')}
+                        className={`py-1 px-2 rounded-md text-[10px] font-semibold ${
+                          labourMode === 'per_piece' ? 'bg-[#0B1F44] text-white' : 'bg-white border border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {tr(language, `Per Piece (×${totalPieces})`, `పీస్‌కు (×${totalPieces})`)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabourMode('fixed')}
+                        className={`py-1 px-2 rounded-md text-[10px] font-semibold ${
+                          labourMode === 'fixed' ? 'bg-[#0B1F44] text-white' : 'bg-white border border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {tr(language, 'Total Amount', 'మొత్తం విలువ')}
+                      </button>
+                    </div>
+                    {labourMode === 'per_piece' ? (
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={labourRatePerPiece}
+                        onChange={(e) => setLabourRatePerPiece(Math.max(0, Number(e.target.value) || 0))}
+                        placeholder={tr(language, 'Rate / piece (₹)', 'ఒక్కో పీస్ ధర (₹)')}
+                        className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 bg-white"
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={labourFixedAmount}
+                        onChange={(e) => setLabourFixedAmount(Math.max(0, Number(e.target.value) || 0))}
+                        placeholder={tr(language, 'Labour total (₹)', 'లేబర్ మొత్తం (₹)')}
+                        className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 bg-white"
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="flex items-center justify-between gap-2 cursor-pointer">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={autoApplicable}
+                      onChange={(e) => setAutoApplicable(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded"
+                    />
+                    {tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}
+                  </span>
+                  {autoApplicable && (
+                    <span className="font-mono font-bold text-[#0B1F44]">{formatCurrency(preview.autoCharge)}</span>
+                  )}
+                </label>
+                {autoApplicable && (
+                  <div className="pl-5">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={autoCharge}
+                      onChange={(e) => setAutoCharge(Math.max(0, Number(e.target.value) || 0))}
+                      placeholder={tr(language, 'Auto charge (₹)', 'ఆటో ఛార్జీ (₹)')}
+                      className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 bg-white"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

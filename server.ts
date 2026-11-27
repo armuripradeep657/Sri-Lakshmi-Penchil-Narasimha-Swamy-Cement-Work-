@@ -75,12 +75,16 @@ app.post('/api/bills/calculate', (req: Request, res: Response) => {
       overallDiscount = 0,
       taxEnabled = false,
       gstType = 'NONE',
+      labourCharge = 0,
+      autoCharge = 0,
       amountPaid = 0,
     } = req.body as {
       items?: CalcItemInput[];
       overallDiscount?: number;
       taxEnabled?: boolean;
       gstType?: 'NONE' | 'CGST_SGST' | 'IGST';
+      labourCharge?: number;
+      autoCharge?: number;
       amountPaid?: number;
     };
 
@@ -158,7 +162,10 @@ app.post('/api/bills/calculate', (req: Request, res: Response) => {
       totalTax = 0;
     }
 
-    const grandTotal = Math.round((taxableAmount + totalTax) * 100) / 100;
+    const safeLabourCharge = Math.max(0, Math.round((Number(labourCharge) || 0) * 100) / 100);
+    const safeAutoCharge = Math.max(0, Math.round((Number(autoCharge) || 0) * 100) / 100);
+
+    const grandTotal = Math.round((taxableAmount + totalTax + safeLabourCharge + safeAutoCharge) * 100) / 100;
     const paid = Math.max(0, Math.min(grandTotal, Math.round(Number(amountPaid || 0) * 100) / 100));
     const pendingBalance = Math.max(0, Math.round((grandTotal - paid) * 100) / 100);
 
@@ -179,6 +186,8 @@ app.post('/api/bills/calculate', (req: Request, res: Response) => {
       sgstAmount,
       igstAmount,
       totalTax,
+      labourCharge: safeLabourCharge,
+      autoCharge: safeAutoCharge,
       grandTotal,
       amountPaid: paid,
       pendingBalance,
