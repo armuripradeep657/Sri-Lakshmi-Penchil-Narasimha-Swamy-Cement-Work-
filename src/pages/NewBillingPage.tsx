@@ -68,7 +68,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   onAddToCart,
   viewCartNonce,
 }) => {
-  const { business, categories, products, customers, createBillAtomic, saveCustomer, billItems, logMessageDispatch } =
+  const { business, categories, products, customers, createBillAtomic, saveCustomer, billItems, logMessageDispatch, loadingData } =
     useBillingData();
   const { language, userAccount, activeUid, isAdmin } = useAuth();
 
@@ -584,7 +584,52 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:max-h-[560px] lg:overflow-y-auto pr-0.5">
-            {filteredProducts.map((product) => {
+            {loadingData && products.length === 0 ? (
+              Array.from({ length: 4 }).map((_, idx) => (
+                <div
+                  key={`prod-skel-${idx}`}
+                  className="p-3 rounded-2xl border border-[#E5DDD3] dark:border-slate-800 bg-[#FAF8F5] dark:bg-slate-950/60 animate-pulse space-y-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-14 h-14 rounded-xl bg-[#E5DDD3]/70 dark:bg-slate-800 shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 w-3/4 rounded bg-[#E5DDD3]/80 dark:bg-slate-800" />
+                      <div className="h-3 w-1/2 rounded bg-[#E5DDD3]/60 dark:bg-slate-800" />
+                    </div>
+                  </div>
+                  <div className="h-9 w-full rounded-xl bg-[#E5DDD3]/70 dark:bg-slate-800" />
+                </div>
+              ))
+            ) : filteredProducts.length === 0 ? (
+              <div className="sm:col-span-2 py-10 px-4 text-center rounded-2xl border border-dashed border-[#DFD7CC] dark:border-slate-800 bg-[#FAF8F5]/60 dark:bg-slate-950/40 space-y-2.5">
+                <p className="text-xs font-semibold text-[#0A2240] dark:text-slate-200">
+                  {products.length === 0
+                    ? tr(
+                        language,
+                        'No billing items available yet. Ask the owner to add products or refresh your connection.',
+                        'బిల్లింగ్ వస్తువులు ఇంకా లేవు. యజమానిని ఉత్పత్తులు జోడించమని అడగండి లేదా కనెక్షన్ రిఫ్రెష్ చేయండి.'
+                      )
+                    : tr(
+                        language,
+                        'No items match your current search or category filter.',
+                        'మీ శోధన లేదా వర్గానికి సరిపోలే వస్తువులు లేవు.'
+                      )}
+                </p>
+                {(search.trim() !== '' || selectedCategory !== 'All') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      setSelectedCategory('All');
+                    }}
+                    className="inline-flex items-center px-3.5 py-1.5 rounded-xl bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#13325B] transition"
+                  >
+                    {tr(language, 'Show All Items', 'అన్ని వస్తువులు చూపించు')}
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredProducts.map((product) => {
               const variants = parseVariants(product.variantsSummary);
               const thumbSrc = resolveProductImage(product);
               const isCardPressed = pressedChip?.productId === product.id;
@@ -749,7 +794,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   )}
                 </motion.div>
               );
-            })}
+              })
+            )}
           </div>
 
           <div className="hidden lg:flex items-center justify-between pt-3 border-t border-[#E5DDD3]">

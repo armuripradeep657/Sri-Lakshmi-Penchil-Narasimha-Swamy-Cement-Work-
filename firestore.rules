@@ -99,6 +99,14 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/businesses/$(businessId));
     }
 
+    function isSameBusinessActiveUser(targetBusinessId) {
+      return isAuthorizedSessionUser() &&
+        isValidId(targetBusinessId) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId == targetBusinessId;
+    }
+
     function isBusinessMember(businessId) {
       return isBootAdmin() || (
         isAuthorizedSessionUser() &&
@@ -109,7 +117,8 @@ service cloud.firestore {
             isVerifiedUser() &&
             'authorizedEmails' in get(/databases/$(database)/documents/businesses/$(businessId)).data &&
             request.auth.token.email in get(/databases/$(database)/documents/businesses/$(businessId)).data.authorizedEmails
-          )
+          ) ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId == businessId
         )
       );
     }
@@ -700,8 +709,8 @@ service cloud.firestore {
     }
 
     match /businesses/{businessId} {
-      allow get: if isValidId(businessId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(businessId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().id);
       allow create: if isValidId(businessId) &&
         isAdmin() &&
         isValidBusiness(incoming()) &&
@@ -827,8 +836,8 @@ service cloud.firestore {
     }
 
     match /devices/{deviceId} {
-      allow get: if isValidId(deviceId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(deviceId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(deviceId) &&
         isValidDevice(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -855,8 +864,8 @@ service cloud.firestore {
     }
 
     match /categories/{categoryId} {
-      allow get: if isValidId(categoryId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(categoryId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(categoryId) &&
         isValidCategory(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -873,8 +882,8 @@ service cloud.firestore {
     }
 
     match /products/{productId} {
-      allow get: if isValidId(productId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(productId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(productId) &&
         isValidProduct(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -896,8 +905,8 @@ service cloud.firestore {
     }
 
     match /customers/{customerId} {
-      allow get: if isValidId(customerId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(customerId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(customerId) &&
         isValidCustomer(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -919,8 +928,8 @@ service cloud.firestore {
     }
 
     match /bills/{billId} {
-      allow get: if isValidId(billId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(billId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(billId) &&
         isValidBill(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -984,8 +993,8 @@ service cloud.firestore {
     }
 
     match /billItems/{itemId} {
-      allow get: if isValidId(itemId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(itemId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(itemId) &&
         isValidBillItem(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1009,8 +1018,8 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow get: if isValidId(paymentId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(paymentId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(paymentId) &&
         isValidPayment(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1028,8 +1037,8 @@ service cloud.firestore {
     }
 
     match /invoices/{invoiceId} {
-      allow get: if isValidId(invoiceId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(invoiceId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(invoiceId) &&
         isValidInvoice(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1092,8 +1101,8 @@ service cloud.firestore {
     }
 
     match /inventoryTransactions/{txId} {
-      allow get: if isValidId(txId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(txId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(txId) &&
         isValidInventoryTransaction(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1104,8 +1113,8 @@ service cloud.firestore {
     }
 
     match /upiSettings/{settingId} {
-      allow get: if isValidId(settingId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(settingId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(settingId) &&
         isValidUpiSetting(incoming()) &&
         isBusinessAdmin(incoming().businessId) &&
@@ -1120,8 +1129,8 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow get: if isValidId(notificationId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(notificationId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(notificationId) &&
         isValidNotification(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1134,8 +1143,8 @@ service cloud.firestore {
     }
 
     match /messageLogs/{logId} {
-      allow get: if isValidId(logId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(logId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(logId) &&
         isValidMessageLog(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1149,8 +1158,8 @@ service cloud.firestore {
     }
 
     match /businessSettings/{settingId} {
-      allow get: if isValidId(settingId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(settingId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(settingId) &&
         isValidBusinessSettings(incoming()) &&
         isBusinessAdmin(incoming().businessId) &&
@@ -1165,8 +1174,8 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
-      allow get: if isValidId(logId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(logId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(logId) &&
         isValidAuditLog(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1177,8 +1186,8 @@ service cloud.firestore {
     }
 
     match /labourWorks/{workId} {
-      allow get: if isValidId(workId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(workId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(workId) &&
         isValidLabourWork(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1208,8 +1217,8 @@ service cloud.firestore {
     }
 
     match /shopEntries/{entryId} {
-      allow get: if isValidId(entryId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(entryId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(entryId) &&
         isValidShopEntry(incoming()) &&
         isBusinessMember(incoming().businessId) &&
@@ -1239,8 +1248,8 @@ service cloud.firestore {
     }
 
     match /approvalRequests/{requestId} {
-      allow get: if isValidId(requestId) && isDocAuthorized(existing());
-      allow list: if isDocAuthorized(existing());
+      allow get: if isValidId(requestId) && (isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId));
+      allow list: if isDocAuthorized(existing()) || isSameBusinessActiveUser(existing().businessId);
       allow create: if isValidId(requestId) &&
         isValidApprovalRequest(incoming()) &&
         isBusinessMember(incoming().businessId) &&

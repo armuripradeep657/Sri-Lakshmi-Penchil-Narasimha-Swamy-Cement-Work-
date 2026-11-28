@@ -520,7 +520,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const isBoot = Boolean((firebaseUid ? firebaseEmailVerified : true) && userEmail === BOOT_ADMIN_EMAIL);
 
     const buildScopedQuery = (colName: string) => {
-      if (isBoot) {
+      if (isBoot || userAccount?.businessId === businessId) {
         return query(collection(db, colName), where('businessId', '==', businessId));
       }
       return query(collection(db, colName), where('authorizedUids', 'array-contains', userUid));
@@ -726,18 +726,25 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [authReady, firebaseUid, firebaseEmailVerified, userUid, userEmail, accountStatus, accessDeniedReason, deviceRevoked, businessId, isAdmin]);
+  }, [authReady, firebaseUid, firebaseEmailVerified, userUid, userEmail, accountStatus, accessDeniedReason, deviceRevoked, businessId, userAccount?.businessId, isAdmin]);
 
   const accessContext = useMemo(() => {
     const ownerUid = business?.ownerUid || userAccount?.ownerUid || userUid || '';
-    const authorizedUids = business?.authorizedUids?.length
-      ? business.authorizedUids
-      : userAccount?.authorizedUids || (ownerUid ? [ownerUid] : []);
+    const activeUserUids = users.filter((u) => u.status === 'active').map((u) => u.uid);
+    const mergedUids = [
+      ...new Set([
+        ...(business?.authorizedUids || []),
+        ...(userAccount?.authorizedUids || []),
+        ...activeUserUids,
+        ...(ownerUid ? [ownerUid] : []),
+      ]),
+    ].slice(0, 25);
+    const authorizedUids = mergedUids.length ? mergedUids : ownerUid ? [ownerUid] : [];
     const authorizedEmails = business?.authorizedEmails?.length
       ? business.authorizedEmails
       : [userEmail || BOOT_ADMIN_EMAIL];
     return { ownerUid, authorizedUids, authorizedEmails };
-  }, [business, userAccount, userUid, userEmail]);
+  }, [business, userAccount, userUid, userEmail, users]);
 
   const createBillAtomic = useCallback(
     async (payload: CreateBillPayload): Promise<Bill> => {
@@ -3547,22 +3554,14 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         'devices',
       ];
 
-      let batch = writeBatch(db);
-      let opCount = 0;
-
-      const flushIfFull = async () => {
-        if (opCount >= 380) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opCount = 0;
-        }
-      };
-
       for (const colName of cols) {
         try {
           const snap = await getDocs(
             query(collection(db, colName), where('businessId', '==', businessId), limit(500))
           );
+          let colBatch = writeBatch(db);
+          let colOpCount = 0;
+
           for (const d of snap.docs) {
             const data = d.data() as { authorizedUids?: string[]; authorizedEmails?: string[] };
             const curUids = Array.isArray(data.authorizedUids) ? data.authorizedUids : [];
@@ -3581,17 +3580,20 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             } else if (colName === 'devices') {
               payload.lastActiveAt = serverTimestamp();
             }
-            batch.update(doc(db, colName, d.id), payload);
-            opCount += 1;
-            await flushIfFull();
+            colBatch.update(doc(db, colName, d.id), payload);
+            colOpCount += 1;
+            if (colOpCount >= 380) {
+              await colBatch.commit();
+              colBatch = writeBatch(db);
+              colOpCount = 0;
+            }
+          }
+          if (colOpCount > 0) {
+            await colBatch.commit();
           }
         } catch {
-          // ignore collections without matching permissions
+          // ignore collections without matching permissions or schema mismatch
         }
-      }
-
-      if (opCount > 0) {
-        await batch.commit();
       }
     },
     [businessId, business, accessContext]
