@@ -44,7 +44,6 @@ type ReportType =
   | 'products'
   | 'customers'
   | 'payments'
-  | 'gst'
   | 'profit_loss'
   | 'outstanding'
   | 'inventory';
@@ -76,7 +75,6 @@ export const ReportsPage: React.FC = () => {
         ['products', tr(language, 'Product Sales', 'ఉత్పత్తుల అమ్మకాలు')],
         ['customers', tr(language, 'Customer Ledger', 'కస్టమర్ ఖాతా')],
         ['payments', tr(language, 'Payments', 'చెల్లింపులు')],
-        ['gst', tr(language, 'GST Tax', 'జీఎస్టీ పన్ను')],
         ['profit_loss', tr(language, 'Profit & Loss', 'లాభం & నష్టం')],
         ['outstanding', tr(language, 'Pending Dues', 'బాకీ వివరాలు')],
         ['inventory', tr(language, 'Inventory Valuation', 'స్టాక్ విలువ')],
@@ -123,7 +121,6 @@ export const ReportsPage: React.FC = () => {
     const collected = dateFilteredBills.reduce((s, b) => s + b.amountPaid, 0);
     const pending = dateFilteredBills.reduce((s, b) => s + b.pendingBalance, 0);
     const totalDiscount = dateFilteredBills.reduce((s, b) => s + b.discountAmount, 0);
-    const totalTax = dateFilteredBills.reduce((s, b) => s + b.totalTax, 0);
 
     const billIdSet = new Set(dateFilteredBills.map((b) => b.id));
     const productMap = new Map(products.map((p) => [p.id, p]));
@@ -134,8 +131,7 @@ export const ReportsPage: React.FC = () => {
         estimatedCogs += Number(prod?.purchasePrice || 0) * item.quantity;
       }
     }
-    const netExTaxRevenue = grossSales - totalTax;
-    const grossProfit = netExTaxRevenue - estimatedCogs;
+    const grossProfit = grossSales - estimatedCogs;
 
     return {
       billCount: dateFilteredBills.length,
@@ -143,7 +139,6 @@ export const ReportsPage: React.FC = () => {
       collected,
       pending,
       totalDiscount,
-      totalTax,
       estimatedCogs,
       grossProfit,
     };
@@ -151,17 +146,16 @@ export const ReportsPage: React.FC = () => {
 
   const { columns, rows, chartData } = useMemo(() => {
     if (reportType === 'products') {
-      const map = new Map<string, { name: string; qty: number; revenue: number; tax: number; cost: number }>();
+      const map = new Map<string, { name: string; qty: number; revenue: number; cost: number }>();
       const prodMap = new Map(products.map((p) => [p.id, p]));
       const activeIds = new Set(activeBills.map((b) => b.id));
       for (const bi of billItems) {
         if (!activeIds.has(bi.billId)) continue;
         const displayName = translateCartProductName(bi.productName, bi.productId, products, language);
-        const cur = map.get(bi.productId) || { name: displayName, qty: 0, revenue: 0, tax: 0, cost: 0 };
+        const cur = map.get(bi.productId) || { name: displayName, qty: 0, revenue: 0, cost: 0 };
         const p = prodMap.get(bi.productId);
         cur.qty += bi.quantity;
         cur.revenue += bi.lineTotal;
-        cur.tax += bi.taxAmount;
         cur.cost += Number(p?.purchasePrice || 0) * bi.quantity;
         map.set(bi.productId, cur);
       }
@@ -169,16 +163,14 @@ export const ReportsPage: React.FC = () => {
       const colProduct = tr(language, 'Product', 'వస్తువు');
       const colUnits = tr(language, 'Units Sold', 'అమ్మిన సంఖ్య');
       const colRev = tr(language, 'Revenue (₹)', 'ఆదాయం (₹)');
-      const colTax = tr(language, 'Tax (₹)', 'పన్ను (₹)');
       const colProfit = tr(language, 'Est. Profit (₹)', 'అంచనా లాభం (₹)');
       return {
-        columns: [colProduct, colUnits, colRev, colTax, colProfit],
+        columns: [colProduct, colUnits, colRev, colProfit],
         rows: list.map((r) => ({
           [colProduct]: r.name,
           [colUnits]: r.qty,
           [colRev]: Number(r.revenue.toFixed(2)),
-          [colTax]: Number(r.tax.toFixed(2)),
-          [colProfit]: Number((r.revenue - r.tax - r.cost).toFixed(2)),
+          [colProfit]: Number((r.revenue - r.cost).toFixed(2)),
         })),
         chartData: list.slice(0, 8).map((r) => ({ label: r.name.slice(0, 14), value: Math.round(r.revenue) })),
       };
@@ -234,33 +226,6 @@ export const ReportsPage: React.FC = () => {
           label: translatePaymentMethod(r.method, language),
           value: Math.round(r.total),
         })),
-      };
-    }
-
-    if (reportType === 'gst') {
-      const cBill = tr(language, 'Bill #', 'బిల్ #');
-      const cDate = tr(language, 'Date', 'తేదీ');
-      const cCust = tr(language, 'Customer', 'కస్టమర్');
-      const cTaxable = tr(language, 'Taxable (₹)', 'పన్ను వర్తించేది (₹)');
-      const cCgst = tr(language, 'CGST (₹)', 'సీజీఎస్టీ (₹)');
-      const cSgst = tr(language, 'SGST (₹)', 'ఎస్‌జీఎస్టీ (₹)');
-      const cIgst = tr(language, 'IGST (₹)', 'ఐజీఎస్టీ (₹)');
-      const cTotTax = tr(language, 'Total Tax (₹)', 'మొత్తం పన్ను (₹)');
-      const cGrand = tr(language, 'Grand Total (₹)', 'మొత్తం విలువ (₹)');
-      return {
-        columns: [cBill, cDate, cCust, cTaxable, cCgst, cSgst, cIgst, cTotTax, cGrand],
-        rows: dateFilteredBills.map((b) => ({
-          [cBill]: b.billNumber,
-          [cDate]: formatAppDate(formatTimestamp(b.createdAt), language),
-          [cCust]: translateCustomerName(b.customerName, language),
-          [cTaxable]: b.taxableAmount,
-          [cCgst]: b.cgstAmount || 0,
-          [cSgst]: b.sgstAmount || 0,
-          [cIgst]: b.igstAmount || 0,
-          [cTotTax]: b.totalTax,
-          [cGrand]: b.grandTotal,
-        })),
-        chartData: dateFilteredBills.slice(0, 10).map((b) => ({ label: b.billNumber, value: Math.round(b.totalTax) })),
       };
     }
 
@@ -328,20 +293,18 @@ export const ReportsPage: React.FC = () => {
     const cCust = tr(language, 'Customer', 'కస్టమర్');
     const cSub = tr(language, 'Subtotal (₹)', 'ఉప మొత్తం (₹)');
     const cDisc = tr(language, 'Discount (₹)', 'తగ్గింపు (₹)');
-    const cTax = tr(language, 'Tax (₹)', 'పన్ను (₹)');
     const cGrand = tr(language, 'Grand Total (₹)', 'మొత్తం విలువ (₹)');
     const cPaid = tr(language, 'Paid (₹)', 'చెల్లించినది (₹)');
     const cStat = tr(language, 'Status', 'స్థితి');
 
     return {
-      columns: [cBill, cDate, cCust, cSub, cDisc, cTax, cGrand, cPaid, cStat],
+      columns: [cBill, cDate, cCust, cSub, cDisc, cGrand, cPaid, cStat],
       rows: dateFilteredBills.map((b) => ({
         [cBill]: b.billNumber,
         [cDate]: formatAppDate(formatTimestamp(b.createdAt), language),
         [cCust]: translateCustomerName(b.customerName, language),
         [cSub]: b.subtotal,
         [cDisc]: b.discountAmount,
-        [cTax]: b.totalTax,
         [cGrand]: b.grandTotal,
         [cPaid]: b.amountPaid,
         [cStat]: language === 'te' ? translateStatus(b.paymentStatus, 'te') : b.paymentStatus.toUpperCase(),
@@ -381,7 +344,7 @@ export const ReportsPage: React.FC = () => {
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, pxW, pxH);
 
-        ctx.fillStyle = '#0B1F44';
+        ctx.fillStyle = '#0A2240';
         ctx.fillRect(0, 0, pxW, 68);
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 20px sans-serif';
@@ -390,7 +353,7 @@ export const ReportsPage: React.FC = () => {
         const colW = (pxW - 40) / columns.length;
         ctx.fillStyle = '#F1F5F9';
         ctx.fillRect(20, 84, pxW - 40, 38);
-        ctx.fillStyle = '#0B1F44';
+        ctx.fillStyle = '#0A2240';
         ctx.font = 'bold 13px sans-serif';
         columns.forEach((c, ci) => {
           ctx.fillText(c.slice(0, 18), 28 + ci * colW, 108);
@@ -490,11 +453,11 @@ export const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-5">
       {/* Report Selector Bar */}
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-[#1D4ED8]" />
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+            <BarChart3 className="w-5 h-5 text-[#9A4307]" />
+            <h2 className="text-sm font-bold text-[#0A2240] dark:text-white">
               {tr(language, 'Cloud Financial & Inventory Analytics', 'క్లౌడ్ ఆర్థిక & స్టాక్ విశ్లేషణలు')}
             </h2>
           </div>
@@ -502,7 +465,7 @@ export const ReportsPage: React.FC = () => {
             <button
               onClick={handleExportPdf}
               disabled={rows.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#0A2240] disabled:opacity-40"
             >
               <FileText className="w-3.5 h-3.5" /> {tr(language, 'PDF', 'పీడీఎఫ్')}
             </button>
@@ -515,21 +478,21 @@ export const ReportsPage: React.FC = () => {
                 )
               }
               disabled={rows.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 text-xs font-medium disabled:opacity-40"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" /> {tr(language, 'Excel', 'ఎక్సెల్')}
             </button>
             <button
               onClick={() => exportRowsToCsv(rows as Record<string, unknown>[], `slp-report-${reportType}`)}
               disabled={rows.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 text-xs font-medium disabled:opacity-40"
             >
               <Download className="w-3.5 h-3.5" /> {tr(language, 'CSV', 'సీఎస్‌వీ')}
             </button>
             <button
               onClick={handleRunDeepInsights}
               disabled={aiLoading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#06B6D4]/15 text-[#0284C7] dark:text-[#06B6D4] text-xs font-semibold hover:bg-[#06B6D4]/25"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#06B6D4]/15 text-[#0284C7] dark:text-amber-400 text-xs font-semibold hover:bg-[#06B6D4]/25"
             >
               <BrainCircuit className="w-3.5 h-3.5" />{' '}
               {aiLoading ? tr(language, 'Analyzing...', 'విశ్లేషిస్తోంది...') : tr(language, 'AI Analyst', 'ఏఐ విశ్లేషకుడు')}
@@ -544,8 +507,8 @@ export const ReportsPage: React.FC = () => {
               onClick={() => setReportType(id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                 reportType === id
-                  ? 'bg-[#0B1F44] text-white'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  ? 'bg-[#0A2240] text-white'
+                  : 'bg-[#F3EDE5] dark:bg-slate-800 text-[#6D665E] dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               {label}
@@ -555,19 +518,19 @@ export const ReportsPage: React.FC = () => {
 
         {reportType === 'custom' && (
           <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
-            <Calendar className="w-4 h-4 text-slate-400" />
+            <Calendar className="w-4 h-4 text-[#8A8279]" />
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+              className="px-2.5 py-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950 font-mono"
             />
-            <span className="text-slate-400">{tr(language, 'to', 'నుండి వరకు')}</span>
+            <span className="text-[#8A8279]">{tr(language, 'to', 'నుండి వరకు')}</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 font-mono"
+              className="px-2.5 py-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950 font-mono"
             />
           </div>
         )}
@@ -575,53 +538,46 @@ export const ReportsPage: React.FC = () => {
 
       {/* Period Financial Summary Strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5">
-          <div className="text-[11px] text-slate-500">{tr(language, 'Gross Revenue', 'మొత్తం ఆదాయం')}</div>
-          <div className="text-base font-bold font-mono text-slate-900 dark:text-white mt-0.5">
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-3.5">
+          <div className="text-[11px] text-[#6D665E]">{tr(language, 'Gross Revenue', 'మొత్తం ఆదాయం')}</div>
+          <div className="text-base font-bold font-mono text-[#0A2240] dark:text-white mt-0.5">
             {formatCurrency(summary.grossSales)}
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-[#8A8279]">
             {language === 'te' ? `${summary.billCount} ఇన్వాయిస్‌లు` : `${summary.billCount} invoices`}
           </div>
         </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5">
-          <div className="text-[11px] text-slate-500">{tr(language, 'Collected', 'వసూలైనది')}</div>
-          <div className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-3.5">
+          <div className="text-[11px] text-[#6D665E]">{tr(language, 'Collected', 'వసూలైనది')}</div>
+          <div className="text-base font-bold font-mono text-[#15803D] dark:text-emerald-400 mt-0.5">
             {formatCurrency(summary.collected)}
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-[#8A8279]">
             {tr(language, 'Discounts:', 'తగ్గింపులు:')} {formatCurrency(summary.totalDiscount)}
           </div>
         </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5">
-          <div className="text-[11px] text-slate-500">{tr(language, 'Pending Dues', 'రావాల్సిన బాకీలు')}</div>
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-3.5">
+          <div className="text-[11px] text-[#6D665E]">{tr(language, 'Pending Dues', 'రావాల్సిన బాకీలు')}</div>
           <div className="text-base font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
             {formatCurrency(summary.pending)}
           </div>
-          <div className="text-[11px] text-slate-400">{tr(language, 'Receivable balance', 'రావాల్సిన బ్యాలెన్స్')}</div>
+          <div className="text-[11px] text-[#8A8279]">{tr(language, 'Receivable balance', 'రావాల్సిన బ్యాలెన్స్')}</div>
         </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5">
-          <div className="text-[11px] text-slate-500">{tr(language, 'GST Output Tax', 'జీఎస్టీ అవుట్‌పుట్ పన్ను')}</div>
-          <div className="text-base font-bold font-mono text-slate-900 dark:text-white mt-0.5">
-            {formatCurrency(summary.totalTax)}
-          </div>
-          <div className="text-[11px] text-slate-400">{tr(language, 'CGST/SGST/IGST', 'సీజీఎస్టీ/ఎస్‌జీఎస్టీ/ఐజీఎస్టీ')}</div>
-        </div>
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5">
-          <div className="text-[11px] text-slate-500 flex items-center gap-1">
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-3.5">
+          <div className="text-[11px] text-[#6D665E] flex items-center gap-1">
             <TrendingUp className="w-3 h-3 text-[#06B6D4]" /> {tr(language, 'Est. Gross Profit', 'అంచనా స్థూల లాభం')}
           </div>
-          <div className="text-base font-bold font-mono text-[#1D4ED8] dark:text-[#06B6D4] mt-0.5">
+          <div className="text-base font-bold font-mono text-[#9A4307] dark:text-amber-400 mt-0.5">
             {formatCurrency(summary.grossProfit)}
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-[#8A8279]">
             {tr(language, 'COGS:', 'కొనుగోలు ఖర్చు:')} {formatCurrency(summary.estimatedCogs)}
           </div>
         </div>
       </div>
 
       {aiError && (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-800 dark:text-amber-300">
+        <div className="rounded-xl border border-[#F0D9B5] dark:border-amber-900/50 bg-[#FDF3DF] dark:bg-amber-950/30 p-3 text-xs text-[#9A4307] dark:text-amber-300">
           {aiError}
         </div>
       )}
@@ -629,15 +585,15 @@ export const ReportsPage: React.FC = () => {
       {aiInsights && (
         <div className="rounded-xl border border-[#06B6D4]/40 bg-white dark:bg-slate-900 p-5 space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0284C7] dark:text-[#06B6D4] flex items-center gap-1.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0284C7] dark:text-amber-400 flex items-center gap-1.5">
               <BrainCircuit className="w-4 h-4" />{' '}
               {tr(language, 'Financial & Inventory Insights', 'ఆర్థిక & స్టాక్ విశ్లేషణలు')}
             </h3>
-            <button onClick={() => setAiInsights(null)} className="text-xs text-slate-400 hover:text-slate-600">
+            <button onClick={() => setAiInsights(null)} className="text-xs text-[#8A8279] hover:text-[#6D665E]">
               {tr(language, 'Close', 'మూసివేయి')}
             </button>
           </div>
-          <div className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
+          <div className="text-xs text-[#2D3138] dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
             {aiInsights}
           </div>
         </div>
@@ -645,8 +601,8 @@ export const ReportsPage: React.FC = () => {
 
       {/* Visual Chart */}
       {chartData.length > 0 && (
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5">
-          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-5">
+          <h3 className="text-xs font-semibold text-[#6D665E] uppercase tracking-wider mb-4">
             {tr(language, 'Visual Breakdown', 'గ్రాఫ్ విశ్లేషణ')} ({reportTypeLabel})
           </h3>
           <div className="h-60 w-full">
@@ -658,7 +614,7 @@ export const ReportsPage: React.FC = () => {
                 <Tooltip
                   formatter={(v) => [formatCurrency(Number(v || 0)), tr(language, 'Value', 'విలువ')]}
                 />
-                <Bar dataKey="value" fill="#1D4ED8" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill="#0A2240" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -666,9 +622,9 @@ export const ReportsPage: React.FC = () => {
       )}
 
       {/* Report Data Table */}
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-x-auto">
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 overflow-x-auto">
         <table className="w-full text-xs text-left">
-          <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 border-b border-slate-200 dark:border-slate-800">
+          <thead className="bg-[#FAF8F5] dark:bg-slate-950 text-[#6D665E] border-b border-[#E5DDD3] dark:border-slate-800">
             <tr>
               {columns.map((col) => (
                 <th key={col} className="py-3 px-4 font-semibold whitespace-nowrap">
@@ -677,11 +633,11 @@ export const ReportsPage: React.FC = () => {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody className="divide-y divide-[#EFEAE2] dark:divide-slate-800">
             {rows.map((row, idx) => (
-              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+              <tr key={idx} className="hover:bg-[#FAF8F5] dark:hover:bg-slate-800/40">
                 {columns.map((col) => (
-                  <td key={col} className="py-2.5 px-4 font-mono text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                  <td key={col} className="py-2.5 px-4 font-mono text-[#2D3138] dark:text-slate-200 whitespace-nowrap">
                     {String((row as Record<string, unknown>)[col] ?? '')}
                   </td>
                 ))}
@@ -689,7 +645,7 @@ export const ReportsPage: React.FC = () => {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="py-10 text-center text-slate-400">
+                <td colSpan={columns.length} className="py-10 text-center text-[#8A8279]">
                   {tr(language, 'No records match this report period.', 'ఈ వ్యవధికి సరిపోలే నమోదులు ఏవీ లేవు.')}
                 </td>
               </tr>

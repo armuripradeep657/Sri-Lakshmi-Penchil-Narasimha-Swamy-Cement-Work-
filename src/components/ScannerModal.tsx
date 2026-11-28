@@ -14,6 +14,7 @@ import {
   translateStatus,
 } from '../lib/i18n';
 import { Language } from '../types/billing';
+import { ModalPortal } from './ModalPortal';
 
 export interface ScanClassification {
   rawText: string;
@@ -38,7 +39,8 @@ export function classifyScannedPayload(
   rawText: string,
   products: Product[],
   bills: Bill[] = [],
-  language: Language = 'en'
+  language: Language = 'en',
+  hideBarcodeMatter = false
 ): ScanClassification {
   const trimmed = rawText.trim();
   if (!trimmed) {
@@ -77,14 +79,20 @@ export function classifyScannedPayload(
 
   const lower = trimmed.toLowerCase();
 
-  // 2. Check Bill Verification Barcode (unique mixed numbers + letters code, plus bill # / ID)
-  const matchedBill = bills.find(
-    (b) =>
-      (b.verificationBarcode && b.verificationBarcode.toLowerCase() === lower) ||
-      getBillVerificationBarcode(b).toLowerCase() === lower ||
+  // 2. Check Bill Verification Barcode (SLP-XXXXXXXX-XXXX, legacy raw code, plus bill # / ID)
+  const strippedLower = lower.replace(/^slp-?/, '').replace(/[^a-z0-9]/g, '');
+  const matchedBill = bills.find((b) => {
+    const formattedCode = getBillVerificationBarcode(b).toLowerCase();
+    const rawCode = (b.verificationBarcode || '').toLowerCase();
+    const rawStripped = rawCode.replace(/^slp-?/, '').replace(/[^a-z0-9]/g, '');
+    return (
+      (rawCode && rawCode === lower) ||
+      formattedCode === lower ||
+      (strippedLower.length >= 8 && rawStripped === strippedLower) ||
       b.billNumber.toLowerCase() === lower ||
       b.id.toLowerCase() === lower
-  );
+    );
+  });
   if (matchedBill) {
     const verifyCode = getBillVerificationBarcode(matchedBill);
     const statusText =
@@ -97,11 +105,17 @@ export function classifyScannedPayload(
       rawText: trimmed,
       kind: 'bill_barcode',
       matchedBill,
-      reason: tr(
-        language,
-        `Verified authentic bill ${matchedBill.billNumber} (Code ${verifyCode}) for ${matchedBill.customerName} (${statusText}).`,
-        `${translateCustomerName(matchedBill.customerName, 'te')} కోసం అసలు బిల్ ${matchedBill.billNumber} (కోడ్ ${verifyCode}) నిర్ధారించబడింది (${statusText}).`
-      ),
+      reason: hideBarcodeMatter
+        ? tr(
+            language,
+            `Matched bill ${matchedBill.billNumber} for ${matchedBill.customerName} (${statusText}).`,
+            `${translateCustomerName(matchedBill.customerName, 'te')} కోసం బిల్ ${matchedBill.billNumber} గుర్తించబడింది (${statusText}).`
+          )
+        : tr(
+            language,
+            `Verified authentic bill ${matchedBill.billNumber} (Code ${verifyCode}) for ${matchedBill.customerName} (${statusText}).`,
+            `${translateCustomerName(matchedBill.customerName, 'te')} కోసం అసలు బిల్ ${matchedBill.billNumber} (కోడ్ ${verifyCode}) నిర్ధారించబడింది (${statusText}).`
+          ),
     };
   }
 
@@ -120,11 +134,13 @@ export function classifyScannedPayload(
       rawText: trimmed,
       kind: 'product_barcode',
       matchedProduct: matched,
-      reason: tr(
-        language,
-        `Matched product "${matched.name}" (${matched.productCode}) in catalog.`,
-        `కేటలాగ్‌లో "${dispProd}" (${matched.productCode}) ఉత్పత్తి గుర్తించబడింది.`
-      ),
+      reason: hideBarcodeMatter
+        ? tr(language, `Matched product "${matched.name}" in catalog.`, `కేటలాగ్‌లో "${dispProd}" ఉత్పత్తి గుర్తించబడింది.`)
+        : tr(
+            language,
+            `Matched product "${matched.name}" (${matched.productCode}) in catalog.`,
+            `కేటలాగ్‌లో "${dispProd}" (${matched.productCode}) ఉత్పత్తి గుర్తించబడింది.`
+          ),
     };
   }
 
@@ -168,7 +184,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
   title,
   embedded = false,
 }) => {
-  const { language } = useAuth();
+  const { language, isAdmin } = useAuth();
   const resolvedTitle = title || tr(language, 'QR & Barcode Scanner', 'క్యూఆర్ & బార్‌కోడ్ స్కానర్');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -176,9 +192,11 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
   const productsRef = useRef<Product[]>(products);
   const billsRef = useRef<Bill[]>(bills);
   const languageRef = useRef<Language>(language);
+  const isAdminRef = useRef<boolean>(isAdmin);
   productsRef.current = products;
   billsRef.current = bills;
   languageRef.current = language;
+  isAdminRef.current = isAdmin;
 
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -302,7 +320,13 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                 const qr = jsQR(imgData.data, canvas.width, canvas.height);
                 if (qr?.data && !cancelled) {
                   setClassification(
-                    classifyScannedPayload(qr.data, productsRef.current, billsRef.current, languageRef.current)
+                    classifyScannedPayload(
+                      qr.data,
+                      productsRef.current,
+                      billsRef.current,
+                      languageRef.current,
+                      !isAdminRef.current
+                    )
                   );
                 }
               } catch {
@@ -316,7 +340,13 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                   const text = zxingResult?.getText();
                   if (text && !cancelled) {
                     setClassification(
-                      classifyScannedPayload(text, productsRef.current, billsRef.current, languageRef.current)
+                      classifyScannedPayload(
+                        text,
+                        productsRef.current,
+                        billsRef.current,
+                        languageRef.current,
+                        !isAdminRef.current
+                      )
                     );
                   }
                 } catch {
@@ -333,7 +363,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
         setCameraError(
           tr(
             languageRef.current,
-            `Camera permission denied or hardware unavailable (${msg}). Enter a verification barcode (e.g. 8K4M92X7P3Q1), bill #, product barcode, or UPI URI manually below.`,
+            `Camera permission denied or hardware unavailable (${msg}). Enter a verification barcode (e.g. SLP-W2TMKGYE-TDF6), bill #, product barcode, or UPI URI manually below.`,
             `కెమెరా అనుమతి నిరాకరించబడింది లేదా అందుబాటులో లేదు (${msg}). ధృవీకరణ బార్‌కోడ్, బిల్ నంబర్, ఉత్పత్తి బార్‌కోడ్ లేదా యూపీఐ వివరాలు కింద మాన్యువల్‌గా నమోదు చేయండి.`
           )
         );
@@ -351,7 +381,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
   const handleManualLookup = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = classifyScannedPayload(manualInput, products, bills, language);
+    const res = classifyScannedPayload(manualInput, products, bills, language, !isAdmin);
     setClassification(res);
   };
 
@@ -366,21 +396,21 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
     <div
       className={
         embedded
-          ? 'w-full rounded-2xl bg-white border border-blue-100 shadow-sm overflow-hidden'
-          : 'w-full sm:max-w-xl min-h-screen sm:min-h-0 rounded-none sm:rounded-2xl bg-white border-0 sm:border border-slate-200 shadow-xl overflow-hidden sm:max-h-[92vh] overflow-y-auto'
+          ? 'w-full rounded-2xl bg-white border border-[#E5DDD3] shadow-sm overflow-hidden'
+          : 'w-full sm:max-w-xl min-h-screen sm:min-h-0 rounded-none sm:rounded-2xl bg-white border-0 sm:border border-[#E5DDD3] shadow-xl overflow-hidden sm:max-h-[92vh] overflow-y-auto'
       }
     >
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5DDD3]">
         <div className="flex items-center gap-2.5">
-          <Camera className="w-5 h-5 text-[#1D4ED8]" />
-          <h3 className="text-base font-semibold text-slate-900">{resolvedTitle}</h3>
+          <Camera className="w-5 h-5 text-[#9A4307]" />
+          <h3 className="text-base font-semibold text-[#0A2240]">{resolvedTitle}</h3>
         </div>
         <div className="flex items-center gap-2">
           {cameras.length > 1 && (
             <button
               type="button"
               onClick={handleSwitchCamera}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#E5DDD3] text-xs font-medium text-[#2D3138] hover:bg-[#F3EDE5]"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               {tr(language, 'Switch', 'కెమెరా మార్చు')}
@@ -390,7 +420,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              className="p-1.5 rounded-lg text-[#8A8279] hover:text-[#2D3138]"
             >
               <X className="w-5 h-5" />
             </button>
@@ -415,41 +445,49 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
 
         <form onSubmit={handleManualLookup} className="flex gap-2">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-[#8A8279] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={manualInput}
               onChange={(e) => setManualInput(e.target.value)}
-              placeholder={tr(
-                language,
-                'Enter verification barcode, bill #, product code, or upi://pay?...',
-                'ధృవీకరణ బార్‌కోడ్, బిల్ నంబర్, ఉత్పత్తి కోడ్ లేదా యూపీఐ లింక్ నమోదు చేయండి'
-              )}
-              className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
+              placeholder={
+                isAdmin
+                  ? tr(
+                      language,
+                      'Enter verification barcode, bill #, product code, or upi://pay?...',
+                      'ధృవీకరణ బార్‌కోడ్, బిల్ నంబర్, ఉత్పత్తి కోడ్ లేదా యూపీఐ లింక్ నమోదు చేయండి'
+                    )
+                  : tr(
+                      language,
+                      'Enter bill # to look up...',
+                      'బిల్ నంబర్ నమోదు చేయండి...'
+                    )
+              }
+              className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-[#E5DDD3] bg-white text-[#0A2240] focus:outline-none focus:ring-2 focus:ring-[#0A2240]"
             />
           </div>
           <button
             type="submit"
-            className="px-4 py-2.5 rounded-xl bg-[#0B1F44] text-white text-sm font-medium hover:bg-[#13326b] whitespace-nowrap"
+            className="px-4 py-2.5 rounded-xl bg-[#0A2240] text-white text-sm font-medium hover:bg-[#13325B] whitespace-nowrap"
           >
             {tr(language, 'Verify', 'తనిఖీ చేయి')}
           </button>
         </form>
 
         {classification && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div className="rounded-xl border border-[#E5DDD3] bg-[#FAF8F5] p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 {classification.kind === 'bill_barcode' && (
                   <>
-                    <ReceiptText className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700">{tr(language, 'BILL VERIFIED', 'బిల్ నిర్ధారించబడింది')}</span>
+                    <ReceiptText className="w-4 h-4 text-[#15803D]" />
+                    <span className="text-[#15803D]">{tr(language, 'BILL VERIFIED', 'బిల్ నిర్ధారించబడింది')}</span>
                   </>
                 )}
                 {classification.kind === 'product_barcode' && (
                   <>
-                    <Barcode className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700">
+                    <Barcode className="w-4 h-4 text-[#15803D]" />
+                    <span className="text-[#15803D]">
                       {tr(language, 'Product Barcode Matched', 'ఉత్పత్తి బార్‌కోడ్ సరిపోయింది')}
                     </span>
                   </>
@@ -465,31 +503,35 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                 {classification.kind === 'unsupported' && (
                   <>
                     <ShieldAlert className="w-4 h-4 text-amber-600" />
-                    <span className="text-amber-700">
+                    <span className="text-[#9A4307]">
                       {tr(language, 'Unmatched / Unsupported Content', 'సరిపోలని / మద్దతు లేని వివరాలు')}
                     </span>
                   </>
                 )}
               </div>
-              <span className="font-mono text-xs text-slate-500 truncate max-w-[180px]">
-                {classification.rawText}
-              </span>
+              {isAdmin && (
+                <span className="font-mono text-xs text-[#6D665E] truncate max-w-[180px]">
+                  {classification.rawText}
+                </span>
+              )}
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">{classification.reason}</p>
+            <p className="text-xs text-[#6D665E] leading-relaxed">{classification.reason}</p>
 
             {classification.kind === 'bill_barcode' && classification.matchedBill && (
-              <div className="p-3 rounded-lg bg-white border border-emerald-200 space-y-2 text-xs">
+              <div className="p-3 rounded-lg bg-white border border-[#C5E8D1] space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-mono font-bold text-sm text-slate-900">
+                    <div className="font-mono font-bold text-sm text-[#0A2240]">
                       {classification.matchedBill.billNumber}
                     </div>
-                    <div className="text-[11px] font-mono text-emerald-700">
-                      {tr(language, 'Verify Code:', 'ధృవీకరణ కోడ్:')}{' '}
-                      {getBillVerificationBarcode(classification.matchedBill)}
-                    </div>
-                    <div className="text-slate-500">
+                    {isAdmin && (
+                      <div className="text-[11px] font-mono text-[#15803D]">
+                        {tr(language, 'Verify Code:', 'ధృవీకరణ కోడ్:')}{' '}
+                        {getBillVerificationBarcode(classification.matchedBill)}
+                      </div>
+                    )}
+                    <div className="text-[#6D665E]">
                       {translateCustomerName(classification.matchedBill.customerName, language)} ·{' '}
                       {formatAppDate(formatTimestamp(classification.matchedBill.createdAt), language)}
                     </div>
@@ -499,7 +541,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                       classification.matchedBill.pendingBalance <= 0 &&
                       classification.matchedBill.billStatus === 'active'
                         ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-amber-100 text-amber-800'
+                        : 'bg-amber-100 text-[#9A4307]'
                     }`}
                   >
                     {classification.matchedBill.pendingBalance <= 0 &&
@@ -508,19 +550,19 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                       : `${tr(language, 'DUE', 'బాకీ')} ₹${classification.matchedBill.pendingBalance.toFixed(2)}`}
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 font-mono">
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-[#EFEAE2] font-mono">
                   <div>
-                    <span className="text-slate-400 block text-[10px]">{tr(language, 'TOTAL', 'మొత్తం')}</span>
+                    <span className="text-[#8A8279] block text-[10px]">{tr(language, 'TOTAL', 'మొత్తం')}</span>
                     <span className="font-bold">₹{classification.matchedBill.grandTotal.toFixed(2)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">{tr(language, 'PAID', 'చెల్లించినది')}</span>
-                    <span className="font-bold text-emerald-600">
+                    <span className="text-[#8A8279] block text-[10px]">{tr(language, 'PAID', 'చెల్లించినది')}</span>
+                    <span className="font-bold text-[#15803D]">
                       ₹{classification.matchedBill.amountPaid.toFixed(2)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">{tr(language, 'BALANCE', 'బాకీ')}</span>
+                    <span className="text-[#8A8279] block text-[10px]">{tr(language, 'BALANCE', 'బాకీ')}</span>
                     <span className="font-bold text-amber-600">
                       ₹{classification.matchedBill.pendingBalance.toFixed(2)}
                     </span>
@@ -533,7 +575,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                       onBillFound(classification.matchedBill!);
                       onClose?.();
                     }}
-                    className="w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
+                    className="w-full mt-2 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#13325B]"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {tr(language, 'Open Bill & Share Receipt', 'బిల్ తెరవండి & రసీదు షేర్ చేయండి')}
@@ -543,16 +585,16 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
             )}
 
             {classification.kind === 'upi' && classification.upiDetails && (
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs">
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#E5DDD3] text-xs">
                 <div>
-                  <span className="text-slate-500">{tr(language, 'UPI ID:', 'యూపీఐ ఐడి:')}</span>{' '}
-                  <span className="font-mono font-medium text-slate-900">
+                  <span className="text-[#6D665E]">{tr(language, 'UPI ID:', 'యూపీఐ ఐడి:')}</span>{' '}
+                  <span className="font-mono font-medium text-[#0A2240]">
                     {classification.upiDetails.pa || tr(language, 'N/A', 'లేదు')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">{tr(language, 'Payee Name:', 'చెల్లింపుదారు పేరు:')}</span>{' '}
-                  <span className="font-medium text-slate-900">
+                  <span className="text-[#6D665E]">{tr(language, 'Payee Name:', 'చెల్లింపుదారు పేరు:')}</span>{' '}
+                  <span className="font-medium text-[#0A2240]">
                     {classification.upiDetails.pn || tr(language, 'N/A', 'లేదు')}
                   </span>
                 </div>
@@ -560,12 +602,12 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
             )}
 
             {classification.kind === 'product_barcode' && classification.matchedProduct && (
-              <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+              <div className="flex items-center justify-between pt-2 border-t border-[#E5DDD3]">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">
+                  <p className="text-sm font-semibold text-[#0A2240]">
                     {translateProductName(classification.matchedProduct, language)}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-[#6D665E]">
                     ₹{classification.matchedProduct.sellingPrice.toFixed(2)} ·{' '}
                     {tr(language, 'Stock:', 'స్టాక్:')} {classification.matchedProduct.stock}
                   </p>
@@ -577,7 +619,7 @@ export const ScannerPanel: React.FC<ScannerPanelProps> = ({
                       onProductFound(classification.matchedProduct!);
                       onClose?.();
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#13325B]"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {tr(language, 'Use Product', 'ఉత్పత్తిని జోడించు')}
@@ -604,7 +646,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-0 sm:pt-6 sm:px-4 overflow-y-auto">
+    <ModalPortal>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-2 sm:pt-6 sm:px-4 overflow-y-auto">
       <ScannerPanel
         active={open}
         onClose={onClose}
@@ -615,6 +658,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         title={title}
       />
     </div>
+    </ModalPortal>
   );
 };
 

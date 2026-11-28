@@ -17,18 +17,18 @@ function makeSvgDataUrl(bg: string, accent: string, shapeSvg: string): string {
 
 const THUMBNAILS = {
   darwaja: makeSvgDataUrl(
-    '#EFF6FF',
-    '#1D4ED8',
+    '#F6F1EA',
+    '#0A2240',
     `<rect x="30" y="16" width="60" height="88" rx="4" fill="#94A3B8" stroke="#334155" stroke-width="3"/>
      <rect x="40" y="26" width="40" height="78" fill="#F8FAFC" stroke="#475569" stroke-width="2"/>
      <line x1="30" y1="104" x2="90" y2="104" stroke="#1E293B" stroke-width="4"/>`
   ),
   kodadaDarwaja: makeSvgDataUrl(
     '#EEF2FF',
-    '#0B1F44',
+    '#0A2240',
     `<rect x="26" y="14" width="68" height="92" rx="5" fill="#64748B" stroke="#1E293B" stroke-width="3"/>
      <rect x="36" y="24" width="48" height="82" fill="#E2E8F0" stroke="#334155" stroke-width="2"/>
-     <path d="M36 38 Q60 22 84 38" fill="none" stroke="#0B1F44" stroke-width="3"/>
+     <path d="M36 38 Q60 22 84 38" fill="none" stroke="#0A2240" stroke-width="3"/>
      <rect x="44" y="42" width="14" height="56" rx="2" fill="#CBD5E1" stroke="#475569" stroke-width="1.5"/>
      <rect x="62" y="42" width="14" height="56" rx="2" fill="#CBD5E1" stroke="#475569" stroke-width="1.5"/>`
   ),
@@ -44,7 +44,7 @@ const THUMBNAILS = {
   ),
   ventilator: makeSvgDataUrl(
     '#F1F5F9',
-    '#0B1F44',
+    '#0A2240',
     `<rect x="22" y="26" width="76" height="68" rx="5" fill="#94A3B8" stroke="#334155" stroke-width="3"/>
      <rect x="30" y="34" width="60" height="52" fill="#E2E8F0"/>
      <line x1="32" y1="44" x2="88" y2="44" stroke="#334155" stroke-width="4"/>
@@ -80,21 +80,21 @@ const THUMBNAILS = {
   ),
   wellRing: makeSvgDataUrl(
     '#F1F5F9',
-    '#1D4ED8',
+    '#0A2240',
     `<ellipse cx="60" cy="36" rx="36" ry="12" fill="#CBD5E1" stroke="#334155" stroke-width="3"/>
      <path d="M24 36 L24 84 A36 12 0 0 0 96 84 L96 36" fill="#94A3B8" stroke="#334155" stroke-width="3"/>
      <ellipse cx="60" cy="36" rx="24" ry="7" fill="#475569"/>`
   ),
   slab: makeSvgDataUrl(
-    '#EFF6FF',
-    '#1D4ED8',
+    '#F6F1EA',
+    '#0A2240',
     `<polygon points="20,66 56,42 100,56 64,84" fill="#CBD5E1" stroke="#334155" stroke-width="3"/>
      <polygon points="20,66 64,84 64,94 20,76" fill="#94A3B8" stroke="#334155" stroke-width="2.5"/>
      <polygon points="64,84 100,56 100,66 64,94" fill="#64748B" stroke="#334155" stroke-width="2.5"/>`
   ),
   pole: makeSvgDataUrl(
     '#F8FAFC',
-    '#0B1F44',
+    '#0A2240',
     `<rect x="46" y="14" width="12" height="92" rx="2" fill="#94A3B8" stroke="#334155" stroke-width="2.5"/>
      <rect x="66" y="24" width="12" height="82" rx="2" fill="#CBD5E1" stroke="#334155" stroke-width="2.5"/>
      <line x1="26" y1="104" x2="96" y2="104" stroke="#1E293B" stroke-width="4"/>

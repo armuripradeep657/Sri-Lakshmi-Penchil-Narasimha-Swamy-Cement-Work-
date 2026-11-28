@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import {
   AtSign,
   Check,
+  CheckCircle2,
+  Clock,
   Copy,
   Edit3,
   ExternalLink,
@@ -9,30 +11,36 @@ import {
   EyeOff,
   KeyRound,
   Mail,
+  Pencil,
   Phone,
   Shield,
   UserCheck,
   UserPlus,
   UserX,
+  XCircle,
 } from 'lucide-react';
 import { useBillingData } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
-import { firebaseProjectId } from '../lib/firebase';
+import { firebaseProjectId, formatTimestamp } from '../lib/firebase';
 import { normalizeUsername } from '../lib/mpinCrypto';
-import { UserRole } from '../types/billing';
-import { tr, translateStatus } from '../lib/i18n';
+import { formatCurrency } from '../lib/upiAndExport';
+import { ApprovalRequest, UserRole } from '../types/billing';
+import { formatAppDate, tr, translateStatus } from '../lib/i18n';
 
 export const UserManagementPage: React.FC = () => {
   const {
     users,
     invites,
+    approvalRequests,
     inviteStaffMember,
     createStaffAccountWithPassword,
     adminUpdateUserCredentials,
     updateUserAccess,
     revokeInvite,
+    reviewApprovalRequest,
   } = useBillingData();
   const { isAdmin, activeUid, language } = useAuth();
+  const [reviewBusyId, setReviewBusyId] = useState<string | null>(null);
 
   const [createMode, setCreateMode] = useState<'password' | 'google'>('password');
 
@@ -68,7 +76,7 @@ export const UserManagementPage: React.FC = () => {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-xs text-slate-500">
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-8 text-center text-xs text-[#6D665E]">
         {tr(
           language,
           'Administrator privileges are required to manage staff roles and permissions.',
@@ -186,20 +194,141 @@ export const UserManagementPage: React.FC = () => {
   const showEmailPwdProviderHint =
     error && (error.includes('Email/Password') || error.includes('operation-not-allowed'));
 
+  const pendingApprovals = approvalRequests.filter((r) => r.status === 'pending');
+
+  const handleReviewApproval = async (req: ApprovalRequest, decision: 'approved' | 'rejected') => {
+    setReviewBusyId(req.id);
+    setError(null);
+    setFeedback(null);
+    try {
+      await reviewApprovalRequest({ requestId: req.id, decision });
+      setFeedback(
+        decision === 'approved'
+          ? tr(language, `Approved request from ${req.requesterName}.`, `${req.requesterName} అభ్యర్థన ఆమోదించబడింది.`)
+          : tr(language, `Declined request from ${req.requesterName}.`, `${req.requesterName} అభ్యర్థన తిరస్కరించబడింది.`)
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : tr(language, 'Failed to review request.', 'అభ్యర్థనను సమీక్షించడం విఫలమైంది.')
+      );
+    } finally {
+      setReviewBusyId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Pending Staff Approval Requests */}
+      {pendingApprovals.length > 0 && (
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#F0D9B5] dark:border-amber-900/60 overflow-hidden shadow-sm">
+          <div className="px-5 py-3.5 bg-[#FDF3DF] dark:bg-amber-950/40 border-b border-[#F0D9B5] dark:border-amber-900/60 text-xs font-bold text-[#9A4307] dark:text-amber-300 flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            {tr(language, 'Pending Staff Approval Requests', 'పెండింగ్‌లో ఉన్న సిబ్బంది ఆమోద అభ్యర్థనలు')} ({pendingApprovals.length})
+          </div>
+          <div className="divide-y divide-[#EFEAE2] dark:divide-slate-800">
+            {pendingApprovals.map((req) => {
+              const isBusy = reviewBusyId === req.id;
+              return (
+                <div key={req.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="p-2 rounded-xl bg-[#FAF8F5] dark:bg-slate-800 border border-[#E5DDD3] dark:border-slate-700 shrink-0">
+                      {req.requestType === 'profile_update' ? (
+                        <UserCheck className="w-4 h-4 text-[#0A2240] dark:text-sky-300" />
+                      ) : (
+                        <Pencil className="w-4 h-4 text-[#9A4307]" />
+                      )}
+                    </div>
+                    <div className="min-w-0 space-y-1 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-[#0A2240] dark:text-white">{req.requesterName}</span>
+                        <span className="px-2 py-0.5 rounded bg-[#F3EDE5] dark:bg-slate-800 text-[#9A4307] text-[10px] font-bold uppercase">
+                          {req.requestType === 'profile_update'
+                            ? tr(language, 'Profile Update', 'ప్రొఫైల్ మార్పు')
+                            : tr(language, 'Bill Edit', 'బిల్ సవరణ')}
+                        </span>
+                        <span className="text-[11px] text-[#8A8279]">
+                          {formatAppDate(formatTimestamp(req.createdAt), language, true)}
+                        </span>
+                      </div>
+                      {req.requestType === 'profile_update' ? (
+                        <div className="flex items-start gap-2.5 text-[#2D3138] dark:text-slate-300">
+                          {req.proposedPhotoDataUrl && (
+                            <img
+                              src={req.proposedPhotoDataUrl}
+                              alt={req.requesterName}
+                              className="w-10 h-10 rounded-lg object-cover border border-[#E5DDD3] shrink-0"
+                            />
+                          )}
+                          <ul className="space-y-0.5">
+                            {req.proposedDisplayName !== undefined && (
+                              <li>{tr(language, 'Name', 'పేరు')}: {req.currentDisplayName || '—'} → {req.proposedDisplayName}</li>
+                            )}
+                            {req.proposedPhoneNumber !== undefined && (
+                              <li>{tr(language, 'Phone', 'ఫోన్')}: {req.currentPhoneNumber || '—'} → {req.proposedPhoneNumber || '—'}</li>
+                            )}
+                            {req.proposedUsername !== undefined && (
+                              <li>{tr(language, 'Username', 'యూజర్ పేరు')}: {req.currentUsername ? '@' + req.currentUsername : '—'} → @{req.proposedUsername}</li>
+                            )}
+                            {req.proposedEmail !== undefined && (
+                              <li>{tr(language, 'Email', 'ఇమెయిల్')}: {req.currentEmail || '—'} → {req.proposedEmail}</li>
+                            )}
+                            {req.proposedPhotoDataUrl !== undefined && (
+                              <li>{tr(language, 'Updated Profile Photo', 'కొత్త ప్రొఫైల్ ఫోటో')}</li>
+                            )}
+                          </ul>
+                        </div>
+                      ) : (
+                        <div className="text-[#2D3138] dark:text-slate-300">
+                          <strong>{req.billNumber}</strong> · {req.customerName} ·{' '}
+                          <span className="font-mono font-bold text-[#0A2240] dark:text-white">
+                            {formatCurrency(req.grandTotal || 0)}
+                          </span>
+                          {req.reason ? ` · ${req.reason}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleReviewApproval(req, 'approved')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {isBusy ? '...' : tr(language, 'Approve', 'ఆమోదించు')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleReviewApproval(req, 'rejected')}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#C23B2B] hover:bg-[#A32E20] text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      {tr(language, 'Reject', 'తిరస్కరించు')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Create Staff Form */}
       <form
         onSubmit={handleCreateSubmit}
-        className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4"
+        className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-5 sm:p-6 space-y-4"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-[#1D4ED8]" />{' '}
+            <h2 className="text-base font-bold text-[#0A2240] dark:text-white flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-[#9A4307]" />{' '}
               {tr(language, 'Create Staff / Co-Admin Login', 'సిబ్బంది / సహ-అడ్మిన్ లాగిన్ సృష్టించండి')}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-[#6D665E] mt-0.5">
               {tr(
                 language,
                 'Create a ready-to-use Username & Password for any device, or send a Google email invite.',
@@ -207,11 +336,11 @@ export const UserManagementPage: React.FC = () => {
               )}
             </p>
           </div>
-          <Shield className="w-5 h-5 text-[#1D4ED8]" />
+          <Shield className="w-5 h-5 text-[#9A4307]" />
         </div>
 
         {/* Mode Tabs */}
-        <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-blue-50 dark:bg-slate-950 border border-blue-100 dark:border-slate-800 max-w-md">
+        <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#F6F1EA] dark:bg-slate-950 border border-[#E5DDD3] dark:border-slate-800 max-w-md">
           <button
             type="button"
             onClick={() => {
@@ -221,8 +350,8 @@ export const UserManagementPage: React.FC = () => {
             }}
             className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
               createMode === 'password'
-                ? 'bg-[#0B1F44] text-white shadow-sm'
-                : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white'
+                ? 'bg-[#0A2240] text-white shadow-sm'
+                : 'text-[#0A2240] dark:text-slate-300 hover:bg-white'
             }`}
           >
             <AtSign className="w-3.5 h-3.5" /> {tr(language, 'Username & Password', 'యూజర్ పేరు & పాస్‌వర్డ్')}
@@ -236,8 +365,8 @@ export const UserManagementPage: React.FC = () => {
             }}
             className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
               createMode === 'google'
-                ? 'bg-[#1D4ED8] text-white shadow-sm'
-                : 'text-[#0B1F44] dark:text-slate-300 hover:bg-white'
+                ? 'bg-[#0A2240] text-white shadow-sm'
+                : 'text-[#0A2240] dark:text-slate-300 hover:bg-white'
             }`}
           >
             <Mail className="w-3.5 h-3.5" /> {tr(language, 'Google Email Invite', 'గూగుల్ ఇమెయిల్ ఆహ్వానం')}
@@ -245,28 +374,28 @@ export const UserManagementPage: React.FC = () => {
         </div>
 
         {feedback && (
-          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 px-3 py-2.5 text-xs text-emerald-700 dark:text-emerald-300 space-y-2">
+          <div className="rounded-lg bg-[#E7F6EC] dark:bg-emerald-950/30 border border-[#C5E8D1] dark:border-emerald-900/50 px-3 py-2.5 text-xs text-[#15803D] dark:text-emerald-300 space-y-2">
             <div>{feedback}</div>
             {createdCredentials && (
-              <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 p-3 flex flex-wrap items-center justify-between gap-3 text-slate-700 dark:text-slate-200">
+              <div className="rounded-lg bg-white dark:bg-slate-900 border border-[#C5E8D1] p-3 flex flex-wrap items-center justify-between gap-3 text-[#2D3138] dark:text-slate-200">
                 <div className="font-mono text-[11px] space-y-0.5">
                   <div>
-                    <span className="text-slate-500">{tr(language, 'Name:', 'పేరు:')}</span>{' '}
+                    <span className="text-[#6D665E]">{tr(language, 'Name:', 'పేరు:')}</span>{' '}
                     <strong>{createdCredentials.displayName}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-500">{tr(language, 'Username:', 'యూజర్ పేరు:')}</span>{' '}
-                    <strong className="text-[#1D4ED8]">{createdCredentials.username}</strong>
+                    <span className="text-[#6D665E]">{tr(language, 'Username:', 'యూజర్ పేరు:')}</span>{' '}
+                    <strong className="text-[#9A4307]">{createdCredentials.username}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-500">{tr(language, 'Password:', 'పాస్‌వర్డ్:')}</span>{' '}
+                    <span className="text-[#6D665E]">{tr(language, 'Password:', 'పాస్‌వర్డ్:')}</span>{' '}
                     <strong>{createdCredentials.password}</strong>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleCopyCreatedCredentials}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-semibold hover:bg-[#1D4ED8]"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0A2240] text-white text-[11px] font-semibold hover:bg-[#0A2240]"
                 >
                   {copiedCreds ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
                   {copiedCreds
@@ -279,14 +408,14 @@ export const UserManagementPage: React.FC = () => {
         )}
 
         {error && (
-          <div className="rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-2.5 text-xs text-rose-700 dark:text-rose-300 space-y-2">
+          <div className="rounded-lg bg-[#FCE8E6] dark:bg-rose-950/30 border border-[#F5C6C0] dark:border-rose-900/50 px-3 py-2.5 text-xs text-[#C23B2B] dark:text-rose-300 space-y-2">
             <div>{error}</div>
             {showEmailPwdProviderHint && (
               <a
                 href={`https://console.firebase.google.com/project/${firebaseProjectId}/authentication/providers`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B1F44] text-white text-[11px] font-semibold"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0A2240] text-white text-[11px] font-semibold"
               >
                 {tr(language, 'Enable Email/Password in Firebase Console', 'ఫైర్‌బేస్ కన్సోల్‌లో ఇమెయిల్/పాస్‌వర్డ్ ప్రారంభించండి')}{' '}
                 <ExternalLink className="w-3 h-3" />
@@ -298,7 +427,7 @@ export const UserManagementPage: React.FC = () => {
         {createMode === 'password' ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Full Name *', 'పూర్తి పేరు *')}
               </label>
               <input
@@ -306,11 +435,11 @@ export const UserManagementPage: React.FC = () => {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder={tr(language, 'Counter Staff Name', 'కౌంటర్ సిబ్బంది పేరు')}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Username *', 'యూజర్ పేరు *')}
               </label>
               <input
@@ -318,11 +447,11 @@ export const UserManagementPage: React.FC = () => {
                 value={username}
                 onChange={(e) => setUsername(normalizeUsername(e.target.value))}
                 placeholder={tr(language, 'e.g. staff.ravi', 'ఉదా. staff.ravi')}
-                className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Password *', 'పాస్‌వర్డ్ *')}
               </label>
               <div className="relative">
@@ -333,19 +462,19 @@ export const UserManagementPage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={tr(language, 'Min 4 characters', 'కనీసం 4 అక్షరాలు')}
-                  className="w-full pl-3 pr-9 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                  className="w-full pl-3 pr-9 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A8279] hover:text-[#2D3138]"
                 >
                   {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Phone Number', 'ఫోన్ నంబర్')}
               </label>
               <input
@@ -353,11 +482,11 @@ export const UserManagementPage: React.FC = () => {
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 placeholder="9876543210"
-                className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Recovery Email (Optional)', 'రికవరీ ఇమెయిల్ (ఐచ్ఛికం)')}
               </label>
               <input
@@ -365,17 +494,17 @@ export const UserManagementPage: React.FC = () => {
                 value={optionalEmail}
                 onChange={(e) => setOptionalEmail(e.target.value)}
                 placeholder={tr(language, 'staff@gmail.com (optional)', 'staff@gmail.com (ఐచ్ఛికం)')}
-                className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Role', 'పాత్ర')}
               </label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               >
                 <option value="cashier">
                   {tr(language, 'Staff / Cashier (POS & Billing)', 'సిబ్బంది / క్యాషియర్ (బిల్లింగ్)')}
@@ -389,7 +518,7 @@ export const UserManagementPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Google Email *', 'గూగుల్ ఇమెయిల్ *')}
               </label>
               <input
@@ -398,11 +527,11 @@ export const UserManagementPage: React.FC = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="cashier@gmail.com"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Full Name *', 'పూర్తి పేరు *')}
               </label>
               <input
@@ -410,17 +539,17 @@ export const UserManagementPage: React.FC = () => {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder={tr(language, 'Counter Staff Name', 'కౌంటర్ సిబ్బంది పేరు')}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               />
             </div>
             <div>
-              <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Role', 'పాత్ర')}
               </label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
               >
                 <option value="cashier">
                   {tr(language, 'Staff / Cashier (POS & Billing)', 'సిబ్బంది / క్యాషియర్ (బిల్లింగ్)')}
@@ -460,7 +589,7 @@ export const UserManagementPage: React.FC = () => {
           <button
             type="submit"
             disabled={submitting}
-            className="px-4 py-2 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
+            className="px-4 py-2 rounded-lg bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#0A2240] disabled:opacity-50"
           >
             {submitting
               ? tr(language, 'Creating Access...', 'ఖాతా సృష్టించబడుతోంది...')
@@ -472,13 +601,13 @@ export const UserManagementPage: React.FC = () => {
       </form>
 
       {/* Active Users Table */}
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-x-auto">
-        <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <UserCheck className="w-4 h-4 text-emerald-600" />{' '}
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 overflow-x-auto">
+        <div className="px-5 py-3.5 border-b border-[#E5DDD3] dark:border-slate-800 text-xs font-bold text-[#0A2240] dark:text-white flex items-center gap-2">
+          <UserCheck className="w-4 h-4 text-[#15803D]" />{' '}
           {tr(language, 'Authorized Accounts', 'అనుమతించబడిన ఖాతాలు')} ({users.length})
         </div>
         <table className="w-full text-xs text-left">
-          <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 border-b border-slate-200 dark:border-slate-800">
+          <thead className="bg-[#FAF8F5] dark:bg-slate-950 text-[#6D665E] border-b border-[#E5DDD3] dark:border-slate-800">
             <tr>
               <th className="py-3 px-4 font-semibold">{tr(language, 'User', 'వినియోగదారు')}</th>
               <th className="py-3 px-4 font-semibold">{tr(language, 'Role', 'పాత్ర')}</th>
@@ -489,37 +618,37 @@ export const UserManagementPage: React.FC = () => {
               <th className="py-3 px-4 font-semibold text-right">{tr(language, 'Controls', 'నియంత్రణలు')}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody className="divide-y divide-[#EFEAE2] dark:divide-slate-800">
             {users.map((u) => {
               const isSelf = u.uid === activeUid;
               const isEditingThis = editingUid === u.uid;
               return (
-                <tr key={u.uid} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                <tr key={u.uid} className="hover:bg-[#FAF8F5] dark:hover:bg-slate-800/40">
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2.5">
                       {u.photoDataUrl ? (
                         <img
                           src={u.photoDataUrl}
                           alt={u.displayName}
-                          className="w-9 h-9 rounded-full object-cover border border-blue-200 shrink-0"
+                          className="w-9 h-9 rounded-full object-cover border border-[#DFD7CC] shrink-0"
                         />
                       ) : (
-                        <div className="w-9 h-9 rounded-full bg-[#0B1F44] text-white text-xs font-bold flex items-center justify-center shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-[#0A2240] text-white text-xs font-bold flex items-center justify-center shrink-0">
                           {(u.displayName || 'U').slice(0, 1).toUpperCase()}
                         </div>
                       )}
                       <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 dark:text-white truncate">
+                        <div className="font-semibold text-[#0A2240] dark:text-white truncate">
                           {u.displayName} {isSelf ? tr(language, '(You)', '(మీరు)') : ''}
                         </div>
                         {u.username && (
-                          <div className="font-mono text-[11px] font-bold text-[#1D4ED8] truncate">
+                          <div className="font-mono text-[11px] font-bold text-[#9A4307] truncate">
                             @{u.username}
                           </div>
                         )}
-                        <div className="font-mono text-[11px] text-slate-500 truncate">{u.email}</div>
+                        <div className="font-mono text-[11px] text-[#6D665E] truncate">{u.email}</div>
                         {u.phoneNumber && (
-                          <div className="font-mono text-[11px] text-[#1D4ED8] flex items-center gap-1 mt-0.5">
+                          <div className="font-mono text-[11px] text-[#9A4307] flex items-center gap-1 mt-0.5">
                             <Phone className="w-3 h-3" /> {u.phoneNumber}
                           </div>
                         )}
@@ -529,7 +658,7 @@ export const UserManagementPage: React.FC = () => {
                   <td className="py-3 px-4 uppercase font-semibold">
                     {language === 'te' ? translateStatus(u.role, 'te') : u.role}
                   </td>
-                  <td className="py-3 px-4 text-[11px] text-slate-500">
+                  <td className="py-3 px-4 text-[11px] text-[#6D665E]">
                     <div className="space-y-1">
                       <div>
                         {[
@@ -544,13 +673,13 @@ export const UserManagementPage: React.FC = () => {
                       </div>
                       <div className="flex flex-wrap items-center gap-1">
                         {u.passwordEnabled && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#F6F1EA] text-[#9A4307] border border-[#DFD7CC] text-[10px] font-bold">
                             <AtSign className="w-2.5 h-2.5" />{' '}
                             {tr(language, 'Username/Password', 'యూజర్ పేరు/పాస్‌వర్డ్')}
                           </span>
                         )}
                         {u.mpinEnabled && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#E7F6EC] text-[#15803D] border border-[#C5E8D1] text-[10px] font-bold">
                             <KeyRound className="w-2.5 h-2.5" /> {tr(language, '4-Digit MPIN', '4-అంకెల ఎంపిన్')}
                           </span>
                         )}
@@ -562,13 +691,13 @@ export const UserManagementPage: React.FC = () => {
                             value={editingUsername}
                             onChange={(e) => setEditingUsername(normalizeUsername(e.target.value))}
                             placeholder={tr(language, 'username', 'యూజర్ పేరు')}
-                            className="px-2 py-1 rounded border border-blue-300 font-mono text-[11px] w-32 bg-white text-slate-900"
+                            className="px-2 py-1 rounded border border-[#D5CBBE] font-mono text-[11px] w-32 bg-white text-[#0A2240]"
                           />
                           <button
                             type="button"
                             disabled={savingEditUid}
                             onClick={() => handleSaveRowUsername(u.uid)}
-                            className="px-2 py-1 rounded bg-[#0B1F44] text-white text-[10px] font-semibold"
+                            className="px-2 py-1 rounded bg-[#0A2240] text-white text-[10px] font-semibold"
                           >
                             {savingEditUid ? '...' : tr(language, 'Save', 'సేవ్')}
                           </button>
@@ -578,7 +707,7 @@ export const UserManagementPage: React.FC = () => {
                               setEditingUid(null);
                               setEditingUsername('');
                             }}
-                            className="px-2 py-1 rounded border border-slate-200 text-[10px]"
+                            className="px-2 py-1 rounded border border-[#E5DDD3] text-[10px]"
                           >
                             {tr(language, 'Cancel', 'రద్దు')}
                           </button>
@@ -590,7 +719,7 @@ export const UserManagementPage: React.FC = () => {
                             setEditingUid(u.uid);
                             setEditingUsername(u.username || '');
                           }}
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#1D4ED8] hover:underline pt-0.5"
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#9A4307] hover:underline pt-0.5"
                         >
                           <Edit3 className="w-2.5 h-2.5" />
                           {u.username
@@ -603,7 +732,7 @@ export const UserManagementPage: React.FC = () => {
                   <td className="py-3 px-4">
                     <span
                       className={`font-semibold uppercase text-[11px] ${
-                        u.status === 'active' ? 'text-emerald-600' : 'text-rose-600'
+                        u.status === 'active' ? 'text-[#15803D]' : 'text-[#C23B2B]'
                       }`}
                     >
                       {translateStatus(u.status, language)}
@@ -615,7 +744,7 @@ export const UserManagementPage: React.FC = () => {
                         {u.status === 'active' ? (
                           <button
                             onClick={() => updateUserAccess(u.uid, { status: 'disabled' })}
-                            className="px-2.5 py-1 rounded border border-amber-300 text-amber-700 text-[11px] font-semibold hover:bg-amber-50"
+                            className="px-2.5 py-1 rounded border border-amber-300 text-[#9A4307] text-[11px] font-semibold hover:bg-[#FDF3DF]"
                           >
                             {tr(language, 'Disable', 'నిలిపివేయి')}
                           </button>
@@ -630,7 +759,7 @@ export const UserManagementPage: React.FC = () => {
                         {u.status !== 'revoked' && (
                           <button
                             onClick={() => updateUserAccess(u.uid, { status: 'revoked' })}
-                            className="px-2.5 py-1 rounded bg-rose-600 text-white text-[11px] font-semibold"
+                            className="px-2.5 py-1 rounded bg-[#C23B2B] text-white text-[11px] font-semibold"
                           >
                             {tr(language, 'Revoke', 'రద్దు చేయి')}
                           </button>
@@ -647,13 +776,13 @@ export const UserManagementPage: React.FC = () => {
 
       {/* Pending / History Invites */}
       {invites.length > 0 && (
-        <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-x-auto">
-          <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <UserX className="w-4 h-4 text-slate-500" />{' '}
+        <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 overflow-x-auto">
+          <div className="px-5 py-3.5 border-b border-[#E5DDD3] dark:border-slate-800 text-xs font-bold text-[#0A2240] dark:text-white flex items-center gap-2">
+            <UserX className="w-4 h-4 text-[#6D665E]" />{' '}
             {tr(language, 'Google Staff Invitations', 'గూగుల్ సిబ్బంది ఆహ్వానాలు')} ({invites.length})
           </div>
           <table className="w-full text-xs text-left">
-            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 border-b border-slate-200 dark:border-slate-800">
+            <thead className="bg-[#FAF8F5] dark:bg-slate-950 text-[#6D665E] border-b border-[#E5DDD3] dark:border-slate-800">
               <tr>
                 <th className="py-2.5 px-4 font-semibold">{tr(language, 'Email', 'ఇమెయిల్')}</th>
                 <th className="py-2.5 px-4 font-semibold">{tr(language, 'Name', 'పేరు')}</th>
@@ -662,7 +791,7 @@ export const UserManagementPage: React.FC = () => {
                 <th className="py-2.5 px-4 font-semibold text-right">{tr(language, 'Action', 'చర్య')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className="divide-y divide-[#EFEAE2] dark:divide-slate-800">
               {invites.map((inv) => (
                 <tr key={inv.id}>
                   <td className="py-2.5 px-4 font-mono">{inv.email}</td>
@@ -677,7 +806,7 @@ export const UserManagementPage: React.FC = () => {
                     {inv.status === 'pending' && (
                       <button
                         onClick={() => revokeInvite(inv.id)}
-                        className="text-rose-600 hover:underline font-medium"
+                        className="text-[#C23B2B] hover:underline font-medium"
                       >
                         {tr(language, 'Revoke Invite', 'ఆహ్వానం రద్దు చేయి')}
                       </button>

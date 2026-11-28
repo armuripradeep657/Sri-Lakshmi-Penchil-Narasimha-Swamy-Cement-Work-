@@ -16,19 +16,19 @@ export const DeviceManagementPage: React.FC = () => {
   const { currentDevice, isAdmin, language } = useAuth();
 
   const renderIcon = (type: string) => {
-    if (type === 'mobile') return <Smartphone className="w-5 h-5 text-[#1D4ED8]" />;
-    if (type === 'tablet') return <Tablet className="w-5 h-5 text-[#1D4ED8]" />;
-    return <Laptop className="w-5 h-5 text-[#1D4ED8]" />;
+    if (type === 'mobile') return <Smartphone className="w-5 h-5 text-[#9A4307]" />;
+    if (type === 'tablet') return <Tablet className="w-5 h-5 text-[#9A4307]" />;
+    return <Laptop className="w-5 h-5 text-[#9A4307]" />;
   };
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+          <h2 className="text-base font-bold text-[#0A2240] dark:text-white">
             {tr(language, 'Connected Devices & Active Terminals', 'కనెక్ట్ అయిన పరికరాలు & టెర్మినల్స్')}
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-[#6D665E] mt-0.5">
             {tr(
               language,
               'Every smartphone, tablet, and counter PC signed into Sri Lakshmi Penchil Narasimha Swamy Cement Work synchronizes in real time. Administrators can revoke any terminal immediately.',
@@ -36,7 +36,7 @@ export const DeviceManagementPage: React.FC = () => {
             )}
           </p>
         </div>
-        <div className="text-xs font-mono text-slate-500">
+        <div className="text-xs font-mono text-[#6D665E]">
           {devices.filter((d) => d.status === 'authorized').length}{' '}
           {tr(language, 'authorized', 'అనుమతించబడినవి')} · {devices.length}{' '}
           {tr(language, 'total', 'మొత్తం')}
@@ -52,22 +52,22 @@ export const DeviceManagementPage: React.FC = () => {
               key={dev.id}
               className={`rounded-xl bg-white dark:bg-slate-900 border p-5 space-y-3 ${
                 isRevoked
-                  ? 'border-rose-200 dark:border-rose-900/50 opacity-75'
+                  ? 'border-[#F5C6C0] dark:border-rose-900/50 opacity-75'
                   : isCurrent
-                    ? 'border-[#1D4ED8]'
-                    : 'border-slate-200 dark:border-slate-800'
+                    ? 'border-[#0A2240]'
+                    : 'border-[#E5DDD3] dark:border-slate-800'
               }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800">
+                  <div className="p-2.5 rounded-lg bg-[#F3EDE5] dark:bg-slate-800">
                     {renderIcon(dev.deviceType)}
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    <div className="text-xs font-bold text-[#0A2240] dark:text-white">
                       {translateDeviceName(dev.deviceName, language)}
                     </div>
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-[#6D665E]">
                       {dev.userName || dev.userEmail}{' '}
                       {isCurrent ? `· ${tr(language, 'This Device', 'ఈ పరికరం')}` : ''}
                     </div>
@@ -80,7 +80,7 @@ export const DeviceManagementPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="text-[11px] text-slate-500 space-y-1 font-mono">
+              <div className="text-[11px] text-[#6D665E] space-y-1 font-mono">
                 <div>
                   {tr(language, 'Email:', 'ఇమెయిల్:')} {dev.userEmail}
                 </div>
@@ -94,14 +94,14 @@ export const DeviceManagementPage: React.FC = () => {
                 </div>
                 <div>
                   {tr(language, 'Status:', 'స్థితి:')}{' '}
-                  <strong className={isRevoked ? 'text-rose-600' : 'text-emerald-600'}>
+                  <strong className={isRevoked ? 'text-[#C23B2B]' : 'text-[#15803D]'}>
                     {language === 'te' ? translateStatus(dev.status, 'te') : dev.status.toUpperCase()}
                   </strong>
                 </div>
               </div>
 
               {isAdmin && !isCurrent && (
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <div className="pt-2 border-t border-[#EFEAE2] dark:border-slate-800 flex justify-end">
                   {isRevoked ? (
                     <button
                       onClick={() => setDeviceStatus(dev.id, 'authorized')}
@@ -112,7 +112,7 @@ export const DeviceManagementPage: React.FC = () => {
                   ) : (
                     <button
                       onClick={() => setDeviceStatus(dev.id, 'revoked')}
-                      className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700"
+                      className="px-3 py-1.5 rounded-lg bg-[#C23B2B] text-white text-xs font-semibold hover:bg-[#A32E20]"
                     >
                       {tr(language, 'Revoke Terminal', 'పరికరం రద్దు చేయి')}
                     </button>

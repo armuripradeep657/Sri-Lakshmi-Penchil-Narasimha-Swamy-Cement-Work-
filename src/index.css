@@ -3,29 +3,36 @@
 
 @layer base {
   :root {
-    --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-    --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
-    --slp-blue-deep: #0B1F44;
-    --slp-blue-royal: #1D4ED8;
-    --slp-blue-bright: #2563EB;
-    --slp-blue-sky: #F4F8FF;
-    --slp-blue-tint: #EFF6FF;
-    --slp-blue-border: #DBEAFE;
+    --font-display: 'Plus Jakarta Sans', 'DM Sans', 'Noto Sans Telugu', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', 'DM Sans', 'Noto Sans Telugu', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Plus Jakarta Sans', 'DM Sans', 'Noto Sans Telugu', ui-sans-serif, system-ui, sans-serif;
+    --slp-navy-deep: #0A2240;
+    --slp-terracotta: #9A4307;
+    --slp-terracotta-warm: #B45309;
+    --slp-cream-bg: #FAF8F5;
+    --slp-sand-bg: #F3EDE5;
+    --slp-sand-border: #E5DDD3;
+    --slp-stone-muted: #6D665E;
   }
 
   html {
     scroll-behavior: smooth;
     font-family: var(--font-sans);
+    color: #0A2240;
     overscroll-behavior-y: contain;
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   h1, h2, h3, h4, .font-display {
     font-family: var(--font-display);
+    letter-spacing: -0.015em;
   }
 
   .font-mono, .tabular-nums {
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
@@ -51,7 +58,7 @@
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
@@ -105,7 +112,7 @@
 }
 
 .slp-shimmer {
-  background: linear-gradient(90deg, rgba(219, 234, 254, 0.4) 25%, rgba(239, 246, 255, 0.9) 50%, rgba(219, 234, 254, 0.4) 75%);
+  background: linear-gradient(90deg, rgba(229, 221, 211, 0.45) 25%, rgba(250, 248, 245, 0.95) 50%, rgba(229, 221, 211, 0.45) 75%);
   background-size: 200% 100%;
   animation: slp-shimmer 1.4s infinite linear;
 }

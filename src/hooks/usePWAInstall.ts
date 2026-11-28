@@ -25,22 +25,30 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export type DirectInstallResult = 'installed' | 'dismissed' | 'shared' | 'unavailable';
+export type DirectInstallResult = 'installed' | 'dismissed' | 'manual';
+
+function checkIsStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches ||
+    window.matchMedia('(display-mode: window-controls-overlay)').matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true
+  );
+}
 
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => globalDeferredPrompt);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(() => checkIsStandalone());
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+    const minimalQuery = window.matchMedia('(display-mode: minimal-ui)');
     const checkStandalone = () => {
-      const standalone =
-        mediaQuery.matches ||
-        (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-      setIsInstalled(standalone);
+      setIsInstalled(checkIsStandalone());
     };
     checkStandalone();
 
@@ -65,12 +73,14 @@ export function usePWAInstall() {
     };
 
     promptListeners.add(syncPrompt);
-    mediaQuery.addEventListener?.('change', checkStandalone);
+    standaloneQuery.addEventListener?.('change', checkStandalone);
+    minimalQuery.addEventListener?.('change', checkStandalone);
     window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
       promptListeners.delete(syncPrompt);
-      mediaQuery.removeEventListener?.('change', checkStandalone);
+      standaloneQuery.removeEventListener?.('change', checkStandalone);
+      minimalQuery.removeEventListener?.('change', checkStandalone);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
@@ -88,26 +98,7 @@ export function usePWAInstall() {
       }
       return 'dismissed';
     }
-
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        const isTe = typeof localStorage !== 'undefined' && localStorage.getItem('slp_lang') === 'te';
-        await navigator.share({
-          title: isTe
-            ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్'
-            : 'Sri Lakshmi Penchil Narasimha Swamy Cement Work',
-          text: isTe
-            ? 'శ్రీ లక్ష్మి పెంచిల్ నరసింహ స్వామి సిమెంట్ వర్క్స్ యాప్ ఇన్‌స్టాల్ చేయండి'
-            : 'Install Sri Lakshmi Penchil Narasimha Swamy Cement Work App',
-          url: window.location.origin,
-        });
-        return 'shared';
-      } catch {
-        // User cancelled share sheet or browser rejected
-      }
-    }
-
-    return 'unavailable';
+    return 'manual';
   }, [deferredPrompt]);
 
   return {

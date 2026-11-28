@@ -57,6 +57,7 @@ export function encodeCode128BModules(text: string): number[] {
 
 const BARCODE_DIGITS = '23456789';
 const BARCODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const BARCODE_ALPHANUMERIC = `${BARCODE_DIGITS}${BARCODE_LETTERS}`;
 
 function randomCryptoBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
@@ -70,17 +71,30 @@ function randomCryptoBytes(length: number): Uint8Array {
   return bytes;
 }
 
+function buildSlpSegments(chars12: string[]): string {
+  const joined = chars12.join('').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const seg1 = joined.slice(0, 8).padEnd(8, 'X');
+  const seg2 = joined.slice(8, 12).padEnd(4, '9');
+  return `SLP-${seg1}-${seg2}`;
+}
+
 /**
- * Generates a unique 12-character mixed numbers + letters verification code (never uses SLP prefix).
- * Guarantees an alternating/shuffled mix of digits and uppercase letters for Code 128.
+ * Generates a unique verification barcode formatted as SLP-XXXXXXXX-XXXX (e.g. SLP-W2TMKGYE-TDF6).
+ * Combines shuffled digits and uppercase letters for clean Code 128 rendering and visual verification.
  */
 export function generateUniqueMixedBarcode(): string {
   const bytes = randomCryptoBytes(16);
   const chars: string[] = [];
-  // Interleave digits and letters (6 digits + 6 letters) then Fisher-Yates shuffle
-  for (let i = 0; i < 6; i++) {
+  // Guarantee at least 4 digits and 8 letters/alphanumerics, then shuffle with Fisher-Yates
+  for (let i = 0; i < 4; i++) {
     chars.push(BARCODE_DIGITS[bytes[i] % BARCODE_DIGITS.length]);
-    chars.push(BARCODE_LETTERS[bytes[i + 6] % BARCODE_LETTERS.length]);
+  }
+  for (let i = 4; i < 12; i++) {
+    chars.push(
+      i % 3 === 0
+        ? BARCODE_ALPHANUMERIC[bytes[i] % BARCODE_ALPHANUMERIC.length]
+        : BARCODE_LETTERS[bytes[i] % BARCODE_LETTERS.length]
+    );
   }
   for (let i = chars.length - 1; i > 0; i--) {
     const j = bytes[(i + 3) % bytes.length] % (i + 1);
@@ -88,12 +102,11 @@ export function generateUniqueMixedBarcode(): string {
     chars[i] = chars[j];
     chars[j] = tmp;
   }
-  const code = chars.join('');
-  return code.startsWith('SLP') ? `9${code.slice(1)}` : code;
+  return buildSlpSegments(chars);
 }
 
 /**
- * Deterministic mixed numbers + letters verification code for legacy records without stored verificationBarcode.
+ * Deterministic verification code formatted as SLP-XXXXXXXX-XXXX for records without stored verificationBarcode.
  */
 export function deriveMixedVerificationCode(seed: string): string {
   const input = seed || 'VERIFIED-BILL';
@@ -108,14 +121,25 @@ export function deriveMixedVerificationCode(seed: string): string {
   for (let i = 0; i < 12; i++) {
     h1 = (Math.imul(h1, 1664525) + 1013904223) >>> 0;
     h2 = (Math.imul(h2, 214013) + 2531011) >>> 0;
-    if (i % 2 === 0) {
+    if (i === 1 || i === 5 || i === 9 || i === 11) {
       out.push(BARCODE_DIGITS[(h1 >>> 16) % BARCODE_DIGITS.length]);
     } else {
-      out.push(BARCODE_LETTERS[(h2 >>> 16) % BARCODE_LETTERS.length]);
+      out.push(BARCODE_ALPHANUMERIC[(h2 >>> 16) % BARCODE_ALPHANUMERIC.length]);
     }
   }
-  const code = out.join('');
-  return code.startsWith('SLP') ? `8${code.slice(1)}` : code;
+  return buildSlpSegments(out);
+}
+
+export function normalizeSlpVerificationBarcode(raw?: string, fallbackSeed?: string): string {
+  const trimmed = (raw || '').trim().toUpperCase();
+  if (/^SLP-[A-Z0-9]{8}-[A-Z0-9]{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const stripped = trimmed.replace(/^SLP-?/, '').replace(/[^A-Z0-9]/g, '');
+  if (stripped.length === 12) {
+    return `SLP-${stripped.slice(0, 8)}-${stripped.slice(8, 12)}`;
+  }
+  return deriveMixedVerificationCode(trimmed || fallbackSeed || 'VERIFIED-BILL');
 }
 
 export function getBillVerificationBarcode(bill: {
@@ -124,7 +148,7 @@ export function getBillVerificationBarcode(bill: {
   id: string;
 }): string {
   if (bill.verificationBarcode && bill.verificationBarcode.trim().length >= 6) {
-    return bill.verificationBarcode.trim();
+    return normalizeSlpVerificationBarcode(bill.verificationBarcode, bill.publicToken || bill.id);
   }
   return deriveMixedVerificationCode(bill.publicToken || bill.id);
 }
@@ -134,7 +158,7 @@ export function getPublicInvoiceVerificationBarcode(invoice: {
   token: string;
 }): string {
   if (invoice.verificationBarcode && invoice.verificationBarcode.trim().length >= 6) {
-    return invoice.verificationBarcode.trim();
+    return normalizeSlpVerificationBarcode(invoice.verificationBarcode, invoice.token);
   }
   return deriveMixedVerificationCode(invoice.token);
 }
@@ -262,12 +286,20 @@ export async function generateShareableBillImage(params: {
   ctx.fillRect(0, 0, width, totalHeight);
 
   // Navy Header
-  ctx.fillStyle = '#0B1F44';
+  ctx.fillStyle = '#0A2240';
   ctx.fillRect(0, 0, width, headerH);
 
   // Logo (Uncropped Rounded Square HD Badge)
   const logoImg = await loadImageSafe(resolveBusinessLogoUrl(business.logoUrl));
   if (logoImg) {
+    // Centered Background Watermark in Middle of Bill Paper
+    const bodyMidY = headerH + (totalHeight - headerH) / 2;
+    const wmSize = 300;
+    ctx.save();
+    ctx.globalAlpha = 0.11;
+    ctx.drawImage(logoImg, width / 2 - wmSize / 2, bodyMidY - wmSize / 2, wmSize, wmSize);
+    ctx.restore();
+
     ctx.save();
     ctx.beginPath();
     ctx.roundRect(30, 38, 76, 76, 14);
@@ -293,7 +325,6 @@ export async function generateShareableBillImage(params: {
   const subParts = [
     bizProp ? `${tr(language, 'Prop:', 'యజమాని:')} ${bizProp}` : '',
     business.phone ? `${tr(language, 'Ph:', 'ఫోన్:')} ${business.phone}` : '',
-    business.gstin ? `${tr(language, 'GSTIN:', 'జీఎస్టీఐఎన్:')} ${business.gstin}` : '',
   ].filter(Boolean);
   ctx.fillText(subParts.join('  ·  '), textStartX, 92);
   if (bizAddress) {
@@ -304,11 +335,7 @@ export async function generateShareableBillImage(params: {
   ctx.textAlign = 'right';
   ctx.fillStyle = '#38BDF8';
   ctx.font = 'bold 13px sans-serif';
-  ctx.fillText(
-    bill.totalTax > 0 ? tr(language, 'TAX INVOICE', 'ట్యాక్స్ ఇన్వాయిస్') : tr(language, 'CUSTOMER BILL', 'కస్టమర్ బిల్'),
-    width - 36,
-    54
-  );
+  ctx.fillText(tr(language, 'CUSTOMER BILL', 'కస్టమర్ బిల్'), width - 36, 54);
   ctx.fillStyle = '#FFFFFF';
   ctx.font = 'bold 24px monospace';
   ctx.fillText(bill.billNumber, width - 36, 86);
@@ -498,17 +525,6 @@ export async function generateShareableBillImage(params: {
     ty += 28;
   }
 
-  if (bill.totalTax > 0) {
-    ctx.fillStyle = '#475569';
-    ctx.font = '15px sans-serif';
-    ctx.fillText(tr(language, 'Tax (GST)', 'పన్ను (జీఎస్టీ)'), lx, ty);
-    ctx.textAlign = 'right';
-    ctx.font = '15px monospace';
-    ctx.fillText(formatCurrency(bill.totalTax), rx, ty);
-    ctx.textAlign = 'left';
-    ty += 28;
-  }
-
   if ((bill.labourCharge || 0) > 0) {
     ctx.fillStyle = '#334155';
     ctx.font = '15px sans-serif';
@@ -547,7 +563,7 @@ export async function generateShareableBillImage(params: {
   ctx.lineTo(rx, ty - 8);
   ctx.stroke();
 
-  ctx.fillStyle = '#0B1F44';
+  ctx.fillStyle = '#0A2240';
   ctx.font = 'bold 20px sans-serif';
   ctx.fillText(tr(language, 'Grand Total', 'మొత్తం విలువ'), lx, ty + 18);
   ctx.textAlign = 'right';
@@ -573,7 +589,7 @@ export async function generateShareableBillImage(params: {
   ctx.fillText(formatCurrency(bill.pendingBalance), rx, ty);
   ctx.textAlign = 'left';
 
-  // Bottom Verification Barcode (unique mixed numbers + letters, never SLP number)
+  // Bottom Verification Barcode (SLP-XXXXXXXX-XXXX format)
   const verificationCode = getBillVerificationBarcode(bill);
   const barcodeY = totalHeight - barcodeFooterH + 12;
   ctx.strokeStyle = '#E2E8F0';

@@ -159,8 +159,8 @@
         "lowStockThreshold": { "type": "number" },
         "taxRate": { "type": "number" },
         "unit": { "type": "string", "maxLength": 40 },
-        "variantsSummary": { "type": "string", "maxLength": 500 },
-        "imageUrl": { "type": "string", "maxLength": 2000 },
+        "variantsSummary": { "type": "string", "maxLength": 1000 },
+        "imageUrl": { "type": "string", "maxLength": 350000 },
         "description": { "type": "string", "maxLength": 600 },
         "isDeleted": { "type": "boolean" },
         "deletedAt": { "type": "string", "format": "date-time" },
@@ -236,6 +236,10 @@
         "editedByUid": { "type": "string", "maxLength": 128 },
         "editedByName": { "type": "string", "maxLength": 120 },
         "editedAt": { "type": "string", "format": "date-time" },
+        "editApprovedForUid": { "type": "string", "maxLength": 128 },
+        "editApprovalRequestId": { "type": "string", "maxLength": 128 },
+        "editApprovedAt": { "type": "string", "format": "date-time" },
+        "editApprovedByName": { "type": "string", "maxLength": 120 },
         "notes": { "type": "string", "maxLength": 400 },
         "isDeleted": { "type": "boolean" },
         "deletedAt": { "type": "string", "format": "date-time" },
@@ -326,6 +330,7 @@
       "type": "object",
       "properties": {
         "token": { "type": "string", "minLength": 16, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "billId": { "type": "string", "maxLength": 128 },
         "businessId": { "type": "string", "maxLength": 128 },
         "ownerUid": { "type": "string", "maxLength": 128 },
         "revoked": { "type": "boolean" },
@@ -416,7 +421,7 @@
         "authorizedUids": { "type": "array" },
         "title": { "type": "string", "maxLength": 160 },
         "message": { "type": "string", "maxLength": 400 },
-        "type": { "type": "string", "enum": ["bill", "payment", "low_stock", "customer", "settings", "device", "cancellation", "refund"] },
+        "type": { "type": "string", "enum": ["bill", "payment", "low_stock", "customer", "settings", "device", "cancellation", "refund", "approval_request", "approval_decision"] },
         "relatedRecordType": { "type": "string", "maxLength": 60 },
         "relatedRecordId": { "type": "string", "maxLength": 128 },
         "billNumber": { "type": "string", "maxLength": 40 },
@@ -467,6 +472,7 @@
         "footerMessage": { "type": "string", "maxLength": 240 },
         "invoiceNotes": { "type": "string", "maxLength": 400 },
         "whatsappEnabled": { "type": "boolean" },
+        "autoWhatsAppThankYou": { "type": "boolean" },
         "smsEnabled": { "type": "boolean" },
         "smsSenderId": { "type": "string", "maxLength": 12 },
         "smsDltTemplateId": { "type": "string", "maxLength": 64 },
@@ -555,6 +561,46 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["username", "authEmail", "uid", "businessId", "active", "createdAt", "updatedAt"]
+    },
+    "ApprovalRequest": {
+      "title": "ApprovalRequest",
+      "description": "Staff request for owner/admin approval on profile changes or bill edits.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "authorizedUids": { "type": "array" },
+        "authorizedEmails": { "type": "array" },
+        "requestType": { "type": "string", "enum": ["profile_update", "bill_edit"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "consumed"] },
+        "requesterUid": { "type": "string", "maxLength": 128 },
+        "requesterName": { "type": "string", "maxLength": 120 },
+        "requesterEmail": { "type": "string", "maxLength": 160 },
+        "currentDisplayName": { "type": "string", "maxLength": 120 },
+        "currentPhoneNumber": { "type": "string", "maxLength": 30 },
+        "currentUsername": { "type": "string", "maxLength": 40 },
+        "currentEmail": { "type": "string", "maxLength": 160 },
+        "currentPhotoDataUrl": { "type": "string", "maxLength": 120000 },
+        "proposedDisplayName": { "type": "string", "maxLength": 120 },
+        "proposedPhoneNumber": { "type": "string", "maxLength": 30 },
+        "proposedUsername": { "type": "string", "maxLength": 40 },
+        "proposedEmail": { "type": "string", "maxLength": 160 },
+        "proposedPhotoDataUrl": { "type": "string", "maxLength": 120000 },
+        "billId": { "type": "string", "maxLength": 128 },
+        "billNumber": { "type": "string", "maxLength": 40 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "grandTotal": { "type": "number" },
+        "reason": { "type": "string", "maxLength": 400 },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "reviewedByName": { "type": "string", "maxLength": 120 },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "decisionNote": { "type": "string", "maxLength": 400 },
+        "consumedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "ownerUid", "authorizedUids", "requestType", "status", "requesterUid", "requesterName", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -645,6 +691,10 @@
     "/shopEntries/{entryId}": {
       "schema": { "$ref": "#/entities/ShopEntry" },
       "description": "Daily shop income and expense ledger entries."
+    },
+    "/approvalRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/ApprovalRequest" },
+      "description": "Staff approval requests for profile updates and bill edits."
     }
   }
 }

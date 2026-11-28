@@ -170,15 +170,15 @@ export const ThermalReceiptsPage: React.FC = () => {
     <div className="space-y-4 animate-slp-in">
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 rounded-xl p-5 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-[#6D665E] dark:text-slate-300 mb-1">
               {tr(language, 'Select Bill to Preview', 'ప్రివ్యూ కోసం బిల్ ఎంచుకోండి')}
             </label>
             <select
               value={selectedBill?.id || ''}
               onChange={(e) => setSelectedBillId(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
             >
               {bills.length === 0 && <option value="">{tr(language, 'No bills created yet', 'ఇంకా బిల్లులు లేవు')}</option>}
               {bills.map((b) => (
@@ -191,16 +191,16 @@ export const ThermalReceiptsPage: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Paper Width', 'పేపర్ వెడల్పు')}
               </label>
-              <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+              <div className="flex gap-1 p-1 bg-[#F3EDE5] dark:bg-slate-800 rounded-lg">
                 {(['58mm', '80mm'] as const).map((w) => (
                   <button
                     key={w}
                     onClick={() => setPaperWidth(w)}
                     className={`flex-1 py-1.5 text-xs font-mono rounded-md ${
-                      paperWidth === w ? 'bg-white dark:bg-slate-900 font-bold shadow-sm' : 'text-slate-500'
+                      paperWidth === w ? 'bg-white dark:bg-slate-900 font-bold shadow-sm' : 'text-[#6D665E]'
                     }`}
                   >
                     {language === 'te' ? w.replace('mm', ' మి.మీ.') : w}
@@ -210,16 +210,16 @@ export const ThermalReceiptsPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-[#6D665E] dark:text-slate-300 mb-1">
                 {tr(language, 'Font Size', 'అక్షర పరిమాణం')}
               </label>
-              <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+              <div className="flex gap-1 p-1 bg-[#F3EDE5] dark:bg-slate-800 rounded-lg">
                 {(['sm', 'md', 'lg'] as const).map((sz) => (
                   <button
                     key={sz}
                     onClick={() => setFontSize(sz)}
                     className={`flex-1 py-1.5 text-xs uppercase rounded-md ${
-                      fontSize === sz ? 'bg-white dark:bg-slate-900 font-bold shadow-sm' : 'text-slate-500'
+                      fontSize === sz ? 'bg-white dark:bg-slate-900 font-bold shadow-sm' : 'text-[#6D665E]'
                     }`}
                   >
                     {fontSizeLabel(sz)}
@@ -239,7 +239,7 @@ export const ThermalReceiptsPage: React.FC = () => {
               />
               <span>
                 {tr(language, 'Print business logo on thermal slip', 'థర్మల్ స్లిప్‌పై వ్యాపార లోగోను ప్రింట్ చేయండి')}{' '}
-                <span className="block text-[11px] text-slate-400">
+                <span className="block text-[11px] text-[#8A8279]">
                   {tr(
                     language,
                     'Turn off to optimize thermal printer memory and print speed',
@@ -255,62 +255,62 @@ export const ThermalReceiptsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+            <label className="block text-xs font-semibold text-[#6D665E] dark:text-slate-300 mb-1">
               {tr(language, 'Receipt Footer Message', 'రసీదు అడుగు సందేశం')}
             </label>
             <input
               type="text"
               value={footerMessage}
               onChange={(e) => setFooterMessage(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="w-full px-3 py-2 text-xs rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
             />
           </div>
 
           {isAdmin && (
             <button
               onClick={handleSavePrefs}
-              className="w-full inline-flex items-center justify-center gap-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="w-full inline-flex items-center justify-center gap-2 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 text-xs font-semibold hover:bg-[#F3EDE5] dark:hover:bg-slate-800"
             >
               <Save className="w-3.5 h-3.5" />
               {tr(language, 'Save Thermal Settings Across Devices', 'అన్ని పరికరాలలో థర్మల్ సెట్టింగ్స్ సేవ్ చేయండి')}
             </button>
           )}
 
-          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-2">
+          <div className="pt-3 border-t border-[#E5DDD3] dark:border-slate-800 grid grid-cols-2 gap-2">
             <button
               onClick={() => window.print()}
               disabled={!selectedBill}
-              className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-[#0A2240] text-white text-xs font-semibold disabled:opacity-50"
             >
               <Printer className="w-3.5 h-3.5" /> {tr(language, 'Browser Print', 'బ్రౌజర్ ప్రింట్')}
             </button>
             <button
               onClick={handleDownloadPdf}
               disabled={!selectedBill}
-              className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-[#1D4ED8] text-white text-xs font-semibold disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-[#0A2240] text-white text-xs font-semibold disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" /> {tr(language, 'Thermal PDF', 'థర్మల్ పీడీఎఫ్')}
             </button>
             <button
               onClick={handleBluetoothPrint}
               disabled={!selectedBill}
-              className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-[#E5DDD3] dark:border-slate-700 text-xs font-medium disabled:opacity-50"
             >
               <Bluetooth className="w-3.5 h-3.5" /> {tr(language, 'Bluetooth Print', 'బ్లూటూత్ ప్రింట్')}
             </button>
             <button
               onClick={handleUsbPrint}
               disabled={!selectedBill}
-              className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-[#E5DDD3] dark:border-slate-700 text-xs font-medium disabled:opacity-50"
             >
               <Usb className="w-3.5 h-3.5" /> {tr(language, 'USB Print', 'యూఎస్‌బీ ప్రింట్')}
             </button>
           </div>
 
-          {status && <p className="text-xs text-[#1D4ED8] dark:text-sky-400">{status}</p>}
+          {status && <p className="text-xs text-[#9A4307] dark:text-sky-400">{status}</p>}
         </div>
 
-        <div className="lg:col-span-7 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex justify-center min-h-[420px] items-start">
+        <div className="lg:col-span-7 bg-[#F3EDE5] dark:bg-slate-950 border border-[#E5DDD3] dark:border-slate-800 rounded-xl p-6 flex justify-center min-h-[420px] items-start">
           {selectedBill && business ? (
             <ThermalReceiptPreview
               bill={selectedBill}
@@ -336,7 +336,7 @@ export const ThermalReceiptsPage: React.FC = () => {
               language={language}
             />
           ) : (
-            <div className="text-sm text-slate-400 py-20">
+            <div className="text-sm text-[#8A8279] py-20">
               {tr(language, 'Create a bill first to preview its thermal receipt.', 'థర్మల్ రసీదు చూడటానికి ముందుగా బిల్ సృష్టించండి.')}
             </div>
           )}

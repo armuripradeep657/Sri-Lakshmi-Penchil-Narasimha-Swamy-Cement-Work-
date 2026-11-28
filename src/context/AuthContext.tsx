@@ -38,6 +38,7 @@ import {
   generateSafeId,
   googleProvider,
   handleFirestoreError,
+  isTransientFirestoreNetworkError,
   OperationType,
   testConnection,
 } from '../lib/firebase';
@@ -291,7 +292,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     setPersistence(auth, browserLocalPersistence).catch(() => {});
     if (navigator.onLine) {
-      testConnection();
+      void testConnection().catch(() => false);
     }
 
     let active = true;
@@ -681,7 +682,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           },
           (err) => {
-            if (!navigator.onLine) return;
+            if (isTransientFirestoreNetworkError(err)) {
+              console.warn('User profile listener operating in offline cache mode:', err);
+              return;
+            }
             handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
           }
         );
@@ -700,7 +704,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           },
           (err) => {
-            if (!navigator.onLine) return;
+            if (isTransientFirestoreNetworkError(err)) {
+              console.warn('Device session listener operating in offline cache mode:', err);
+              return;
+            }
             handleFirestoreError(err, OperationType.GET, `devices/${deviceId}`);
           }
         );
@@ -998,16 +1005,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(pickMsg('Password must be at least 4 characters long.', 'పాస్‌వర్డ్ కనీసం 4 అక్షరాలు ఉండాలి.'));
       }
 
-      const existingIdx = await getDoc(doc(db, 'usernameIndex', username));
-      if (existingIdx.exists()) {
-        const idxData = existingIdx.data() as { uid?: string; active?: boolean };
-        if (idxData.uid !== firebaseUser.uid && idxData.active !== false) {
+      const actorIsAdmin =
+        userAccount.role === 'admin' ||
+        firebaseUser.email?.toLowerCase() === BOOT_ADMIN_EMAIL ||
+        userAccount.email?.toLowerCase() === BOOT_ADMIN_EMAIL;
+      const existingUsername = normalizeUsername(userAccount.username || '');
+
+      if (!actorIsAdmin) {
+        if (!existingUsername) {
           throw new Error(
             pickMsg(
-              `Username "@${username}" is already taken by another account.`,
-              `యూజర్‌నేమ్ "@${username}" ఇప్పటికే మరొక ఖాతాలో వాడుకలో ఉంది.`
+              'Only the owner can assign a staff username. Submit a Profile Update request for owner approval first.',
+              'సిబ్బంది యూజర్‌నేమ్ కేటాయించడానికి యజమాని ఆమోదం అవసరం. ముందుగా ప్రొఫైల్ నవీకరణ అభ్యర్థన పంపండి.'
             )
           );
+        }
+        if (username !== existingUsername) {
+          throw new Error(
+            pickMsg(
+              'Username changes require owner approval. Submit a Profile Update request below.',
+              'యూజర్‌నేమ్ మార్చడానికి యజమాని ఆమోదం అవసరం. క్రింద ప్రొఫైల్ నవీకరణ అభ్యర్థన పంపండి.'
+            )
+          );
+        }
+      }
+
+      let existingIdxExists = false;
+      let existingIdxCreatedAt: unknown = null;
+      if (actorIsAdmin) {
+        const existingIdx = await getDoc(doc(db, 'usernameIndex', username));
+        if (existingIdx.exists()) {
+          const idxData = existingIdx.data() as { uid?: string; active?: boolean; createdAt?: unknown };
+          if (idxData.uid !== firebaseUser.uid && idxData.active !== false) {
+            throw new Error(
+              pickMsg(
+                `Username "@${username}" is already taken by another account.`,
+                `యూజర్‌నేమ్ "@${username}" ఇప్పటికే మరొక ఖాతాలో వాడుకలో ఉంది.`
+              )
+            );
+          }
+          existingIdxExists = true;
+          existingIdxCreatedAt = idxData.createdAt || null;
         }
       }
 
@@ -1075,34 +1113,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const salt = generateMpinSalt();
       const hash = await hashSecretPassword(passwordInput, salt);
 
-      if (userAccount.username && userAccount.username !== username) {
-        await deleteDoc(doc(db, 'usernameIndex', userAccount.username)).catch(() => {});
+      if (actorIsAdmin) {
+        if (userAccount.username && userAccount.username !== username) {
+          await deleteDoc(doc(db, 'usernameIndex', userAccount.username)).catch(() => {});
+        }
+
+        await setDoc(doc(db, 'usernameIndex', username), {
+          username,
+          authEmail,
+          uid: firebaseUser.uid,
+          businessId: userAccount.businessId || DEFAULT_BUSINESS_ID,
+          active: true,
+          createdAt: existingIdxExists ? existingIdxCreatedAt || serverTimestamp() : serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        await updateDoc(doc(db, 'users', firebaseUser.uid), {
+          username,
+          authEmail,
+          passwordHash: hash,
+          passwordSalt: salt,
+          passwordEnabled: true,
+          passwordUpdatedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await updateDoc(doc(db, 'users', firebaseUser.uid), {
+          passwordHash: hash,
+          passwordSalt: salt,
+          passwordEnabled: true,
+          passwordUpdatedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
       }
-
-      await setDoc(doc(db, 'usernameIndex', username), {
-        username,
-        authEmail,
-        uid: firebaseUser.uid,
-        businessId: userAccount.businessId || DEFAULT_BUSINESS_ID,
-        active: true,
-        createdAt: existingIdx.exists() ? existingIdx.data().createdAt || serverTimestamp() : serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      await updateDoc(doc(db, 'users', firebaseUser.uid), {
-        username,
-        authEmail,
-        passwordHash: hash,
-        passwordSalt: salt,
-        passwordEnabled: true,
-        passwordUpdatedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
 
       const nextAccount: UserAccount = {
         ...userAccount,
-        username,
-        authEmail,
+        username: actorIsAdmin ? username : userAccount.username,
+        authEmail: actorIsAdmin ? authEmail : userAccount.authEmail,
         passwordHash: hash,
         passwordSalt: salt,
         passwordEnabled: true,
@@ -1232,7 +1280,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const cached = getCachedUserAccount(uid);
-      if (cached && cached.status === 'active' && (!navigator.onLine || target?.email?.endsWith('@slpstaff.local'))) {
+      if (cached && cached.status === 'active' && !navigator.onLine) {
         setMpinLockUid(null);
         setMpinLocked(false);
         setOfflineUnlockedUid(uid);
@@ -1302,6 +1350,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!uid || !userAccount) {
         throw new Error(pickMsg('Sign in required to update profile.', 'ప్రొఫైల్ నవీకరించడానికి సైన్ ఇన్ అవసరం.'));
       }
+      const actorIsAdmin =
+        userAccount.role === 'admin' ||
+        firebaseUser?.email?.toLowerCase() === BOOT_ADMIN_EMAIL ||
+        userAccount.email?.toLowerCase() === BOOT_ADMIN_EMAIL;
+      if (!actorIsAdmin) {
+        throw new Error(
+          pickMsg(
+            'Staff profile changes require owner approval. Submit a Profile Update request instead.',
+            'సిబ్బంది ప్రొఫైల్ మార్పులకు యజమాని ఆమోదం అవసరం. ప్రొఫైల్ నవీకరణ అభ్యర్థన పంపండి.'
+          )
+        );
+      }
       const cleanName = updates.displayName.trim().slice(0, 120);
       if (!cleanName) throw new Error(pickMsg('Full name cannot be empty.', 'పూర్తి పేరు ఖాళీగా ఉండకూడదు.'));
       const cleanPhone = (updates.phoneNumber || '').trim().slice(0, 30);
@@ -1326,7 +1386,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCachedUserAccount(uid, nextAccount);
       syncSavedCredentialsFromAccount(nextAccount);
     },
-    [firebaseUser?.uid, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount, pickMsg]
+    [firebaseUser?.uid, firebaseUser?.email, offlineUnlockedUidState, userAccount, syncSavedCredentialsFromAccount, pickMsg]
   );
 
   const changeMyEmail = useCallback(
@@ -1334,6 +1394,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const uid = firebaseUser?.uid;
       if (!uid || !userAccount) {
         throw new Error(pickMsg('Online sign-in required to change authorized email.', 'ఇమెయిల్ మార్చడానికి ఆన్‌లైన్ సైన్-ఇన్ అవసరం.'));
+      }
+      const actorIsAdmin =
+        userAccount.role === 'admin' ||
+        firebaseUser?.email?.toLowerCase() === BOOT_ADMIN_EMAIL ||
+        userAccount.email?.toLowerCase() === BOOT_ADMIN_EMAIL;
+      if (!actorIsAdmin) {
+        throw new Error(
+          pickMsg(
+            'Staff email changes require owner approval. Submit a Profile Update request instead.',
+            'సిబ్బంది ఇమెయిల్ మార్పులకు యజమాని ఆమోదం అవసరం. ప్రొఫైల్ నవీకరణ అభ్యర్థన పంపండి.'
+          )
+        );
       }
       if (!navigator.onLine) {
         throw new Error(pickMsg('Please connect to the internet to update your authorized email.', 'మీ ఇమెయిల్ మార్చడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'));

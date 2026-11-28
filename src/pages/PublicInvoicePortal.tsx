@@ -16,7 +16,7 @@ import {
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { db } from '../lib/firebase';
-import { buildPhonePeUri, buildUpiUri, formatCurrency } from '../lib/upiAndExport';
+import { buildPhonePeUri, buildUpiUri, formatCurrency, loadFadedWatermarkDataUrl } from '../lib/upiAndExport';
 import {
   drawCode128OnCanvas,
   generateCode128SvgDataUrl,
@@ -24,6 +24,7 @@ import {
   getPublicInvoiceVerificationBarcode,
 } from '../lib/barcodeAndBillImage';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
+import { LegalFooterLinks } from '../components/LegalModals';
 import { DEFAULT_BUSINESS_LOGO, resolveBusinessLogoUrl } from '../lib/seedData';
 import { Bill, BillItem, Business, Language, PublicInvoice, UpiSetting } from '../types/billing';
 import {
@@ -330,6 +331,10 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
     }
 
     const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const wmLogo = await loadFadedWatermarkDataUrl(resolveBusinessLogoUrl(invoice.businessLogoUrl), false, 0.12);
+    if (wmLogo) {
+      pdf.addImage(wmLogo, 'PNG', 55, 108, 100, 100);
+    }
     pdf.setFillColor(11, 31, 68);
     pdf.rect(0, 0, 210, 34, 'F');
     pdf.setTextColor(255, 255, 255);
@@ -339,9 +344,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(9);
     pdf.text(
-      [invoice.businessPhone ? `Ph: ${invoice.businessPhone}` : '', invoice.businessGstin ? `GSTIN: ${invoice.businessGstin}` : '']
-        .filter(Boolean)
-        .join(' | '),
+      invoice.businessPhone ? `Ph: ${invoice.businessPhone}` : '',
       14,
       22
     );
@@ -476,11 +479,11 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
         a.href = dataUrl;
         a.download = `${invoice.invoiceNumber}_Bill.png`;
         a.click();
-        window.open(
-          `https://wa.me/?text=${encodeURIComponent(shareText)}`,
-          '_blank',
-          'noopener,noreferrer'
-        );
+        const link = document.createElement('a');
+        link.href = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.click();
       }
     } finally {
       setSharingImage(false);
@@ -491,22 +494,22 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
 
   if (loading) {
     return (
-      <div className="relative min-h-screen bg-[#F4F8FF] flex items-center justify-center p-6">
+      <div className="relative min-h-screen bg-[#F6F1EA] flex items-center justify-center p-6">
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[1] flex items-center justify-center"
+          className="pointer-events-none fixed inset-0 z-[25] flex items-center justify-center"
         >
           <img
             src={DEFAULT_BUSINESS_LOGO}
             alt=""
             referrerPolicy="no-referrer"
-            className="w-60 h-60 sm:w-72 sm:h-72 rounded-3xl object-contain opacity-[0.06] mix-blend-multiply select-none"
+            className="w-64 h-64 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.095] mix-blend-multiply select-none"
           />
         </div>
-        <div className="relative z-10 max-w-lg w-full bg-white rounded-2xl border border-blue-100 p-8 space-y-4 animate-pulse shadow-sm">
-          <div className="h-6 bg-blue-100 rounded w-1/2" />
-          <div className="h-4 bg-blue-100 rounded w-1/3" />
-          <div className="h-32 bg-blue-50 rounded" />
+        <div className="relative z-10 max-w-lg w-full bg-white rounded-2xl border border-[#E5DDD3] p-8 space-y-4 animate-pulse shadow-sm">
+          <div className="h-6 bg-[#EFE8DF] rounded w-1/2" />
+          <div className="h-4 bg-[#EFE8DF] rounded w-1/3" />
+          <div className="h-32 bg-[#F6F1EA] rounded" />
         </div>
       </div>
     );
@@ -514,24 +517,24 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
 
   if (error || !invoice) {
     return (
-      <div className="relative min-h-screen bg-[#F4F8FF] flex items-center justify-center p-6">
+      <div className="relative min-h-screen bg-[#F6F1EA] flex items-center justify-center p-6">
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[1] flex items-center justify-center"
+          className="pointer-events-none fixed inset-0 z-[25] flex items-center justify-center"
         >
           <img
             src={DEFAULT_BUSINESS_LOGO}
             alt=""
             referrerPolicy="no-referrer"
-            className="w-56 h-56 sm:w-72 sm:h-72 rounded-full object-cover opacity-[0.06] mix-blend-multiply select-none"
+            className="w-64 h-64 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.095] mix-blend-multiply select-none"
           />
         </div>
-        <div className="relative z-10 max-w-md w-full bg-white rounded-2xl border border-blue-100 p-6 text-center space-y-3 shadow-sm">
-          <ShieldAlert className="w-10 h-10 text-rose-600 mx-auto" />
-          <h1 className="text-lg font-bold text-[#0B1F44]">
+        <div className="relative z-10 max-w-md w-full bg-white rounded-2xl border border-[#E5DDD3] p-6 text-center space-y-3 shadow-sm">
+          <ShieldAlert className="w-10 h-10 text-[#C23B2B] mx-auto" />
+          <h1 className="text-lg font-bold text-[#0A2240]">
             {tr(language, 'Invoice Unavailable', 'ఇన్వాయిస్ అందుబాటులో లేదు')}
           </h1>
-          <p className="text-sm text-slate-600">{error}</p>
+          <p className="text-sm text-[#6D665E]">{error}</p>
         </div>
       </div>
     );
@@ -542,30 +545,30 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
   const displayCustomerName = translateCustomerName(invoice.customerName, language);
 
   return (
-    <div className="relative min-h-screen bg-[#F4F8FF] py-5 px-3 sm:px-4 overflow-x-hidden">
+    <div className="relative min-h-screen bg-[#F6F1EA] py-5 px-3 sm:px-4 overflow-x-hidden">
       {/* Centered Middle App Logo Watermark */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-[1] flex items-center justify-center"
+        className="pointer-events-none fixed inset-0 z-[25] flex items-center justify-center"
       >
         <img
           src={portalLogo}
           alt=""
           referrerPolicy="no-referrer"
-          className="w-60 h-60 sm:w-72 sm:h-72 rounded-3xl object-contain opacity-[0.06] mix-blend-multiply select-none"
+          className="w-64 h-64 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.095] mix-blend-multiply select-none"
         />
       </div>
 
       <div className="relative z-10 max-w-2xl mx-auto space-y-3.5">
-        <div className="no-print flex flex-col sm:flex-row items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-2xl border border-blue-100 shadow-sm">
+        <div className="no-print flex flex-col sm:flex-row items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-2xl border border-[#E5DDD3] shadow-sm">
           <div className="flex items-center justify-center gap-2 min-w-0">
             <img
               src={portalLogo}
               alt={displayBizName}
               referrerPolicy="no-referrer"
-              className="w-8 h-8 rounded-xl object-contain bg-white p-0.5 border border-blue-200 shrink-0"
+              className="w-8 h-8 rounded-xl object-contain bg-white p-0.5 border border-[#DFD7CC] shrink-0"
             />
-            <span className="text-xs font-bold text-[#0B1F44] truncate">
+            <span className="text-xs font-bold text-[#0A2240] truncate">
               {displayBizName}
             </span>
           </div>
@@ -573,16 +576,16 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             <button
               type="button"
               onClick={togglePortalLanguage}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 text-[#0B1F44] text-xs font-semibold hover:bg-blue-100"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#DFD7CC] bg-[#F6F1EA] text-[#0A2240] text-xs font-semibold hover:bg-[#EFE8DF]"
             >
-              <Globe className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              <Globe className="w-3.5 h-3.5 text-[#9A4307]" />
               {language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}
             </button>
             <button
               onClick={handleSharePaymentLink}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 text-[#0B1F44] text-xs font-semibold hover:bg-blue-100"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#DFD7CC] bg-[#F6F1EA] text-[#0A2240] text-xs font-semibold hover:bg-[#EFE8DF]"
             >
-              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-[#1D4ED8]" />}
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-[#15803D]" /> : <Share2 className="w-3.5 h-3.5 text-[#9A4307]" />}
               {copiedLink ? tr(language, 'Copied', 'కాపీ అయింది') : tr(language, 'Share Link', 'లింక్ షేర్')}
             </button>
             <button
@@ -597,14 +600,14 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             </button>
             <button
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-white text-[#0B1F44] text-xs font-semibold hover:bg-blue-50"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#DFD7CC] bg-white text-[#0A2240] text-xs font-semibold hover:bg-[#F6F1EA]"
             >
-              <Printer className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              <Printer className="w-3.5 h-3.5 text-[#9A4307]" />
               {tr(language, 'Print', 'ప్రింట్')}
             </button>
             <button
               onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#1D4ED8] text-white text-xs font-semibold hover:bg-[#1E40AF]"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#13325B]"
             >
               <Download className="w-3.5 h-3.5" />
               {tr(language, 'PDF', 'పీడీఎఫ్')}
@@ -612,8 +615,8 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
           </div>
         </div>
 
-        <div className="print-only-container bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="bg-[#0B1F44] text-white p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
+        <div className="print-only-container bg-white rounded-2xl border border-[#E5DDD3] shadow-sm overflow-hidden">
+          <div className="bg-[#0A2240] text-white p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               {portalLogo && (
                 <img
@@ -626,12 +629,7 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
               <div>
                 <h1 className="text-base font-bold">{displayBizName}</h1>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  {[
-                    invoice.businessPhone ? `${tr(language, 'Ph:', 'ఫోన్:')} ${invoice.businessPhone}` : '',
-                    invoice.businessGstin ? `${tr(language, 'GSTIN:', 'జీఎస్టీఐఎన్:')} ${invoice.businessGstin}` : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
+                  {invoice.businessPhone ? `${tr(language, 'Ph:', 'ఫోన్:')} ${invoice.businessPhone}` : ''}
                 </p>
                 {displayBizAddress && <p className="text-xs text-slate-300">{displayBizAddress}</p>}
               </div>
@@ -649,23 +647,37 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             </div>
           </div>
 
-          <div className="p-5 sm:p-6 space-y-5">
-            <div className="flex flex-wrap justify-between gap-4 pb-4 border-b border-slate-200">
+          <div className="relative p-5 sm:p-6">
+            {portalLogo && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden"
+              >
+                <img
+                  src={portalLogo}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="w-56 h-56 sm:w-72 sm:h-72 rounded-3xl object-contain opacity-[0.12] mix-blend-multiply select-none"
+                />
+              </div>
+            )}
+            <div className="relative z-10 space-y-5">
+            <div className="flex flex-wrap justify-between gap-4 pb-4 border-b border-[#E5DDD3]">
               <div>
-                <div className="text-xs text-slate-500">{tr(language, 'Customer', 'కస్టమర్')}</div>
-                <div className="text-sm font-bold text-slate-900 mt-0.5">{displayCustomerName}</div>
+                <div className="text-xs text-[#6D665E]">{tr(language, 'Customer', 'కస్టమర్')}</div>
+                <div className="text-sm font-bold text-[#0A2240] mt-0.5">{displayCustomerName}</div>
                 {invoice.customerPhoneMasked && (
-                  <div className="text-xs text-slate-600 font-mono">
+                  <div className="text-xs text-[#6D665E] font-mono">
                     {tr(language, 'Phone:', 'ఫోన్:')} {invoice.customerPhoneMasked}
                   </div>
                 )}
-                {invoice.customerAddress && <div className="text-xs text-slate-600">{invoice.customerAddress}</div>}
+                {invoice.customerAddress && <div className="text-xs text-[#6D665E]">{invoice.customerAddress}</div>}
               </div>
               <div className="text-right">
-                <div className="text-xs text-slate-500">{tr(language, 'Live Status', 'ప్రస్తుత స్థితి')}</div>
+                <div className="text-xs text-[#6D665E]">{tr(language, 'Live Status', 'ప్రస్తుత స్థితి')}</div>
                 <div
                   className={`inline-flex items-center gap-1.5 mt-1 text-sm font-bold ${
-                    isDue ? 'text-amber-700' : 'text-emerald-700'
+                    isDue ? 'text-[#9A4307]' : 'text-[#15803D]'
                   }`}
                 >
                   {isDue ? (
@@ -677,13 +689,13 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <CheckCircle2 className="w-4 h-4 text-[#15803D]" />
                       <span>{tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}</span>
                     </>
                   )}
                 </div>
                 {invoice.paymentMethod && (
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-[#6D665E]">
                     {tr(language, 'Via', 'చెల్లింపు విధానం:')} {translatePaymentMethod(invoice.paymentMethod, language)}
                   </div>
                 )}
@@ -692,10 +704,10 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
 
             {/* Purchased Items with Images */}
             <div>
-              <div className="text-xs font-semibold text-slate-500 mb-2">
+              <div className="text-xs font-semibold text-[#6D665E] mb-2">
                 {tr(language, 'Items in Bill', 'బిల్‌లోని వస్తువులు')} ({parsedItems.length})
               </div>
-              <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+              <div className="rounded-xl border border-[#E5DDD3] divide-y divide-[#EFEAE2]">
                 {parsedItems.map((it, i) => {
                   const thumb = it.img || resolveProductImage(null, it.n);
                   const dispItemName = translateCartProductName(it.n, undefined, [], language);
@@ -711,19 +723,19 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                             const fallback = getDefaultProductImage(it.n);
                             if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
                           }}
-                          className="w-11 h-11 rounded-lg object-cover border border-slate-200 bg-slate-50 shrink-0"
+                          className="w-11 h-11 rounded-lg object-cover border border-[#E5DDD3] bg-[#FAF8F5] shrink-0"
                         />
                         <div className="min-w-0">
-                          <div className="text-xs sm:text-sm font-semibold text-slate-900 truncate">
+                          <div className="text-xs sm:text-sm font-semibold text-[#0A2240] truncate">
                             {dispItemName}
-                            {dispVar ? <span className="text-slate-500 font-normal"> ({dispVar})</span> : null}
+                            {dispVar ? <span className="text-[#6D665E] font-normal"> ({dispVar})</span> : null}
                           </div>
-                          <div className="text-[11px] font-mono text-slate-500">
+                          <div className="text-[11px] font-mono text-[#6D665E]">
                             {it.q} × ₹{Number(it.p || 0).toFixed(2)}
                           </div>
                         </div>
                       </div>
-                      <div className="font-mono font-bold text-xs sm:text-sm text-slate-900 shrink-0">
+                      <div className="font-mono font-bold text-xs sm:text-sm text-[#0A2240] shrink-0">
                         {formatCurrency(it.t)}
                       </div>
                     </div>
@@ -733,30 +745,30 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
             </div>
 
             {/* Conditional Scanner if Due > 0 else AMOUNT PAID */}
-            <div className="flex flex-wrap items-start justify-between gap-5 pt-4 border-t border-slate-200">
+            <div className="flex flex-wrap items-start justify-between gap-5 pt-4 border-t border-[#E5DDD3]">
               <div className="flex-1 min-w-[240px]">
                 {isDue ? (
-                  <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 space-y-3">
+                  <div className="p-4 rounded-xl border border-[#F0D9B5] bg-[#FDF3DF] space-y-3">
                     <div className="flex items-center gap-3.5">
                       {qrUrl && (
                         <img
                           src={qrUrl}
                           alt={tr(language, 'UPI Payment Scanner', 'యూపీఐ చెల్లింపు స్కానర్')}
-                          className="w-24 h-24 object-contain bg-white rounded-lg p-1 border border-amber-200 shrink-0"
+                          className="w-24 h-24 object-contain bg-white rounded-lg p-1 border border-[#F0D9B5] shrink-0"
                         />
                       )}
                       <div className="text-xs space-y-1">
-                        <div className="font-bold text-amber-900 text-sm">
+                        <div className="font-bold text-[#7C3405] text-sm">
                           {tr(language, 'Due:', 'బాకీ:')} {formatCurrency(invoice.pendingBalance || 0)}
                         </div>
-                        <div className="text-amber-800">
+                        <div className="text-[#9A4307]">
                           {tr(
                             language,
                             'Scan QR or tap PhonePe / UPI below to pay',
                             'చెల్లించడానికి క్యూఆర్ స్కాన్ చేయండి లేదా కింది ఫోన్‌పే / యూపీఐ బటన్ నొక్కండి'
                           )}
                         </div>
-                        {invoice.upiId && <div className="font-mono text-slate-700">{invoice.upiId}</div>}
+                        {invoice.upiId && <div className="font-mono text-[#2D3138]">{invoice.upiId}</div>}
                       </div>
                     </div>
 
@@ -771,13 +783,13 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                         </a>
                         <a
                           href={upiPayUri}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#13326b]"
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#13325B]"
                         >
                           {tr(language, 'Pay via GPay / Any UPI', 'జీపే / ఇతర యూపీఐ ద్వారా చెల్లించండి')}
                         </a>
                         <button
                           onClick={handleSharePaymentLink}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 bg-white text-amber-900 text-xs font-semibold hover:bg-amber-100"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 bg-white text-[#7C3405] text-xs font-semibold hover:bg-amber-100"
                         >
                           <Copy className="w-3.5 h-3.5" />
                           {tr(language, 'Share Payment Link', 'చెల్లింపు లింక్ షేర్ చేయండి')}
@@ -786,19 +798,19 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                     )}
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50">
-                    <CheckCircle2 className="w-9 h-9 text-emerald-600 shrink-0" />
+                  <div className="flex items-center gap-3 p-4 rounded-xl border border-[#C5E8D1] bg-[#E7F6EC]">
+                    <CheckCircle2 className="w-9 h-9 text-[#15803D] shrink-0" />
                     <div>
                       <div className="text-base font-bold text-emerald-800">
                         {tr(language, 'AMOUNT PAID', 'పూర్తిగా చెల్లించబడింది')}
                       </div>
-                      <div className="text-xs font-mono text-emerald-700">
+                      <div className="text-xs font-mono text-[#15803D]">
                         {tr(language, 'Paid', 'చెల్లించినది')} {formatCurrency(invoice.amountPaid || invoice.grandTotal)} ·{' '}
                         {invoice.paymentMethod
                           ? translatePaymentMethod(invoice.paymentMethod, language)
                           : tr(language, 'Settled', 'పూర్తయింది')}
                       </div>
-                      <div className="text-[11px] text-emerald-600 mt-0.5">
+                      <div className="text-[11px] text-[#15803D] mt-0.5">
                         {tr(language, 'No pending balance due on this bill', 'ఈ బిల్‌పై ఎలాంటి బాకీ లేదు')}
                       </div>
                     </div>
@@ -807,24 +819,18 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
               </div>
 
               <div className="w-full sm:w-64 ml-auto space-y-2 text-xs font-mono">
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-[#6D665E]">
                   <span className="font-sans">{tr(language, 'Subtotal', 'మొత్తం')}</span>
                   <span>{formatCurrency(invoice.subtotal || invoice.grandTotal)}</span>
                 </div>
                 {(invoice.discountAmount || 0) > 0 && (
-                  <div className="flex justify-between text-emerald-700">
+                  <div className="flex justify-between text-[#15803D]">
                     <span className="font-sans">{tr(language, 'Discount', 'తగ్గింపు')}</span>
                     <span>-{formatCurrency(invoice.discountAmount || 0)}</span>
                   </div>
                 )}
-                {(invoice.totalTax || 0) > 0 && (
-                  <div className="flex justify-between text-slate-600">
-                    <span className="font-sans">{tr(language, 'Tax (GST)', 'పన్ను (జీఎస్టీ)')}</span>
-                    <span>{formatCurrency(invoice.totalTax || 0)}</span>
-                  </div>
-                )}
                 {(invoice.labourCharge || 0) > 0 && (
-                  <div className="flex justify-between text-slate-700">
+                  <div className="flex justify-between text-[#2D3138]">
                     <span className="font-sans">
                       {(invoice.labourRatePerPiece || 0) > 0
                         ? tr(
@@ -838,20 +844,20 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
                   </div>
                 )}
                 {(invoice.autoCharge || 0) > 0 && (
-                  <div className="flex justify-between text-slate-700">
+                  <div className="flex justify-between text-[#2D3138]">
                     <span className="font-sans">{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
                     <span>+{formatCurrency(invoice.autoCharge || 0)}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-base font-bold text-[#0B1F44] pt-2 border-t border-slate-200">
+                <div className="flex justify-between text-base font-bold text-[#0A2240] pt-2 border-t border-[#E5DDD3]">
                   <span className="font-sans">{tr(language, 'Grand Total', 'తుది మొత్తం')}</span>
                   <span>{formatCurrency(invoice.grandTotal)}</span>
                 </div>
-                <div className="flex justify-between text-emerald-700 font-semibold">
+                <div className="flex justify-between text-[#15803D] font-semibold">
                   <span className="font-sans">{tr(language, 'Amount Paid', 'చెల్లించిన మొత్తం')}</span>
                   <span>{formatCurrency(invoice.amountPaid || 0)}</span>
                 </div>
-                <div className={`flex justify-between font-semibold ${isDue ? 'text-rose-700' : 'text-slate-500'}`}>
+                <div className={`flex justify-between font-semibold ${isDue ? 'text-[#C23B2B]' : 'text-[#6D665E]'}`}>
                   <span className="font-sans">{tr(language, 'Pending Balance', 'బాకీ మొత్తం')}</span>
                   <span>{formatCurrency(invoice.pendingBalance || 0)}</span>
                 </div>
@@ -860,24 +866,29 @@ export const PublicInvoicePortal: React.FC<{ token: string }> = ({ token }) => {
 
             {/* Scannable Code128 Bill Verification Barcode */}
             {barcodeSvgUrl && (
-              <div className="pt-4 border-t border-slate-200 flex flex-col items-center gap-1">
+              <div className="pt-4 border-t border-[#E5DDD3] flex flex-col items-center gap-1">
                 <img
                   src={barcodeSvgUrl}
                   alt={`${tr(language, 'Bill Verification Barcode', 'బిల్ ధృవీకరణ బార్‌కోడ్')} ${verificationCode}`}
                   className="h-14 w-auto object-contain"
                 />
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-[#6D665E]">
                   {tr(language, 'Verify Code:', 'ధృవీకరణ కోడ్:')}{' '}
-                  <span className="font-mono font-semibold text-slate-700">{verificationCode}</span> ·{' '}
+                  <span className="font-mono font-semibold text-[#2D3138]">{verificationCode}</span> ·{' '}
                   {tr(language, 'Scan at store to verify this bill', 'ఈ బిల్ నిర్ధారణకు షాప్ వద్ద స్కాన్ చేయండి')}
                 </span>
               </div>
             )}
+            </div>
           </div>
         </div>
 
-        <footer className="text-center text-xs text-slate-500 pt-1 pb-3">
-          {getCopyrightNoticeLocalized(invoice.businessName, language)}
+        <footer className="text-center text-xs text-[#6D665E] pt-1 pb-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+          <span>{getCopyrightNoticeLocalized(invoice.businessName, language)}</span>
+          <span aria-hidden="true" className="text-[#B8AEA2]">
+            ·
+          </span>
+          <LegalFooterLinks language={language} businessName={invoice.businessName} />
         </footer>
       </div>
     </div>

@@ -49,8 +49,14 @@ service cloud.firestore {
 
     function isAdmin() {
       return isBootAdmin() || (
-        isAuthorizedSessionUser() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        isAuthorizedSessionUser() && (
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+          (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active' &&
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+          )
+        )
       );
     }
 
@@ -110,10 +116,8 @@ service cloud.firestore {
 
     function isBusinessAdmin(businessId) {
       return isBootAdmin() || (
-        isAuthorizedSessionUser() &&
-        businessExists(businessId) &&
         isAdmin() &&
-        request.auth.uid in get(/databases/$(database)/documents/businesses/$(businessId)).data.authorizedUids
+        isBusinessMember(businessId)
       );
     }
 
@@ -133,7 +137,7 @@ service cloud.firestore {
         (!('defaultTaxRate' in data) || (data.defaultTaxRate is number && data.defaultTaxRate >= 0 && data.defaultTaxRate <= 100)) &&
         (!('billPrefix' in data) || (data.billPrefix is string && data.billPrefix.size() <= 20)) &&
         (!('nextBillNumber' in data) || (data.nextBillNumber is int && data.nextBillNumber >= 1)) &&
-        (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 2000)) &&
+        (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 500000)) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
         (!('ownerEmail' in data) || (data.ownerEmail is string && data.ownerEmail.size() <= 160)) &&
         hasValidAuthorizedUids(data) &&
@@ -273,8 +277,8 @@ service cloud.firestore {
         (!('lowStockThreshold' in data) || (data.lowStockThreshold is number && data.lowStockThreshold >= 0)) &&
         data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100 &&
         (!('unit' in data) || (data.unit is string && data.unit.size() <= 40)) &&
-        (!('variantsSummary' in data) || (data.variantsSummary is string && data.variantsSummary.size() <= 500)) &&
-        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2000)) &&
+        (!('variantsSummary' in data) || (data.variantsSummary is string && data.variantsSummary.size() <= 1000)) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 350000)) &&
         (!('description' in data) || (data.description is string && data.description.size() <= 600)) &&
         (!('isDeleted' in data) || data.isDeleted is bool) &&
         (!('deletedAt' in data) || data.deletedAt is timestamp) &&
@@ -308,7 +312,7 @@ service cloud.firestore {
 
     function isValidBill(data) {
       return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'billNumber', 'customerName', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'totalTax', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'createdByUid', 'createdByName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'billNumber', 'customerId', 'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'verificationBarcode', 'createdByUid', 'createdByName', 'editedByUid', 'editedByName', 'editedAt', 'notes', 'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'billNumber', 'customerId', 'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount', 'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'billStatus', 'publicToken', 'publicLinkRevoked', 'verificationBarcode', 'createdByUid', 'createdByName', 'editedByUid', 'editedByName', 'editedAt', 'editApprovedForUid', 'editApprovalRequestId', 'editApprovedAt', 'editApprovedByName', 'notes', 'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'createdAt', 'updatedAt']) &&
         isValidId(data.id) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
@@ -346,6 +350,10 @@ service cloud.firestore {
         (!('editedByUid' in data) || (data.editedByUid is string && data.editedByUid.size() <= 128)) &&
         (!('editedByName' in data) || (data.editedByName is string && data.editedByName.size() <= 120)) &&
         (!('editedAt' in data) || data.editedAt is timestamp) &&
+        (!('editApprovedForUid' in data) || (data.editApprovedForUid is string && data.editApprovedForUid.size() <= 128)) &&
+        (!('editApprovalRequestId' in data) || (data.editApprovalRequestId is string && data.editApprovalRequestId.size() <= 128)) &&
+        (!('editApprovedAt' in data) || data.editApprovedAt is timestamp) &&
+        (!('editApprovedByName' in data) || (data.editApprovedByName is string && data.editApprovedByName.size() <= 120)) &&
         (!('notes' in data) || (data.notes is string && data.notes.size() <= 400)) &&
         (!('isDeleted' in data) || data.isDeleted is bool) &&
         (!('deletedAt' in data) || data.deletedAt is timestamp) &&
@@ -425,8 +433,9 @@ service cloud.firestore {
 
     function isValidPublicInvoice(data) {
       return data.keys().hasAll(['token', 'businessId', 'ownerUid', 'revoked', 'invoiceNumber', 'businessName', 'customerName', 'grandTotal', 'paymentStatus', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['token', 'businessId', 'ownerUid', 'revoked', 'invoiceNumber', 'issuedAtIso', 'businessName', 'businessPhone', 'businessAddress', 'businessGstin', 'businessLogoUrl', 'customerName', 'customerPhoneMasked', 'customerAddress', 'itemsSummary', 'itemsJson', 'subtotal', 'discountAmount', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'upiId', 'upiName', 'verificationBarcode', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['token', 'billId', 'businessId', 'ownerUid', 'revoked', 'invoiceNumber', 'issuedAtIso', 'businessName', 'businessPhone', 'businessAddress', 'businessGstin', 'businessLogoUrl', 'customerName', 'customerPhoneMasked', 'customerAddress', 'itemsSummary', 'itemsJson', 'subtotal', 'discountAmount', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax', 'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'upiId', 'upiName', 'verificationBarcode', 'createdAt', 'updatedAt']) &&
         isValidId(data.token) && data.token.size() >= 16 &&
+        (!('billId' in data) || isValidId(data.billId)) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
         data.revoked is bool &&
@@ -436,7 +445,7 @@ service cloud.firestore {
         (!('businessPhone' in data) || (data.businessPhone is string && data.businessPhone.size() <= 30)) &&
         (!('businessAddress' in data) || (data.businessAddress is string && data.businessAddress.size() <= 400)) &&
         (!('businessGstin' in data) || (data.businessGstin is string && data.businessGstin.size() <= 20)) &&
-        (!('businessLogoUrl' in data) || (data.businessLogoUrl is string && data.businessLogoUrl.size() <= 2000)) &&
+        (!('businessLogoUrl' in data) || (data.businessLogoUrl is string && data.businessLogoUrl.size() <= 500000)) &&
         data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 160 &&
         (!('customerPhoneMasked' in data) || (data.customerPhoneMasked is string && data.customerPhoneMasked.size() <= 30)) &&
         (!('customerAddress' in data) || (data.customerAddress is string && data.customerAddress.size() <= 400)) &&
@@ -511,7 +520,7 @@ service cloud.firestore {
         hasValidAuthorizedEmails(data) &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
         data.message is string && data.message.size() >= 1 && data.message.size() <= 400 &&
-        data.type in ['bill', 'payment', 'low_stock', 'customer', 'settings', 'device', 'cancellation', 'refund'] &&
+        data.type in ['bill', 'payment', 'low_stock', 'customer', 'settings', 'device', 'cancellation', 'refund', 'approval_request', 'approval_decision'] &&
         (!('relatedRecordType' in data) || (data.relatedRecordType is string && data.relatedRecordType.size() <= 60)) &&
         (!('relatedRecordId' in data) || (data.relatedRecordId is string && data.relatedRecordId.size() <= 128)) &&
         (!('billNumber' in data) || (data.billNumber is string && data.billNumber.size() <= 40)) &&
@@ -544,7 +553,7 @@ service cloud.firestore {
 
     function isValidBusinessSettings(data) {
       return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'paperWidth', 'fontSize', 'showLogo', 'showQrCode', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'paperWidth', 'fontSize', 'showLogo', 'showThermalLogo', 'showQrCode', 'footerMessage', 'invoiceNotes', 'whatsappEnabled', 'smsEnabled', 'smsSenderId', 'smsDltTemplateId', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails', 'paperWidth', 'fontSize', 'showLogo', 'showThermalLogo', 'showQrCode', 'footerMessage', 'invoiceNotes', 'whatsappEnabled', 'autoWhatsAppThankYou', 'smsEnabled', 'smsSenderId', 'smsDltTemplateId', 'updatedAt']) &&
         isValidId(data.id) &&
         isValidId(data.businessId) &&
         data.ownerUid is string && data.ownerUid.size() <= 128 &&
@@ -558,6 +567,7 @@ service cloud.firestore {
         (!('footerMessage' in data) || (data.footerMessage is string && data.footerMessage.size() <= 240)) &&
         (!('invoiceNotes' in data) || (data.invoiceNotes is string && data.invoiceNotes.size() <= 400)) &&
         (!('whatsappEnabled' in data) || data.whatsappEnabled is bool) &&
+        (!('autoWhatsAppThankYou' in data) || data.autoWhatsAppThankYou is bool) &&
         (!('smsEnabled' in data) || data.smsEnabled is bool) &&
         (!('smsSenderId' in data) || (data.smsSenderId is string && data.smsSenderId.size() <= 12)) &&
         (!('smsDltTemplateId' in data) || (data.smsDltTemplateId is string && data.smsDltTemplateId.size() <= 64)) &&
@@ -623,6 +633,65 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidApprovalRequest(data) {
+      return data.keys().hasAll(['id', 'businessId', 'ownerUid', 'authorizedUids', 'requestType', 'status', 'requesterUid', 'requesterName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'businessId', 'ownerUid', 'authorizedUids', 'authorizedEmails',
+          'requestType', 'status', 'requesterUid', 'requesterName', 'requesterEmail',
+          'currentDisplayName', 'currentPhoneNumber', 'currentUsername', 'currentEmail', 'currentPhotoDataUrl',
+          'proposedDisplayName', 'proposedPhoneNumber', 'proposedUsername', 'proposedEmail', 'proposedPhotoDataUrl',
+          'billId', 'billNumber', 'customerName', 'grandTotal', 'reason',
+          'reviewedByUid', 'reviewedByName', 'reviewedAt', 'decisionNote', 'consumedAt',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.businessId) &&
+        data.ownerUid is string && data.ownerUid.size() <= 128 &&
+        hasValidAuthorizedUids(data) &&
+        hasValidAuthorizedEmails(data) &&
+        data.requestType in ['profile_update', 'bill_edit'] &&
+        data.status in ['pending', 'approved', 'rejected', 'consumed'] &&
+        isValidId(data.requesterUid) &&
+        data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 120 &&
+        (!('requesterEmail' in data) || (data.requesterEmail is string && data.requesterEmail.size() <= 160)) &&
+        (!('currentDisplayName' in data) || (data.currentDisplayName is string && data.currentDisplayName.size() <= 120)) &&
+        (!('currentPhoneNumber' in data) || (data.currentPhoneNumber is string && data.currentPhoneNumber.size() <= 30)) &&
+        (!('currentUsername' in data) || (data.currentUsername is string && data.currentUsername.size() <= 40)) &&
+        (!('currentEmail' in data) || (data.currentEmail is string && data.currentEmail.size() <= 160)) &&
+        (!('currentPhotoDataUrl' in data) || (data.currentPhotoDataUrl is string && data.currentPhotoDataUrl.size() <= 120000)) &&
+        (!('proposedDisplayName' in data) || (data.proposedDisplayName is string && data.proposedDisplayName.size() <= 120)) &&
+        (!('proposedPhoneNumber' in data) || (data.proposedPhoneNumber is string && data.proposedPhoneNumber.size() <= 30)) &&
+        (!('proposedUsername' in data) || (data.proposedUsername is string && data.proposedUsername.size() <= 40)) &&
+        (!('proposedEmail' in data) || (data.proposedEmail is string && data.proposedEmail.size() <= 160)) &&
+        (!('proposedPhotoDataUrl' in data) || (data.proposedPhotoDataUrl is string && data.proposedPhotoDataUrl.size() <= 120000)) &&
+        (!('billId' in data) || isValidId(data.billId)) &&
+        (!('billNumber' in data) || (data.billNumber is string && data.billNumber.size() <= 40)) &&
+        (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 160)) &&
+        (!('grandTotal' in data) || (data.grandTotal is number && data.grandTotal >= 0)) &&
+        (!('reason' in data) || (data.reason is string && data.reason.size() <= 400)) &&
+        (!('reviewedByUid' in data) || (data.reviewedByUid is string && data.reviewedByUid.size() <= 128)) &&
+        (!('reviewedByName' in data) || (data.reviewedByName is string && data.reviewedByName.size() <= 120)) &&
+        (!('reviewedAt' in data) || data.reviewedAt is timestamp) &&
+        (!('decisionNote' in data) || (data.decisionNote is string && data.decisionNote.size() <= 400)) &&
+        (!('consumedAt' in data) || data.consumedAt is timestamp) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isStaffApprovedBillEdit(billId) {
+      return isValidId(billId) &&
+        exists(/databases/$(database)/documents/bills/$(billId)) &&
+        get(/databases/$(database)/documents/bills/$(billId)).data.createdByUid == request.auth.uid &&
+        get(/databases/$(database)/documents/bills/$(billId)).data.billStatus == 'active' &&
+        'editApprovedForUid' in get(/databases/$(database)/documents/bills/$(billId)).data &&
+        get(/databases/$(database)/documents/bills/$(billId)).data.editApprovedForUid == request.auth.uid &&
+        'editApprovalRequestId' in get(/databases/$(database)/documents/bills/$(billId)).data &&
+        isValidId(get(/databases/$(database)/documents/bills/$(billId)).data.editApprovalRequestId) &&
+        exists(/databases/$(database)/documents/approvalRequests/$(get(/databases/$(database)/documents/bills/$(billId)).data.editApprovalRequestId)) &&
+        get(/databases/$(database)/documents/approvalRequests/$(get(/databases/$(database)/documents/bills/$(billId)).data.editApprovalRequestId)).data.status == 'approved' &&
+        get(/databases/$(database)/documents/approvalRequests/$(get(/databases/$(database)/documents/bills/$(billId)).data.editApprovalRequestId)).data.requesterUid == request.auth.uid;
+    }
+
     // --- Collection Rules ---
 
     // Connection test doc
@@ -650,11 +719,6 @@ service cloud.firestore {
             isBusinessMember(businessId) &&
             incoming().diff(existing()).affectedKeys().hasOnly(['nextBillNumber', 'updatedAt']) &&
             incoming().nextBillNumber >= existing().nextBillNumber
-          ) ||
-          (
-            isBusinessMember(businessId) &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['authorizedEmails', 'updatedAt']) &&
-            incoming().authorizedEmails.size() <= existing().authorizedEmails.size() + 1
           )
         );
       allow delete: if false;
@@ -668,24 +732,10 @@ service cloud.firestore {
       allow list: if isDocAuthorized(existing()) ||
         (isVerifiedUser() && existing().email == request.auth.token.email);
       allow create: if isValidId(inviteId) &&
+        isAdmin() &&
         isValidInvite(incoming()) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            isActiveUser(request.auth.uid) &&
-            isBusinessMember(incoming().businessId) &&
-            incoming().previousUid == request.auth.uid &&
-            incoming().status == 'pending' &&
-            incoming().role == 'cashier' &&
-            incoming().businessId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.businessId &&
-            (!('canEditBills' in incoming()) || incoming().canEditBills == false) &&
-            (!('canCancelBills' in incoming()) || incoming().canCancelBills == false) &&
-            (!('canViewReports' in incoming()) || incoming().canViewReports == false) &&
-            (!('canManageProducts' in incoming()) || incoming().canManageProducts == false)
-          )
-        );
+        incoming().updatedAt == request.time;
       allow update: if isValidId(inviteId) &&
         isValidInvite(incoming()) &&
         incoming().createdAt == existing().createdAt &&
@@ -714,34 +764,16 @@ service cloud.firestore {
       allow get: if isValidUsernameId(username) && existing().active == true;
       allow list: if false;
       allow create: if isValidUsernameId(username) &&
+        isAdmin() &&
         isValidUsernameIndex(incoming()) &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            isAuthorizedSessionUser() &&
-            incoming().uid == request.auth.uid &&
-            isBusinessMember(incoming().businessId)
-          )
-        );
+        incoming().updatedAt == request.time;
       allow update: if isValidUsernameId(username) &&
+        isAdmin() &&
         isValidUsernameIndex(incoming()) &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            isAuthorizedSessionUser() &&
-            existing().uid == request.auth.uid &&
-            incoming().uid == request.auth.uid &&
-            isBusinessMember(existing().businessId)
-          )
-        );
-      allow delete: if isValidUsernameId(username) && (
-        isAdmin() ||
-        (isAuthorizedSessionUser() && existing().uid == request.auth.uid)
-      );
+        incoming().updatedAt == request.time;
+      allow delete: if isValidUsernameId(username) && isAdmin();
     }
 
     match /users/{userId} {
@@ -786,7 +818,6 @@ service cloud.firestore {
             incoming().ownerUid == existing().ownerUid &&
             incoming().authorizedUids == existing().authorizedUids &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'displayName', 'phoneNumber', 'photoDataUrl', 'email', 'authEmail', 'username',
               'mpinHash', 'mpinSalt', 'mpinEnabled', 'mpinUpdatedAt',
               'passwordHash', 'passwordSalt', 'passwordEnabled', 'passwordUpdatedAt', 'updatedAt'
             ])
@@ -924,10 +955,26 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'notes', 'updatedAt'])
           ) ||
           (
+            existing().billStatus == 'active' &&
             existing().createdByUid == request.auth.uid &&
-            incoming().isDeleted == true &&
+            'editApprovedForUid' in existing() &&
+            existing().editApprovedForUid == request.auth.uid &&
+            'editApprovalRequestId' in existing() &&
+            isValidId(existing().editApprovalRequestId) &&
+            exists(/databases/$(database)/documents/approvalRequests/$(existing().editApprovalRequestId)) &&
+            get(/databases/$(database)/documents/approvalRequests/$(existing().editApprovalRequestId)).data.status == 'approved' &&
+            get(/databases/$(database)/documents/approvalRequests/$(existing().editApprovalRequestId)).data.requesterUid == request.auth.uid &&
+            get(/databases/$(database)/documents/approvalRequests/$(existing().editApprovalRequestId)).data.billId == billId &&
+            incoming().editApprovedForUid == '' &&
+            incoming().editApprovalRequestId == '' &&
+            incoming().editedByUid == request.auth.uid &&
+            incoming().billStatus == existing().billStatus &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'isDeleted', 'deletedAt', 'deletedAtMs', 'deleteExpiresAtMs', 'deletedByUid', 'deletedByName', 'publicLinkRevoked', 'updatedAt'
+              'customerName', 'customerMobile', 'customerAddress', 'itemsSummary', 'itemCount',
+              'subtotal', 'discountAmount', 'taxableAmount', 'gstType', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax',
+              'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid', 'pendingBalance',
+              'paymentMethod', 'paymentStatus', 'notes', 'editedByUid', 'editedByName', 'editedAt',
+              'editApprovedForUid', 'editApprovalRequestId', 'updatedAt'
             ])
           )
         );
@@ -955,7 +1002,10 @@ service cloud.firestore {
         incoming().businessId == existing().businessId &&
         incoming().ownerUid == existing().ownerUid &&
         incoming().createdAt == existing().createdAt;
-      allow delete: if isValidId(itemId) && isBusinessAdmin(existing().businessId);
+      allow delete: if isValidId(itemId) && (
+        isBusinessAdmin(existing().businessId) ||
+        (isBusinessMember(existing().businessId) && isStaffApprovedBillEdit(existing().billId))
+      );
     }
 
     match /payments/{paymentId} {
@@ -995,7 +1045,11 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isBusinessAdmin(existing().businessId) ||
-          incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'revoked', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'revoked', 'updatedAt']) ||
+          (
+            isStaffApprovedBillEdit(existing().billId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['customerName', 'grandTotal', 'paymentStatus', 'updatedAt'])
+          )
         );
       allow delete: if isValidId(invoiceId) && isBusinessAdmin(existing().businessId);
     }
@@ -1022,7 +1076,17 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (
           isBusinessAdmin(existing().businessId) ||
-          incoming().diff(existing()).affectedKeys().hasOnly(['amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'revoked', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['amountPaid', 'pendingBalance', 'paymentMethod', 'paymentStatus', 'revoked', 'updatedAt']) ||
+          (
+            'billId' in existing() &&
+            isStaffApprovedBillEdit(existing().billId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'customerName', 'customerPhoneMasked', 'customerAddress', 'itemsSummary', 'itemsJson',
+              'subtotal', 'discountAmount', 'cgstAmount', 'sgstAmount', 'igstAmount', 'totalTax',
+              'labourCharge', 'labourRatePerPiece', 'autoCharge', 'grandTotal', 'amountPaid',
+              'pendingBalance', 'paymentMethod', 'paymentStatus', 'updatedAt'
+            ])
+          )
         );
       allow delete: if isValidId(token) && isBusinessAdmin(existing().businessId);
     }
@@ -1172,6 +1236,50 @@ service cloud.firestore {
         isBusinessAdmin(existing().businessId) ||
         (isBusinessMember(existing().businessId) && existing().recordedByUid == request.auth.uid)
       );
+    }
+
+    match /approvalRequests/{requestId} {
+      allow get: if isValidId(requestId) && isDocAuthorized(existing());
+      allow list: if isDocAuthorized(existing());
+      allow create: if isValidId(requestId) &&
+        isValidApprovalRequest(incoming()) &&
+        isBusinessMember(incoming().businessId) &&
+        incoming().requesterUid == request.auth.uid &&
+        incoming().status == 'pending' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().requestType == 'profile_update' ||
+          (
+            incoming().requestType == 'bill_edit' &&
+            'billId' in incoming() &&
+            exists(/databases/$(database)/documents/bills/$(incoming().billId)) &&
+            get(/databases/$(database)/documents/bills/$(incoming().billId)).data.createdByUid == request.auth.uid &&
+            get(/databases/$(database)/documents/bills/$(incoming().billId)).data.billStatus == 'active'
+          )
+        );
+      allow update: if isValidId(requestId) &&
+        isValidApprovalRequest(incoming()) &&
+        isBusinessMember(existing().businessId) &&
+        incoming().id == existing().id &&
+        incoming().businessId == existing().businessId &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().requestType == existing().requestType &&
+        incoming().requesterUid == existing().requesterUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isBusinessAdmin(existing().businessId) ||
+          (
+            existing().requestType == 'bill_edit' &&
+            existing().requesterUid == request.auth.uid &&
+            existing().status == 'approved' &&
+            incoming().status == 'consumed' &&
+            incoming().consumedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'consumedAt', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(requestId) && isBusinessAdmin(existing().businessId);
     }
   }
 }

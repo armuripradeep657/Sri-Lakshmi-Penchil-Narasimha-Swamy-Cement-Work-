@@ -13,6 +13,7 @@ import {
   FileText,
   Globe,
   HardHat,
+  HelpCircle,
   History,
   Laptop,
   Lock,
@@ -21,7 +22,6 @@ import {
   Package,
   Printer,
   QrCode,
-  ReceiptText,
   ScanBarcode,
   Settings,
   ShieldCheck,
@@ -32,9 +32,9 @@ import {
   X,
 } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LegalFooterLinks } from './components/LegalModals';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { PostBillActionsModal } from './components/InvoiceViews';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BillingDataProvider, CartItemInput, useBillingData } from './context/BillingDataContext';
 import { DEFAULT_BUSINESS_LOGO, getCopyrightNotice, resolveBusinessLogoUrl } from './lib/seedData';
@@ -43,12 +43,11 @@ import { formatCurrency } from './lib/upiAndExport';
 import {
   tr,
   translateBusinessName,
-  translateCustomerName,
   translateProductName,
   translateProprietor,
   translateVariantLabel,
 } from './lib/i18n';
-import { Bill, NavPageId, Product } from './types/billing';
+import { NavPageId, Product } from './types/billing';
 
 import { LoginPage } from './pages/LoginPage';
 import { PublicInvoicePortal } from './pages/PublicInvoicePortal';
@@ -69,6 +68,7 @@ import { NotificationsPage } from './pages/NotificationsPage';
 import { DeviceManagementPage } from './pages/DeviceManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { BusinessSettingsPage } from './pages/BusinessSettingsPage';
+import { HelpSupportPage } from './pages/HelpSupportPage';
 
 interface NavItemConfig {
   id: NavPageId;
@@ -100,6 +100,7 @@ const NAV_ITEMS: NavItemConfig[] = [
   { id: 'devices', label: 'Device Management', labelTe: 'పరికరాలు', icon: Laptop, adminOnly: true },
   { id: 'users', label: 'User Management', labelTe: 'యూజర్ నిర్వహణ', icon: UserCog, adminOnly: true },
   { id: 'settings', label: 'Business Settings', labelTe: 'బిజినెస్ సెట్టింగ్స్', icon: Settings, adminOnly: true },
+  { id: 'help-support', label: 'Help & Support', labelTe: 'సహాయం & మద్దతు', icon: HelpCircle },
 ];
 
 function extractPublicInvoiceToken(): string | null {
@@ -121,12 +122,11 @@ function extractInitialPage(): NavPageId {
 const AuthenticatedShell: React.FC = () => {
   const { activeUid, userAccount, isAdmin, role, language, toggleLanguage, logout, lockWithMpin } =
     useAuth();
-  const { business, bills, billItems, products, notifications, loadingData } = useBillingData();
+  const { business, products, notifications } = useBillingData();
 
   const [activePage, setActivePage] = useState<NavPageId>(() => extractInitialPage());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [verifiedBill, setVerifiedBill] = useState<Bill | null>(null);
   const [cart, setCart] = useState<CartItemInput[]>([]);
   const [viewCartNonce, setViewCartNonce] = useState(0);
   const [cartPopToast, setCartPopToast] = useState<{
@@ -138,34 +138,12 @@ const AuthenticatedShell: React.FC = () => {
     totalUnits: number;
     grandTotal: number;
   } | null>(null);
-  const [liveBillToast, setLiveBillToast] = useState<Bill | null>(null);
 
-  const knownBillIdsRef = useRef<Set<string> | null>(null);
-  const billToastTimerRef = useRef<number | null>(null);
   const cartToastTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (loadingData) return;
-    if (knownBillIdsRef.current === null) {
-      knownBillIdsRef.current = new Set(bills.map((b) => b.id));
-      return;
-    }
-    const myUid = activeUid || '';
-    const newBills = bills.filter(
-      (b) => !knownBillIdsRef.current!.has(b.id) && (isAdmin || b.createdByUid === myUid)
-    );
-    bills.forEach((b) => knownBillIdsRef.current!.add(b.id));
-    if (newBills.length > 0) {
-      const latest = newBills[0];
-      if (billToastTimerRef.current) window.clearTimeout(billToastTimerRef.current);
-      setLiveBillToast(latest);
-      billToastTimerRef.current = window.setTimeout(() => setLiveBillToast(null), 8000);
-    }
-  }, [bills, loadingData, isAdmin, activeUid]);
 
   const handleAddToCart = (product: Product, variantLabel?: string, variantPrice?: number) => {
     const price = variantPrice ?? product.sellingPrice;
-    const taxRate = business?.taxEnabled ? product.taxRate : 0;
+    const taxRate = 0;
     const displayProdName = translateProductName(product, language);
     const displayVariant = translateVariantLabel(variantLabel, language);
 
@@ -322,6 +300,8 @@ const AuthenticatedShell: React.FC = () => {
         return isAdmin ? <UserManagementPage /> : billingPageEl;
       case 'settings':
         return isAdmin ? <BusinessSettingsPage /> : billingPageEl;
+      case 'help-support':
+        return <HelpSupportPage onNavigate={handleNavigate} />;
       default:
         return billingPageEl;
     }
@@ -333,27 +313,27 @@ const AuthenticatedShell: React.FC = () => {
   const proprietorText = translateProprietor(business?.proprietor, language);
 
   return (
-    <div className="min-h-screen bg-[#F4F8FF] text-slate-900 flex overflow-x-hidden">
-      {/* Desktop Sidebar (Blue & White Theme) */}
+    <div className="min-h-screen bg-[#FAF8F5] dark:bg-slate-950 text-[#0A2240] dark:text-slate-100 flex overflow-x-hidden">
+      {/* Desktop Sidebar (Warm Sand & Deep Midnight Navy Theme) */}
       <aside
-        className={`hidden lg:flex flex-col border-r border-blue-900/20 bg-gradient-to-b from-[#0B1F44] via-[#102B66] to-[#1D4ED8] text-white transition-all duration-200 shrink-0 sticky top-0 h-screen shadow-lg ${
+        className={`hidden lg:flex flex-col border-r border-[#E5DDD3] dark:border-slate-800 bg-[#F3EDE5] dark:bg-slate-900 text-[#0A2240] dark:text-slate-100 transition-all duration-200 shrink-0 sticky top-0 h-screen ${
           sidebarCollapsed ? 'w-[76px]' : 'w-[252px]'
         }`}
       >
-        <div className="h-16 px-4 flex items-center justify-between border-b border-white/10">
+        <div className="h-16 px-4 flex items-center justify-between border-b border-[#E5DDD3] dark:border-slate-800">
           <div className="flex items-center gap-2.5 overflow-hidden">
             <img
               src={logoSrc}
               alt={brandTitle}
               referrerPolicy="no-referrer"
-              className="w-10 h-10 rounded-xl object-contain bg-white p-0.5 border border-white/30 shadow-sm shrink-0"
+              className="w-10 h-10 rounded-xl object-contain bg-white p-0.5 border border-[#DFD7CC] dark:border-slate-700 shadow-xs shrink-0"
             />
             {!sidebarCollapsed && (
               <div className="min-w-0">
-                <div className="font-display font-bold text-xs leading-snug tracking-tight text-white line-clamp-2">
+                <div className="font-display font-bold text-xs leading-snug tracking-tight text-[#0A2240] dark:text-white line-clamp-2">
                   {brandTitle}
                 </div>
-                <div className="text-[10px] text-cyan-300 truncate">
+                <div className="text-[10px] font-medium text-[#6D665E] dark:text-slate-400 truncate">
                   {proprietorText
                     ? tr(language, `Prop: ${proprietorText}`, `యజమాని: ${proprietorText}`)
                     : tr(language, 'Cloud POS', 'క్లౌడ్ బిల్లింగ్')}
@@ -363,7 +343,7 @@ const AuthenticatedShell: React.FC = () => {
           </div>
           <button
             onClick={() => setSidebarCollapsed((c) => !c)}
-            className="p-1 rounded-lg hover:bg-white/10 text-slate-300"
+            className="p-1 rounded-lg hover:bg-[#E7DFD4] dark:hover:bg-slate-800 text-[#6D665E] dark:text-slate-300"
             title={
               sidebarCollapsed
                 ? tr(language, 'Expand sidebar', 'సైడ్‌బార్ విస్తరించండి')
@@ -387,15 +367,15 @@ const AuthenticatedShell: React.FC = () => {
                 title={sidebarCollapsed ? itemLabel : undefined}
                 className={`relative w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
                   isActive
-                    ? 'text-[#0B1F44]'
-                    : 'text-blue-100 hover:bg-white/15 hover:text-white'
+                    ? 'text-white'
+                    : 'text-[#2D3138] dark:text-slate-300 hover:bg-[#E9E1D6] dark:hover:bg-slate-800 hover:text-[#0A2240] dark:hover:text-white'
                 }`}
               >
                 {isActive && (
                   <motion.span
                     layoutId="slp-sidebar-pill"
                     transition={{ type: 'spring', stiffness: 460, damping: 32 }}
-                    className="absolute inset-0 rounded-xl bg-white shadow-sm"
+                    className="absolute inset-0 rounded-xl bg-[#0A2240] dark:bg-[#1E3A5F] shadow-sm"
                   />
                 )}
                 <span className="relative z-10 flex items-center gap-2.5 min-w-0">
@@ -403,7 +383,7 @@ const AuthenticatedShell: React.FC = () => {
                   {!sidebarCollapsed && <span className="truncate">{itemLabel}</span>}
                 </span>
                 {!sidebarCollapsed && item.id === 'notifications' && unreadNotifications > 0 && (
-                  <span className="relative z-10 px-1.5 py-0.5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold">
+                  <span className="relative z-10 px-1.5 py-0.5 rounded-full bg-[#9A4307] text-white text-[10px] font-bold">
                     {unreadNotifications}
                   </span>
                 )}
@@ -412,28 +392,30 @@ const AuthenticatedShell: React.FC = () => {
           })}
         </nav>
 
-        <div className="p-3 border-t border-white/15 text-xs space-y-2">
-          <div className={`grid gap-1.5 ${sidebarCollapsed ? 'grid-cols-1' : 'grid-cols-2'}`}>
-            <button
-              type="button"
-              onClick={() => handleNavigate('scanner')}
-              title={tr(language, 'Open Verify Scanner', 'తనిఖీ స్కానర్ తెరవండి')}
-              className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold transition ${
-                activePage === 'scanner'
-                  ? 'bg-white text-[#0B1F44]'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
-            >
-              <ScanBarcode className={`w-3.5 h-3.5 shrink-0 ${activePage === 'scanner' ? 'text-[#1D4ED8]' : 'text-cyan-300'}`} />
-              {!sidebarCollapsed && <span className="truncate">{tr(language, 'Verify Bill', 'బిల్ తనిఖీ')}</span>}
-            </button>
+        <div className="p-3 border-t border-[#E5DDD3] dark:border-slate-800 text-xs space-y-2">
+          <div className={`grid gap-1.5 ${sidebarCollapsed || !isAdmin ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => handleNavigate('scanner')}
+                title={tr(language, 'Open Verify Scanner', 'తనిఖీ స్కానర్ తెరవండి')}
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold border transition ${
+                  activePage === 'scanner'
+                    ? 'bg-[#0A2240] border-[#0A2240] text-white'
+                    : 'bg-white/80 dark:bg-slate-800 border-[#DFD7CC] dark:border-slate-700 hover:bg-white text-[#0A2240] dark:text-slate-100'
+                }`}
+              >
+                <ScanBarcode className={`w-3.5 h-3.5 shrink-0 ${activePage === 'scanner' ? 'text-white' : 'text-[#9A4307] dark:text-amber-400'}`} />
+                {!sidebarCollapsed && <span className="truncate">{tr(language, 'Verify Bill', 'బిల్ తనిఖీ')}</span>}
+              </button>
+            )}
             <button
               type="button"
               onClick={toggleLanguage}
               title={tr(language, 'Switch to Telugu', 'ఇంగ్లీష్‌కు మార్చండి')}
-              className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold transition"
+              className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/80 dark:bg-slate-800 border border-[#DFD7CC] dark:border-slate-700 hover:bg-white text-[#0A2240] dark:text-slate-100 text-[11px] font-semibold transition"
             >
-              <Globe className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+              <Globe className="w-3.5 h-3.5 text-[#9A4307] dark:text-amber-400 shrink-0" />
               {!sidebarCollapsed && <span>{language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}</span>}
             </button>
           </div>
@@ -441,26 +423,26 @@ const AuthenticatedShell: React.FC = () => {
             <button
               type="button"
               onClick={() => handleNavigate('profile')}
-              className="w-full pt-1 px-1 flex items-center gap-2 text-left rounded-xl hover:bg-white/10 py-1 transition"
+              className="w-full pt-1 px-1 flex items-center gap-2 text-left rounded-xl hover:bg-[#E9E1D6] dark:hover:bg-slate-800 py-1 transition"
             >
               {userAccount?.photoDataUrl ? (
                 <img
                   src={userAccount.photoDataUrl}
                   alt={userAccount.displayName}
-                  className="w-8 h-8 rounded-full object-cover border border-white/40 shrink-0"
+                  className="w-8 h-8 rounded-full object-cover border border-[#DFD7CC] shrink-0"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-white/15 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-full bg-[#0A2240] text-white text-xs font-bold flex items-center justify-center shrink-0">
                   {(userAccount?.displayName || 'U').slice(0, 1).toUpperCase()}
                 </div>
               )}
               <div className="min-w-0">
-                <div className="font-semibold text-white truncate">{userAccount?.displayName}</div>
-                <div className="text-[11px] text-blue-200 flex items-center gap-1 capitalize">
-                  <ShieldCheck className="w-3 h-3 text-white shrink-0" />
+                <div className="font-semibold text-[#0A2240] dark:text-white truncate">{userAccount?.displayName}</div>
+                <div className="text-[11px] text-[#6D665E] dark:text-slate-400 flex items-center gap-1 capitalize">
+                  <ShieldCheck className="w-3 h-3 text-[#15803D] shrink-0" />
                   <span>{role === 'admin' ? tr(language, 'Admin', 'అడ్మిన్') : tr(language, 'Staff', 'సిబ్బంది')}</span>
                   {userAccount?.phoneNumber && (
-                    <span className="font-mono text-cyan-200 truncate">· {userAccount.phoneNumber}</span>
+                    <span className="font-mono text-[#0A2240] dark:text-slate-300 truncate">· {userAccount.phoneNumber}</span>
                   )}
                 </div>
               </div>
@@ -468,7 +450,7 @@ const AuthenticatedShell: React.FC = () => {
           )}
           <button
             onClick={logout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/15 hover:bg-rose-600 text-white text-xs font-semibold transition"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/80 dark:bg-slate-800 border border-[#DFD7CC] dark:border-slate-700 hover:bg-[#FCE8E6] hover:border-[#F5C2BC] hover:text-[#C23B2B] text-[#0A2240] dark:text-slate-200 text-xs font-semibold transition"
           >
             <LogOut className="w-3.5 h-3.5" />
             {!sidebarCollapsed && (
@@ -480,8 +462,9 @@ const AuthenticatedShell: React.FC = () => {
             )}
           </button>
           {!sidebarCollapsed && (
-            <div className="pt-1 text-center text-[10px] leading-tight text-blue-200/80">
-              {copyrightText}
+            <div className="pt-1 text-center text-[10px] leading-tight text-[#6D665E] dark:text-slate-400 space-y-1">
+              <div>{copyrightText}</div>
+              <LegalFooterLinks language={language} businessName={business?.name} className="text-[10px]" />
             </div>
           )}
         </div>
@@ -490,7 +473,7 @@ const AuthenticatedShell: React.FC = () => {
       {/* Centered Middle App Logo Watermark Across Admin & Staff Portals */}
       <div
         aria-hidden="true"
-        className={`pointer-events-none fixed inset-0 z-[1] flex items-center justify-center ${
+        className={`pointer-events-none fixed inset-0 z-[25] flex items-center justify-center ${
           sidebarCollapsed ? 'lg:pl-[76px]' : 'lg:pl-[252px]'
         }`}
       >
@@ -498,17 +481,17 @@ const AuthenticatedShell: React.FC = () => {
           src={logoSrc}
           alt=""
           referrerPolicy="no-referrer"
-          className="w-60 h-60 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.055] mix-blend-multiply select-none animate-slp-breathe"
+          className="w-64 h-64 sm:w-80 sm:h-80 rounded-3xl object-contain opacity-[0.095] dark:opacity-[0.06] mix-blend-multiply dark:mix-blend-screen select-none animate-slp-breathe"
         />
       </div>
 
       {/* Main Content Column */}
       <div className="relative z-10 flex-1 flex flex-col min-w-0 pt-16 lg:pt-0 pb-[82px] lg:pb-0">
         {/* Top Bar (Centered App Logo & Clean App Name) */}
-        <header className="min-h-16 pt-safe fixed lg:sticky top-0 inset-x-0 z-30 bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] lg:from-white lg:to-white text-white lg:text-[#0B1F44] backdrop-blur border-b border-white/15 lg:border-blue-100 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 shadow-sm">
+        <header className="min-h-16 pt-safe fixed lg:sticky top-0 inset-x-0 z-30 bg-[#F3EDE5]/95 lg:bg-white/95 dark:bg-slate-900/95 text-[#0A2240] dark:text-slate-100 backdrop-blur border-b border-[#E5DDD3] dark:border-slate-800 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 shadow-xs">
           <button
             onClick={() => setMobileMenuOpen(true)}
-            className="lg:hidden p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white shrink-0"
+            className="lg:hidden p-2 rounded-xl bg-white/80 dark:bg-slate-800 border border-[#DFD7CC] dark:border-slate-700 hover:bg-white text-[#0A2240] dark:text-slate-100 shrink-0"
             aria-label={tr(language, 'Open navigation menu', 'మెనూ తెరవండి')}
           >
             <Menu className="w-4 h-4" />
@@ -518,9 +501,9 @@ const AuthenticatedShell: React.FC = () => {
               src={logoSrc}
               alt={brandTitle}
               referrerPolicy="no-referrer"
-              className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-white/30 lg:border-blue-200 shrink-0 shadow-sm"
+              className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-[#DFD7CC] dark:border-slate-700 shrink-0 shadow-xs"
             />
-            <h1 className="font-display font-bold text-xs sm:text-base tracking-tight leading-tight line-clamp-1 text-center">
+            <h1 className="font-display font-bold text-xs sm:text-base tracking-tight leading-tight line-clamp-1 text-center text-[#0A2240] dark:text-white">
               {brandTitle}
             </h1>
           </div>
@@ -531,74 +514,70 @@ const AuthenticatedShell: React.FC = () => {
         <main className="flex-1 p-3 sm:p-4 lg:p-6 max-w-[1440px] w-full mx-auto space-y-4">
           {/* Compact Staff Identity Bar */}
           {!isAdmin && userAccount && (
-            <div className="bg-white/95 backdrop-blur border border-blue-100 rounded-2xl px-3.5 py-2.5 shadow-sm flex items-center justify-between gap-2">
+            <div className="bg-white/95 dark:bg-slate-900 backdrop-blur border border-[#E5DDD3] dark:border-slate-800 rounded-2xl px-3.5 py-2.5 shadow-xs flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 {userAccount.photoDataUrl ? (
                   <img
                     src={userAccount.photoDataUrl}
                     alt={userAccount.displayName}
-                    className="w-9 h-9 rounded-full object-cover border border-[#1D4ED8]/30 shrink-0"
+                    className="w-9 h-9 rounded-full object-cover border border-[#DFD7CC] shrink-0"
                   />
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#0B1F44] to-[#1D4ED8] text-white font-bold text-xs flex items-center justify-center shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-[#0A2240] text-white font-bold text-xs flex items-center justify-center shrink-0">
                     {(userAccount.displayName || 'S').slice(0, 1).toUpperCase()}
                   </div>
                 )}
                 <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-bold text-[#0B1F44] truncate">
+                  <div className="text-xs sm:text-sm font-bold text-[#0A2240] dark:text-slate-100 truncate">
                     {userAccount.displayName}
                   </div>
-                  <div className="text-[11px] text-slate-500 font-mono truncate">
+                  <div className="text-[11px] text-[#6D665E] dark:text-slate-400 font-mono truncate">
                     {userAccount.phoneNumber || userAccount.email}
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <motion.button
-                  type="button"
-                  whileTap={{ scale: 0.94 }}
-                  onClick={() => handleNavigate('profile')}
-                  className="px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[#0B1F44] text-xs font-semibold transition"
-                >
-                  {tr(language, 'Profile', 'ప్రొఫైల్')}
-                </motion.button>
-                {userAccount.mpinEnabled && (
+              {userAccount.mpinEnabled && (
+                <div className="flex items-center gap-1.5 shrink-0">
                   <motion.button
                     type="button"
                     whileTap={{ scale: 0.94 }}
                     onClick={lockWithMpin}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#0B1F44] hover:bg-[#1D4ED8] text-white text-xs font-semibold transition"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#0A2240] hover:bg-[#13325B] text-white text-xs font-semibold transition"
                   >
                     <Lock className="w-3 h-3" /> {tr(language, 'Lock', 'లాక్')}
                   </motion.button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 
           <AnimatePresence mode="wait">
             <motion.div
               key={activePage}
-              initial={{ opacity: 0, y: 10, scale: 0.99 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -6, scale: 0.99 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
             >
               {renderPage()}
             </motion.div>
           </AnimatePresence>
 
-          <footer className="pt-4 pb-2 text-center text-[11px] font-medium text-slate-500 border-t border-blue-100/80">
-            {copyrightText}
+          <footer className="pt-4 pb-2 text-center text-[11px] font-medium text-[#6D665E] dark:text-slate-400 border-t border-[#E5DDD3] dark:border-slate-800 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <span>{copyrightText}</span>
+            <span aria-hidden="true" className="text-[#B8AEA2]">
+              ·
+            </span>
+            <LegalFooterLinks language={language} businessName={business?.name} />
           </footer>
         </main>
       </div>
 
       {/* Fixed Mobile Bottom Navigation (Staff: 4 Tabs, Admin: 6 Tabs with combined Income/Exp) */}
       <nav
-        className={`lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-blue-100 grid ${
+        className={`lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-[#E5DDD3] dark:border-slate-800 grid ${
           isAdmin ? 'grid-cols-6' : 'grid-cols-4'
-        } min-h-[64px] pb-safe px-0.5 shadow-[0_-4px_18px_rgba(29,78,216,0.08)]`}
+        } min-h-[64px] pb-safe px-0.5 shadow-[0_-4px_18px_rgba(10,34,64,0.06)]`}
       >
         {(
           (isAdmin
@@ -629,14 +608,14 @@ const AuthenticatedShell: React.FC = () => {
               whileTap={{ scale: 0.88 }}
               onClick={() => handleNavigate(item.id)}
               className={`relative flex flex-col items-center justify-center gap-0.5 py-2 px-0 text-[10px] tracking-tight font-semibold transition-colors ${
-                active ? 'text-[#1D4ED8]' : 'text-slate-500'
+                active ? 'text-[#0A2240] dark:text-white' : 'text-[#6D665E] dark:text-slate-400'
               }`}
             >
               {active && (
                 <motion.span
                   layoutId="slp-bottom-nav-indicator"
                   transition={{ type: 'spring', stiffness: 500, damping: 34 }}
-                  className="absolute top-0 w-7 h-0.5 rounded-full bg-[#1D4ED8]"
+                  className="absolute top-0 w-7 h-0.5 rounded-full bg-[#0A2240] dark:bg-white"
                 />
               )}
               <motion.span
@@ -652,35 +631,35 @@ const AuthenticatedShell: React.FC = () => {
         })}
       </nav>
 
-      {/* Mobile Full Drawer (All 15 Modules) */}
+      {/* Mobile Full Drawer */}
       <AnimatePresence>
         {mobileMenuOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="lg:hidden fixed inset-0 z-50 bg-black/60 flex"
+            className="lg:hidden fixed inset-0 z-50 bg-black/50 flex"
           >
             <motion.div
               initial={{ x: -280 }}
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-              className="w-72 bg-gradient-to-b from-[#0B1F44] via-[#102B66] to-[#1D4ED8] text-white h-full flex flex-col p-4 overflow-y-auto"
+              className="w-72 bg-[#F3EDE5] dark:bg-slate-900 border-r border-[#E5DDD3] dark:border-slate-800 text-[#0A2240] dark:text-slate-100 h-full flex flex-col p-4 overflow-y-auto"
             >
-              <div className="flex items-center justify-between pb-4 border-b border-white/15">
+              <div className="flex items-center justify-between pb-4 border-b border-[#E5DDD3] dark:border-slate-800">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <img
                     src={logoSrc}
                     alt={brandTitle}
                     referrerPolicy="no-referrer"
-                    className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-white/30 shrink-0"
+                    className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 border border-[#DFD7CC] shrink-0"
                   />
-                  <span className="font-display font-bold text-xs leading-snug line-clamp-2">
+                  <span className="font-display font-bold text-xs leading-snug line-clamp-2 text-[#0A2240] dark:text-white">
                     {brandTitle}
                   </span>
                 </div>
-                <button onClick={() => setMobileMenuOpen(false)} className="p-1 text-blue-100 hover:text-white">
+                <button onClick={() => setMobileMenuOpen(false)} className="p-1 text-[#6D665E] hover:text-[#0A2240] dark:text-slate-300">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -694,7 +673,9 @@ const AuthenticatedShell: React.FC = () => {
                       key={item.id}
                       onClick={() => handleNavigate(item.id)}
                       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
-                        active ? 'bg-white text-[#0B1F44] shadow-sm' : 'text-blue-100 hover:bg-white/15 hover:text-white'
+                        active
+                          ? 'bg-[#0A2240] text-white shadow-xs'
+                          : 'text-[#2D3138] dark:text-slate-300 hover:bg-[#E9E1D6] dark:hover:bg-slate-800 hover:text-[#0A2240]'
                       }`}
                     >
                       <span className="flex items-center gap-2.5">
@@ -702,7 +683,7 @@ const AuthenticatedShell: React.FC = () => {
                         {language === 'te' ? item.labelTe : item.label}
                       </span>
                       {item.id === 'notifications' && unreadNotifications > 0 && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold">
+                        <span className="px-1.5 py-0.5 rounded-full bg-[#9A4307] text-white text-[10px] font-bold">
                           {unreadNotifications}
                         </span>
                       )}
@@ -711,35 +692,38 @@ const AuthenticatedShell: React.FC = () => {
                 })}
               </div>
 
-              <div className="pt-3 border-t border-white/10 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleNavigate('scanner')}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold"
-                  >
-                    <ScanBarcode className="w-3.5 h-3.5 text-cyan-300" />
-                    <span>{tr(language, 'Verify Bill', 'బిల్ తనిఖీ')}</span>
-                  </button>
+              <div className="pt-3 border-t border-[#E5DDD3] dark:border-slate-800 space-y-2">
+                <div className={`grid gap-2 ${isAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => handleNavigate('scanner')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-[#DFD7CC] hover:bg-[#FAF8F5] text-[#0A2240] text-xs font-semibold"
+                    >
+                      <ScanBarcode className="w-3.5 h-3.5 text-[#9A4307]" />
+                      <span>{tr(language, 'Verify Bill', 'బిల్ తనిఖీ')}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={toggleLanguage}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-[#DFD7CC] hover:bg-[#FAF8F5] text-[#0A2240] text-xs font-semibold"
                   >
-                    <Globe className="w-3.5 h-3.5 text-cyan-300" />
+                    <Globe className="w-3.5 h-3.5 text-[#9A4307]" />
                     <span>{language === 'te' ? 'ఇంగ్లీష్' : 'తెలుగు'}</span>
                   </button>
                 </div>
                 <PWAInstallButton variant="drawer" />
                 <button
                   onClick={logout}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white text-xs font-semibold"
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#C23B2B] hover:bg-[#A32E20] text-white text-xs font-semibold"
                 >
                   <LogOut className="w-4 h-4" />{' '}
                   {tr(language, `Sign Out (${userAccount?.displayName})`, `సైన్ అవుట్ (${userAccount?.displayName})`)}
                 </button>
-                <div className="pt-1 text-center text-[10px] leading-tight text-blue-200/80">
-                  {copyrightText}
+                <div className="pt-1 text-center text-[10px] leading-tight text-[#6D665E] dark:text-slate-400 space-y-1">
+                  <div>{copyrightText}</div>
+                  <LegalFooterLinks language={language} businessName={business?.name} className="text-[10px]" />
                 </div>
               </div>
             </motion.div>
@@ -757,7 +741,7 @@ const AuthenticatedShell: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -16, scale: 0.94 }}
             transition={{ type: 'spring', stiffness: 460, damping: 26 }}
-            className="fixed top-[72px] inset-x-3 sm:inset-x-auto sm:right-6 sm:w-[375px] z-40 rounded-2xl bg-white dark:bg-slate-900 border-2 border-[#1D4ED8] shadow-xl shadow-blue-900/15 p-3 flex items-center justify-between gap-3"
+            className="fixed top-[72px] inset-x-3 sm:inset-x-auto sm:right-6 sm:w-[375px] z-40 rounded-2xl bg-white dark:bg-slate-900 border-2 border-[#0A2240] shadow-xl shadow-[#0A2240]/15 p-3 flex items-center justify-between gap-3"
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="relative shrink-0">
@@ -770,20 +754,20 @@ const AuthenticatedShell: React.FC = () => {
                       e.currentTarget.src = cartPopToast.fallbackThumb;
                     }
                   }}
-                  className="w-11 h-11 rounded-xl object-cover border border-blue-100 dark:border-slate-700"
+                  className="w-11 h-11 rounded-xl object-cover border border-[#E5DDD3] dark:border-slate-700"
                 />
-                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow">
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#15803D] text-white flex items-center justify-center shadow">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 </span>
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-[#15803D] dark:text-emerald-400">
                   {tr(language, 'Added to Cart', 'కార్ట్‌లో జోడించబడింది')}
                 </div>
-                <div className="text-xs font-bold text-[#0B1F44] dark:text-white truncate">
+                <div className="text-xs font-bold text-[#0A2240] dark:text-white truncate">
                   {cartPopToast.title}
                 </div>
-                <div className="text-[11px] text-[#1D4ED8] dark:text-sky-400 font-semibold truncate">
+                <div className="text-[11px] text-[#9A4307] dark:text-amber-400 font-semibold truncate">
                   {cartPopToast.subtitle} · {cartPopToast.totalUnits} {tr(language, 'items', 'వస్తువులు')} (
                   {formatCurrency(cartPopToast.grandTotal)})
                 </div>
@@ -798,7 +782,7 @@ const AuthenticatedShell: React.FC = () => {
                   setActivePage('new-billing');
                   setViewCartNonce(Date.now());
                 }}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold shadow-sm whitespace-nowrap"
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#0A2240] hover:bg-[#13325B] text-white text-xs font-bold shadow-sm whitespace-nowrap"
               >
                 {tr(language, 'View Cart', 'కార్ట్ చూడండి')}
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -806,7 +790,7 @@ const AuthenticatedShell: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setCartPopToast(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                className="p-1.5 rounded-lg text-[#6D665E] hover:text-[#0A2240] dark:hover:text-slate-200"
                 aria-label={tr(language, 'Dismiss cart notification', 'నోటిఫికేషన్‌ను మూసివేయండి')}
               >
                 <X className="w-3.5 h-3.5" />
@@ -816,66 +800,6 @@ const AuthenticatedShell: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Global Real-Time Pop Notification when a New Bill is Created or Synced */}
-      <AnimatePresence>
-        {liveBillToast && !verifiedBill && (
-          <motion.div
-            key={`bill-toast-${liveBillToast.id}`}
-            initial={{ opacity: 0, y: 24, scale: 0.92 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.94 }}
-            transition={{ type: 'spring', stiffness: 450, damping: 26 }}
-            className="fixed bottom-[76px] lg:bottom-6 right-3 left-3 sm:left-auto sm:right-6 sm:w-[370px] z-40 rounded-2xl bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] text-white border border-white/25 shadow-2xl shadow-blue-900/30 p-3.5 flex items-center justify-between gap-3"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
-                <ReceiptText className="w-4 h-4 text-white" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold truncate">
-                  {tr(language, 'Bill', 'బిల్')} {liveBillToast.billNumber} · {formatCurrency(liveBillToast.grandTotal)}
-                </div>
-                <div className="text-[11px] text-blue-100 truncate">
-                  {translateCustomerName(liveBillToast.customerName, language)} ·{' '}
-                  {liveBillToast.pendingBalance <= 0
-                    ? tr(language, 'AMOUNT PAID', 'చెల్లింపు పూర్తయింది')
-                    : `${tr(language, 'Due', 'బాకీ')} ₹${liveBillToast.pendingBalance.toFixed(0)}`}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.92 }}
-                onClick={() => {
-                  setVerifiedBill(liveBillToast);
-                  setLiveBillToast(null);
-                }}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white text-[#0B1F44] text-xs font-bold shadow-sm hover:bg-blue-50 whitespace-nowrap"
-              >
-                {tr(language, 'View Bill', 'బిల్ చూడండి')}
-                <ArrowRight className="w-3.5 h-3.5" />
-              </motion.button>
-              <button
-                type="button"
-                onClick={() => setLiveBillToast(null)}
-                className="p-1.5 rounded-lg text-blue-100 hover:text-white"
-                aria-label={tr(language, 'Close bill notification', 'బిల్ నోటిఫికేషన్‌ను మూసివేయండి')}
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Verified / Pop-Notified Bill Inspection & Share Modal */}
-      <PostBillActionsModal
-        bill={verifiedBill}
-        items={verifiedBill ? billItems.filter((bi) => bi.billId === verifiedBill.id) : []}
-        onClose={() => setVerifiedBill(null)}
-      />
-
       {/* Offline Connectivity Indicator */}
       <OfflineIndicator />
     </div>
@@ -884,27 +808,35 @@ const AuthenticatedShell: React.FC = () => {
 
 const RootRouter: React.FC = () => {
   const { authReady, activeUid, userAccount, accessDeniedReason, deviceRevoked, mpinLocked, language } = useAuth();
+  const [launchSplashVisible, setLaunchSplashVisible] = useState(true);
 
-  if (!authReady) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setLaunchSplashVisible(false);
+    }, 950);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (!authReady || launchSplashVisible) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#0B1F44] via-[#102B66] to-[#1D4ED8] text-white flex flex-col items-center justify-center p-6">
+      <div className="min-h-screen bg-[#FAF8F5] text-[#0A2240] flex flex-col items-center justify-center p-6">
         <motion.div
           initial={{ opacity: 0, scale: 0.88, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="flex flex-col items-center text-center space-y-4"
+          className="flex flex-col items-center text-center space-y-5"
         >
           <div className="relative">
             <motion.div
-              animate={{ scale: [1, 1.18, 1], opacity: [0.45, 0.12, 0.45] }}
+              animate={{ scale: [1, 1.16, 1], opacity: [0.45, 0.14, 0.45] }}
               transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-              className="absolute -inset-2 rounded-full bg-cyan-400/35 blur-sm"
+              className="absolute -inset-3 rounded-full bg-[#9A4307]/20 blur-md"
             />
             <img
               src={DEFAULT_BUSINESS_LOGO}
               alt={translateBusinessName(undefined, language)}
               referrerPolicy="no-referrer"
-              className="relative w-24 h-24 rounded-2xl object-contain bg-white p-1.5 border-2 border-cyan-300/70 shadow-xl"
+              className="relative w-32 h-32 sm:w-40 sm:h-40 rounded-3xl object-contain bg-white p-2 border-2 border-[#E5DDD3] shadow-xl"
             />
           </div>
           <motion.div
@@ -912,15 +844,15 @@ const RootRouter: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.12, duration: 0.32 }}
           >
-            <h1 className="font-display font-bold text-lg sm:text-xl tracking-tight text-balance max-w-md">
+            <h1 className="font-display font-bold text-lg sm:text-xl tracking-tight text-balance max-w-md text-[#0A2240]">
               {translateBusinessName(undefined, language)}
             </h1>
-            <p className="text-xs text-cyan-200 mt-1">
+            <p className="text-xs font-medium text-[#6D665E] mt-1">
               {tr(language, 'Opening SLP Billing...', 'ఎస్‌ఎల్‌పి బిల్లింగ్ తెరవబడుతోంది...')}
             </p>
           </motion.div>
-          <div className="w-7 h-7 border-2 border-cyan-300 border-t-transparent rounded-full animate-spin" />
-          <p className="text-[11px] text-blue-200/80 pt-3">{getCopyrightNotice(undefined, language)}</p>
+          <div className="w-7 h-7 border-2 border-[#0A2240] border-t-transparent rounded-full animate-spin" />
+          <p className="text-[11px] text-[#6D665E] pt-2">{getCopyrightNotice(undefined, language)}</p>
         </motion.div>
       </div>
     );

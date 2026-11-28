@@ -18,7 +18,8 @@ export type NavPageId =
   | 'users'
   | 'settings'
   | 'scanner'
-  | 'profile';
+  | 'profile'
+  | 'help-support';
 
 export type UserRole = 'admin' | 'cashier';
 export type UserStatus = 'active' | 'disabled' | 'revoked';
@@ -225,6 +226,10 @@ export interface Bill {
   editedByUid?: string;
   editedByName?: string;
   editedAt?: unknown;
+  editApprovedForUid?: string;
+  editApprovalRequestId?: string;
+  editApprovedAt?: unknown;
+  editApprovedByName?: string;
   notes?: string;
   isDeleted?: boolean;
   deletedAt?: unknown;
@@ -298,6 +303,7 @@ export interface InvoiceRecord {
 
 export interface PublicInvoice {
   token: string;
+  billId?: string;
   businessId: string;
   ownerUid: string;
   revoked: boolean;
@@ -376,7 +382,17 @@ export interface NotificationItem {
   authorizedEmails?: string[];
   title: string;
   message: string;
-  type: 'bill' | 'payment' | 'low_stock' | 'customer' | 'settings' | 'device' | 'cancellation' | 'refund';
+  type:
+    | 'bill'
+    | 'payment'
+    | 'low_stock'
+    | 'customer'
+    | 'settings'
+    | 'device'
+    | 'cancellation'
+    | 'refund'
+    | 'approval_request'
+    | 'approval_decision';
   relatedRecordType?: string;
   relatedRecordId?: string;
   billNumber?: string;
@@ -419,6 +435,7 @@ export interface BusinessSettings {
   footerMessage?: string;
   invoiceNotes?: string;
   whatsappEnabled?: boolean;
+  autoWhatsAppThankYou?: boolean;
   smsEnabled?: boolean;
   smsSenderId?: string;
   smsDltTemplateId?: string;
@@ -477,3 +494,42 @@ export interface ShopEntry {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
+export type ApprovalRequestType = 'profile_update' | 'bill_edit';
+export type ApprovalRequestStatus = 'pending' | 'approved' | 'rejected' | 'consumed';
+
+export interface ApprovalRequest {
+  id: string;
+  businessId: string;
+  ownerUid: string;
+  authorizedUids: string[];
+  authorizedEmails?: string[];
+  requestType: ApprovalRequestType;
+  status: ApprovalRequestStatus;
+  requesterUid: string;
+  requesterName: string;
+  requesterEmail?: string;
+  currentDisplayName?: string;
+  currentPhoneNumber?: string;
+  currentUsername?: string;
+  currentEmail?: string;
+  currentPhotoDataUrl?: string;
+  proposedDisplayName?: string;
+  proposedPhoneNumber?: string;
+  proposedUsername?: string;
+  proposedEmail?: string;
+  proposedPhotoDataUrl?: string;
+  billId?: string;
+  billNumber?: string;
+  customerName?: string;
+  grandTotal?: number;
+  reason?: string;
+  reviewedByUid?: string;
+  reviewedByName?: string;
+  reviewedAt?: unknown;
+  decisionNote?: string;
+  consumedAt?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+

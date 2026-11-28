@@ -14,7 +14,6 @@ import {
   translateCartProductName,
   translateCustomerName,
   translateFooterMessage,
-  translateGstType,
   translatePaymentMethod,
   translateVariantLabel,
 } from './i18n';
@@ -69,7 +68,7 @@ export async function generateAndVerifyUpiQr(upiUri: string): Promise<{
     margin: 2,
     errorCorrectionLevel: 'M',
     color: {
-      dark: '#0B1F44',
+      dark: '#0A2240',
       light: '#FFFFFF',
     },
   });
@@ -150,6 +149,12 @@ export async function generateA4InvoicePdf(params: {
     return doc;
   }
 
+  // Centered paper background logo watermark
+  const wmLogoUrl = await loadFadedWatermarkDataUrl(resolveBusinessLogoUrl(business.logoUrl), false, 0.12);
+  if (wmLogoUrl) {
+    doc.addImage(wmLogoUrl, 'PNG', 55, 108, 100, 100);
+  }
+
   // Navy header bar
   doc.setFillColor(11, 31, 68);
   doc.rect(0, 0, 210, 36, 'F');
@@ -164,7 +169,6 @@ export async function generateA4InvoicePdf(params: {
   const contactLine = [
     business.proprietor ? `Proprietor: ${business.proprietor}` : '',
     business.phone ? `Ph: ${business.phone}` : '',
-    business.gstin ? `GSTIN: ${business.gstin}` : '',
   ]
     .filter(Boolean)
     .join('  |  ');
@@ -175,7 +179,7 @@ export async function generateA4InvoicePdf(params: {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text(bill.totalTax > 0 ? 'TAX INVOICE' : 'INVOICE', 196, 15, { align: 'right' });
+  doc.text('INVOICE', 196, 15, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.text(`Bill #: ${bill.billNumber}`, 196, 22, { align: 'right' });
@@ -206,24 +210,22 @@ export async function generateA4InvoicePdf(params: {
     String(item.quantity),
     item.unitPrice.toFixed(2),
     item.discount.toFixed(2),
-    item.taxRate > 0 ? `${item.taxRate}% (${item.taxAmount.toFixed(2)})` : '0.00',
     item.lineTotal.toFixed(2),
   ]);
 
   autoTable(doc, {
     startY: 70,
-    head: [['#', 'Product & Specification', 'Qty', 'Rate (₹)', 'Disc (₹)', 'Tax (₹)', 'Total (₹)']],
+    head: [['#', 'Product & Specification', 'Qty', 'Rate (₹)', 'Disc (₹)', 'Total (₹)']],
     body: tableRows,
     theme: 'grid',
     headStyles: { fillColor: [11, 31, 68], textColor: 255, fontSize: 9 },
     bodyStyles: { fontSize: 9, textColor: [15, 23, 42] },
     columnStyles: {
       0: { cellWidth: 10, halign: 'center' },
-      2: { cellWidth: 15, halign: 'right' },
-      3: { cellWidth: 22, halign: 'right' },
-      4: { cellWidth: 20, halign: 'right' },
-      5: { cellWidth: 26, halign: 'right' },
-      6: { cellWidth: 26, halign: 'right' },
+      2: { cellWidth: 18, halign: 'right' },
+      3: { cellWidth: 26, halign: 'right' },
+      4: { cellWidth: 24, halign: 'right' },
+      5: { cellWidth: 30, halign: 'right' },
     },
   });
 
@@ -240,24 +242,6 @@ export async function generateA4InvoicePdf(params: {
     doc.text(`Discount:`, 140, y);
     doc.text(`- Rs. ${bill.discountAmount.toFixed(2)}`, 196, y, { align: 'right' });
     y += 6;
-  }
-
-  if (bill.totalTax > 0) {
-    doc.text(`Taxable Value:`, 140, y);
-    doc.text(`Rs. ${bill.taxableAmount.toFixed(2)}`, 196, y, { align: 'right' });
-    y += 6;
-    if (bill.gstType === 'CGST_SGST') {
-      doc.text(`CGST:`, 140, y);
-      doc.text(`Rs. ${(bill.cgstAmount || 0).toFixed(2)}`, 196, y, { align: 'right' });
-      y += 6;
-      doc.text(`SGST:`, 140, y);
-      doc.text(`Rs. ${(bill.sgstAmount || 0).toFixed(2)}`, 196, y, { align: 'right' });
-      y += 6;
-    } else if (bill.gstType === 'IGST') {
-      doc.text(`IGST:`, 140, y);
-      doc.text(`Rs. ${(bill.igstAmount || 0).toFixed(2)}`, 196, y, { align: 'right' });
-      y += 6;
-    }
   }
 
   if ((bill.labourCharge || 0) > 0) {
@@ -339,6 +323,41 @@ export async function generateA4InvoicePdf(params: {
   return doc;
 }
 
+export async function loadFadedWatermarkDataUrl(
+  src?: string,
+  monochrome = false,
+  alpha = 0.12
+): Promise<string | null> {
+  if (!src) return null;
+  try {
+    const img = new Image();
+    if (!src.startsWith('data:')) img.crossOrigin = 'anonymous';
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Watermark logo load failed'));
+      img.src = src;
+    });
+    const size = 240;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (monochrome) {
+      ctx.filter = 'grayscale(100%) contrast(115%)';
+    }
+    ctx.drawImage(img, 0, 0, size, size);
+    ctx.restore();
+    return canvas.toDataURL('image/png');
+  } catch {
+    return null;
+  }
+}
+
 async function loadMonochromeLogoDataUrl(src?: string): Promise<string | null> {
   if (!src) return null;
   try {
@@ -397,8 +416,7 @@ async function renderTeluguThermalReceiptCanvas(params: {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D context unavailable.');
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, widthPx, estHeight);
+  ctx.clearRect(0, 0, widthPx, estHeight);
   ctx.fillStyle = '#0F172A';
 
   let y = 24;
@@ -446,10 +464,6 @@ async function renderTeluguThermalReceiptCanvas(params: {
   }
   if (business.phone) {
     ctx.fillText(`ఫోన్: ${business.phone}`, cx, y);
-    y += 18;
-  }
-  if (business.gstin) {
-    ctx.fillText(`జీఎస్టీఐఎన్: ${business.gstin}`, cx, y);
     y += 18;
   }
 
@@ -512,7 +526,6 @@ async function renderTeluguThermalReceiptCanvas(params: {
 
   rowKV('ఉప మొత్తం', bill.subtotal.toFixed(2));
   if (bill.discountAmount > 0) rowKV('తగ్గింపు', `-${bill.discountAmount.toFixed(2)}`);
-  if (bill.totalTax > 0) rowKV(`పన్ను (${translateGstType(bill.gstType, 'te')})`, bill.totalTax.toFixed(2));
   if ((bill.labourCharge || 0) > 0) rowKV('లేబర్ ఛార్జీలు', `+${Number(bill.labourCharge || 0).toFixed(2)}`);
   if ((bill.autoCharge || 0) > 0) rowKV('ఆటో ఛార్జీలు', `+${Number(bill.autoCharge || 0).toFixed(2)}`);
   rowKV('మొత్తం విలువ', `₹${bill.grandTotal.toFixed(2)}`, true);
@@ -562,7 +575,7 @@ async function renderTeluguThermalReceiptCanvas(params: {
   ctx.fillText(translateFooterMessage(footerMessage, 'te').slice(0, 56), cx, y);
   y += 24;
 
-  // Crop canvas cleanly to actual used height y
+  // Crop canvas cleanly to actual used height y and place centered background logo watermark
   const finalCanvas = document.createElement('canvas');
   finalCanvas.width = widthPx;
   finalCanvas.height = Math.max(y + 10, 300);
@@ -570,6 +583,23 @@ async function renderTeluguThermalReceiptCanvas(params: {
   if (fCtx) {
     fCtx.fillStyle = '#FFFFFF';
     fCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    const wmData = await loadFadedWatermarkDataUrl(resolveBusinessLogoUrl(business.logoUrl), true, 0.14);
+    if (wmData) {
+      const wmImg = new Image();
+      wmImg.src = wmData;
+      await new Promise<void>((res) => {
+        wmImg.onload = () => res();
+        wmImg.onerror = () => res();
+      });
+      const wmSize = paperWidth === '58mm' ? 180 : 250;
+      fCtx.drawImage(
+        wmImg,
+        (finalCanvas.width - wmSize) / 2,
+        (finalCanvas.height - wmSize) / 2,
+        wmSize,
+        wmSize
+      );
+    }
     fCtx.drawImage(canvas, 0, 0);
   }
   return {
@@ -641,8 +671,13 @@ export async function generateThermalReceiptPdf(params: {
     format: [widthMm, estHeight],
   });
 
+  const thermalWm = await loadFadedWatermarkDataUrl(resolvedLogoUrl, true, 0.14);
   let y = 7;
   const centerX = widthMm / 2;
+  if (thermalWm) {
+    const wmMm = paperWidth === '58mm' ? 30 : 42;
+    doc.addImage(thermalWm, 'PNG', centerX - wmMm / 2, estHeight / 2 - wmMm / 2, wmMm, wmMm);
+  }
 
   if (logoDataUrl) {
     const logoSize = 12;
@@ -660,10 +695,6 @@ export async function generateThermalReceiptPdf(params: {
   doc.setFontSize(7.5);
   if (business.phone) {
     doc.text(`Ph: ${business.phone}`, centerX, y, { align: 'center' });
-    y += 3.5;
-  }
-  if (business.gstin) {
-    doc.text(`GSTIN: ${business.gstin}`, centerX, y, { align: 'center' });
     y += 3.5;
   }
 
@@ -704,11 +735,6 @@ export async function generateThermalReceiptPdf(params: {
   if (bill.discountAmount > 0) {
     doc.text(`Discount`, margin, y);
     doc.text(`-${bill.discountAmount.toFixed(2)}`, widthMm - margin, y, { align: 'right' });
-    y += 3.5;
-  }
-  if (bill.totalTax > 0) {
-    doc.text(`Tax (GST)`, margin, y);
-    doc.text(bill.totalTax.toFixed(2), widthMm - margin, y, { align: 'right' });
     y += 3.5;
   }
   if ((bill.labourCharge || 0) > 0) {
@@ -790,7 +816,6 @@ export function buildEscPosReceiptBytes(bill: Bill, items: BillItem[], business:
   lines.push('--------------------------------');
   lines.push(`SUBTOTAL : Rs.${bill.subtotal.toFixed(2)}`);
   if (bill.discountAmount > 0) lines.push(`DISCOUNT : -Rs.${bill.discountAmount.toFixed(2)}`);
-  if (bill.totalTax > 0) lines.push(`TAX      : Rs.${bill.totalTax.toFixed(2)}`);
   if ((bill.labourCharge || 0) > 0) lines.push(`LABOUR   : +Rs.${Number(bill.labourCharge || 0).toFixed(2)}`);
   if ((bill.autoCharge || 0) > 0) lines.push(`AUTO CHG : +Rs.${Number(bill.autoCharge || 0).toFixed(2)}`);
   lines.push(`GRAND TOTAL: Rs.${bill.grandTotal.toFixed(2)}`);

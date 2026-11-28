@@ -43,7 +43,7 @@ export const OfflineIndicator: React.FC = () => {
             notice.status === 'offline'
               ? 'bg-amber-600 shadow-amber-900/20'
               : notice.status === 'syncing'
-              ? 'bg-[#1D4ED8] shadow-blue-900/25'
+              ? 'bg-[#0A2240] shadow-[#0A2240]/25'
               : 'bg-emerald-600 shadow-emerald-900/20'
           }`}
         >

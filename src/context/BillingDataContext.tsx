@@ -4,7 +4,9 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
+  getDocsFromCache,
   increment,
   limit,
   onSnapshot,
@@ -18,6 +20,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import {
+  auth,
   commitWithOfflineSupport,
   db,
   emailToInviteId,
@@ -26,6 +29,7 @@ import {
   generateSecureToken,
   getStaffProvisionerAuth,
   handleFirestoreError,
+  isTransientFirestoreNetworkError,
   OperationType,
   waitForPendingWrites,
 } from '../lib/firebase';
@@ -43,6 +47,7 @@ import { generateUniqueMixedBarcode } from '../lib/barcodeAndBillImage';
 import { useAuth } from './AuthContext';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import {
+  ApprovalRequest,
   AuditLog,
   Bill,
   BillItem,
@@ -156,6 +161,7 @@ interface BillingDataContextValue {
   auditLogs: AuditLog[];
   labourWorks: LabourWork[];
   shopEntries: ShopEntry[];
+  approvalRequests: ApprovalRequest[];
   syncState: SyncState;
   pendingSyncCount: number;
   cloudNotice: { id: number; status: 'offline' | 'syncing' | 'synced'; message: string } | null;
@@ -246,6 +252,19 @@ interface BillingDataContextValue {
   updateUserAccess: (uid: string, updates: Partial<UserAccount>) => Promise<void>;
   revokeInvite: (inviteId: string) => Promise<void>;
   setDeviceStatus: (deviceId: string, status: 'authorized' | 'revoked') => Promise<void>;
+  submitProfileUpdateRequest: (params: {
+    displayName: string;
+    phoneNumber?: string;
+    photoDataUrl?: string;
+    username?: string;
+    email?: string;
+  }) => Promise<string>;
+  requestBillEditApproval: (params: { billId: string; reason?: string }) => Promise<string>;
+  reviewApprovalRequest: (params: {
+    requestId: string;
+    decision: 'approved' | 'rejected';
+    decisionNote?: string;
+  }) => Promise<void>;
 }
 
 const BillingDataContext = createContext<BillingDataContextValue | null>(null);
@@ -267,7 +286,7 @@ function calculateBillTotalsLocal(params: {
     const qty = Number(item.quantity);
     const price = Number(item.unitPrice);
     const itemDisc = Math.max(0, Number(item.discount || 0));
-    const rate = params.taxEnabled ? Math.max(0, Math.min(100, Number(item.taxRate || 0))) : 0;
+    const rate = 0;
 
     if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) {
       throw new Error(`Invalid quantity or price for ${item.productName || 'item'}`);
@@ -276,15 +295,11 @@ function calculateBillTotalsLocal(params: {
     const gross = Math.round(qty * price * 100) / 100;
     const clampedDisc = Math.min(gross, Math.round(itemDisc * 100) / 100);
     const netBeforeTax = Math.round((gross - clampedDisc) * 100) / 100;
-    const itemTax =
-      params.taxEnabled && params.gstType !== 'NONE'
-        ? Math.round(((netBeforeTax * rate) / 100) * 100) / 100
-        : 0;
-    const lineTotal = Math.round((netBeforeTax + itemTax) * 100) / 100;
+    const itemTax = 0;
+    const lineTotal = netBeforeTax;
 
     subtotal += gross;
     totalItemDiscount += clampedDisc;
-    totalTax += itemTax;
 
     return {
       productId: item.productId,
@@ -300,7 +315,7 @@ function calculateBillTotalsLocal(params: {
 
   subtotal = Math.round(subtotal * 100) / 100;
   totalItemDiscount = Math.round(totalItemDiscount * 100) / 100;
-  totalTax = Math.round(totalTax * 100) / 100;
+  totalTax = 0;
 
   const netBeforeOverallDisc = Math.max(0, subtotal - totalItemDiscount);
   const clampedOverallDisc = Math.min(
@@ -311,17 +326,11 @@ function calculateBillTotalsLocal(params: {
   const taxableAmount = Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100);
   const labourCharge = Math.max(0, Math.round((Number(params.labourCharge) || 0) * 100) / 100);
   const autoCharge = Math.max(0, Math.round((Number(params.autoCharge) || 0) * 100) / 100);
-  const grandTotal = Math.round((taxableAmount + totalTax + labourCharge + autoCharge) * 100) / 100;
+  const grandTotal = Math.round((taxableAmount + labourCharge + autoCharge) * 100) / 100;
 
-  let cgstAmount = 0;
-  let sgstAmount = 0;
-  let igstAmount = 0;
-  if (params.taxEnabled && params.gstType === 'CGST_SGST') {
-    cgstAmount = Math.round((totalTax / 2) * 100) / 100;
-    sgstAmount = Math.round((totalTax - cgstAmount) * 100) / 100;
-  } else if (params.taxEnabled && params.gstType === 'IGST') {
-    igstAmount = totalTax;
-  }
+  const cgstAmount = 0;
+  const sgstAmount = 0;
+  const igstAmount = 0;
 
   const paid = Math.min(grandTotal, Math.max(0, Math.round(Number(params.amountPaid || 0) * 100) / 100));
   const pendingBalance = Math.max(0, Math.round((grandTotal - paid) * 100) / 100);
@@ -335,7 +344,7 @@ function calculateBillTotalsLocal(params: {
     subtotal,
     discountAmount: totalDiscount,
     taxableAmount,
-    gstType: params.taxEnabled ? params.gstType : ('NONE' as GstType),
+    gstType: 'NONE' as GstType,
     cgstAmount,
     sgstAmount,
     igstAmount,
@@ -357,7 +366,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const isOnline = useOnlineStatus();
 
   const businessId = userAccount?.businessId || DEFAULT_BUSINESS_ID;
-  const userUid = activeUid || firebaseUser?.uid || userAccount?.uid || '';
+  const firebaseUid = firebaseUser?.uid || '';
+  const firebaseEmailVerified = Boolean(firebaseUser?.emailVerified);
+  const userUid = activeUid || firebaseUid || userAccount?.uid || '';
   const userEmail = (firebaseUser?.email || userAccount?.email || '').toLowerCase();
   const accountStatus = userAccount?.status || '';
 
@@ -386,6 +397,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [labourWorks, setLabourWorks] = useState<LabourWork[]>([]);
   const [shopEntries, setShopEntries] = useState<ShopEntry[]>([]);
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
 
   const [syncState, setSyncState] = useState<SyncState>(() =>
     typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connected'
@@ -505,7 +517,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setLoadingData(true);
     }
 
-    const isBoot = Boolean((firebaseUser ? firebaseUser.emailVerified : true) && userEmail === BOOT_ADMIN_EMAIL);
+    const isBoot = Boolean((firebaseUid ? firebaseEmailVerified : true) && userEmail === BOOT_ADMIN_EMAIL);
 
     const buildScopedQuery = (colName: string) => {
       if (isBoot) {
@@ -513,6 +525,72 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
       return query(collection(db, colName), where('authorizedUids', 'array-contains', userUid));
     };
+
+    // Offline-unlocked session without an active Firebase Auth token:
+    // Hydrate strictly from Firestore persistent IndexedDB cache without unauthenticated network calls.
+    if (!firebaseUid) {
+      let cancelled = false;
+      setSyncState('offline');
+      const loadCacheCol = async <T,>(
+        colName: string,
+        setter: React.Dispatch<React.SetStateAction<T[]>>,
+        sortDescByCreatedAt = true
+      ) => {
+        try {
+          const snap = await getDocsFromCache(buildScopedQuery(colName));
+          if (cancelled) return;
+          const list = snap.docs.map((d) => d.data() as T & { createdAt?: unknown });
+          if (sortDescByCreatedAt) {
+            list.sort((a, b) => formatTimestamp(b.createdAt).getTime() - formatTimestamp(a.createdAt).getTime());
+          }
+          setter(list as T[]);
+        } catch {
+          // Cache may not exist yet for secondary collections
+        }
+      };
+
+      void Promise.all([
+        getDocFromCache(doc(db, 'businesses', businessId))
+          .then((snap) => {
+            if (!cancelled && snap.exists()) setBusiness(snap.data() as Business);
+          })
+          .catch(() => {}),
+        getDocFromCache(doc(db, 'businessSettings', businessId))
+          .then((snap) => {
+            if (!cancelled && snap.exists()) setBusinessSettings(snap.data() as BusinessSettings);
+          })
+          .catch(() => {}),
+        getDocFromCache(doc(db, 'upiSettings', businessId))
+          .then((snap) => {
+            if (!cancelled && snap.exists()) setUpiSetting(snap.data() as UpiSetting);
+          })
+          .catch(() => {}),
+        loadCacheCol<DeviceSession>('devices', setDevices),
+        loadCacheCol<Category>('categories', setCategories, false),
+        loadCacheCol<Product>('products', setRawProducts, false),
+        loadCacheCol<Customer>('customers', setCustomers),
+        loadCacheCol<Bill>('bills', setRawBills),
+        loadCacheCol<BillItem>('billItems', setBillItems),
+        loadCacheCol<PaymentRecord>('payments', setPayments),
+        loadCacheCol<InvoiceRecord>('invoices', setInvoices),
+        loadCacheCol<InventoryTransaction>('inventoryTransactions', setInventoryTransactions),
+        loadCacheCol<NotificationItem>('notifications', setNotifications),
+        loadCacheCol<MessageLog>('messageLogs', setMessageLogs),
+        loadCacheCol<AuditLog>('auditLogs', setAuditLogs),
+        loadCacheCol<LabourWork>('labourWorks', setLabourWorks),
+        loadCacheCol<ShopEntry>('shopEntries', setShopEntries),
+        loadCacheCol<ApprovalRequest>('approvalRequests', setApprovalRequests),
+      ]).finally(() => {
+        if (!cancelled) {
+          hasLoadedOnceRef.current = true;
+          setLoadingData(false);
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const unsubs: Array<() => void> = [];
 
@@ -525,6 +603,16 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       } else {
         setSyncState('offline');
       }
+    };
+
+    const handleListenerError = (err: unknown, op: OperationType, path: string) => {
+      if (isTransientFirestoreNetworkError(err)) {
+        setSyncState('offline');
+        setLoadingData(false);
+        return;
+      }
+      setSyncState('error');
+      handleFirestoreError(err, op, path);
     };
 
     unsubs.push(
@@ -540,11 +628,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           hasLoadedOnceRef.current = true;
           setLoadingData(false);
         },
-        (err) => {
-          if (!navigator.onLine) return;
-          setSyncState('error');
-          handleFirestoreError(err, OperationType.GET, `businesses/${businessId}`);
-        }
+        (err) => handleListenerError(err, OperationType.GET, `businesses/${businessId}`)
       )
     );
 
@@ -559,10 +643,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           }
           markReady('businessSettings');
         },
-        (err) => {
-          if (!navigator.onLine) return;
-          handleFirestoreError(err, OperationType.GET, `businessSettings/${businessId}`);
-        }
+        (err) => handleListenerError(err, OperationType.GET, `businessSettings/${businessId}`)
       )
     );
 
@@ -577,10 +658,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           }
           markReady('upiSettings');
         },
-        (err) => {
-          if (!navigator.onLine) return;
-          handleFirestoreError(err, OperationType.GET, `upiSettings/${businessId}`);
-        }
+        (err) => handleListenerError(err, OperationType.GET, `upiSettings/${businessId}`)
       )
     );
 
@@ -592,10 +670,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         onSnapshot(
           usersQ,
           (snap) => setUsers(snap.docs.map((d) => d.data() as UserAccount)),
-          (err) => {
-            if (!navigator.onLine) return;
-            handleFirestoreError(err, OperationType.LIST, 'users');
-          }
+          (err) => handleListenerError(err, OperationType.LIST, 'users')
         )
       );
 
@@ -606,10 +681,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         onSnapshot(
           invQ,
           (snap) => setInvites(snap.docs.map((d) => d.data() as InviteRecord)),
-          (err) => {
-            if (!navigator.onLine) return;
-            handleFirestoreError(err, OperationType.LIST, 'invites');
-          }
+          (err) => handleListenerError(err, OperationType.LIST, 'invites')
         )
       );
     }
@@ -630,11 +702,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setter(list as T[]);
             markReady(colName);
           },
-          (err) => {
-            if (!navigator.onLine) return;
-            setSyncState('error');
-            handleFirestoreError(err, OperationType.LIST, colName);
-          }
+          (err) => handleListenerError(err, OperationType.LIST, colName)
         )
       );
     };
@@ -653,11 +721,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     subscribeCol<AuditLog>('auditLogs', setAuditLogs);
     subscribeCol<LabourWork>('labourWorks', setLabourWorks);
     subscribeCol<ShopEntry>('shopEntries', setShopEntries);
+    subscribeCol<ApprovalRequest>('approvalRequests', setApprovalRequests);
 
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [authReady, userUid, userEmail, firebaseUser?.emailVerified, accountStatus, accessDeniedReason, deviceRevoked, businessId, isAdmin]);
+  }, [authReady, firebaseUid, firebaseEmailVerified, userUid, userEmail, accountStatus, accessDeniedReason, deviceRevoked, businessId, isAdmin]);
 
   const accessContext = useMemo(() => {
     const ownerUid = business?.ownerUid || userAccount?.ownerUid || userUid || '';
@@ -693,8 +762,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               body: JSON.stringify({
                 items: payload.items,
                 overallDiscount: payload.overallDiscount,
-                taxEnabled: Boolean(business.taxEnabled),
-                gstType: business.taxEnabled ? payload.gstType : 'NONE',
+                taxEnabled: false,
+                gstType: 'NONE',
                 labourCharge: payload.labourCharge || 0,
                 autoCharge: payload.autoCharge || 0,
                 amountPaid: payload.amountPaid,
@@ -713,8 +782,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             calcData = calculateBillTotalsLocal({
               items: payload.items,
               overallDiscount: payload.overallDiscount,
-              taxEnabled: Boolean(business.taxEnabled),
-              gstType: business.taxEnabled ? payload.gstType : 'NONE',
+              taxEnabled: false,
+              gstType: 'NONE',
               labourCharge: payload.labourCharge || 0,
               autoCharge: payload.autoCharge || 0,
               amountPaid: payload.amountPaid,
@@ -724,8 +793,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           calcData = calculateBillTotalsLocal({
             items: payload.items,
             overallDiscount: payload.overallDiscount,
-            taxEnabled: Boolean(business.taxEnabled),
-            gstType: business.taxEnabled ? payload.gstType : 'NONE',
+            taxEnabled: false,
+            gstType: 'NONE',
             labourCharge: payload.labourCharge || 0,
             autoCharge: payload.autoCharge || 0,
             amountPaid: payload.amountPaid,
@@ -928,6 +997,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             mobileRaw.length >= 4 ? `${'*'.repeat(Math.max(0, mobileRaw.length - 4))}${mobileRaw.slice(-4)}` : '';
           batch.set(doc(db, 'publicInvoices', publicToken), {
             token: publicToken,
+            billId,
             businessId,
             ownerUid: accessContext.ownerUid,
             revoked: false,
@@ -1260,6 +1330,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           const maskedMobile = mobileRaw.length >= 4 ? `${'*'.repeat(Math.max(0, mobileRaw.length - 4))}${mobileRaw.slice(-4)}` : '';
           tx.set(doc(db, 'publicInvoices', publicToken), {
             token: publicToken,
+            billId,
             businessId,
             ownerUid: accessContext.ownerUid,
             revoked: false,
@@ -1520,7 +1591,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const nextPending = Math.max(0, Math.round((billData.grandTotal - nextPaid) * 100) / 100);
         const nextStatus = nextPending === 0 ? 'paid' : 'partial';
 
-        let custSnap = billData.customerId ? await tx.get(doc(db, 'customers', billData.customerId)) : null;
+        const matchingInvoice = invoices.find((inv) => inv.billId === billData.id);
+        const [custSnap, invSnap, pubSnap] = await Promise.all([
+          billData.customerId ? tx.get(doc(db, 'customers', billData.customerId)) : Promise.resolve(null),
+          matchingInvoice ? tx.get(doc(db, 'invoices', matchingInvoice.id)) : Promise.resolve(null),
+          billData.publicToken ? tx.get(doc(db, 'publicInvoices', billData.publicToken)) : Promise.resolve(null),
+        ]);
 
         tx.update(billRef, {
           amountPaid: nextPaid,
@@ -1530,21 +1606,22 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           updatedAt: serverTimestamp(),
         });
 
-        const matchingInvoice = invoices.find((inv) => inv.billId === billData.id);
-        if (matchingInvoice) {
+        if (matchingInvoice && invSnap && invSnap.exists()) {
           tx.update(doc(db, 'invoices', matchingInvoice.id), {
             paymentStatus: nextStatus,
             updatedAt: serverTimestamp(),
           });
         }
 
-        tx.update(doc(db, 'publicInvoices', billData.publicToken), {
-          amountPaid: nextPaid,
-          pendingBalance: nextPending,
-          paymentMethod: params.method,
-          paymentStatus: nextStatus,
-          updatedAt: serverTimestamp(),
-        });
+        if (billData.publicToken && pubSnap && pubSnap.exists()) {
+          tx.update(doc(db, 'publicInvoices', billData.publicToken), {
+            amountPaid: nextPaid,
+            pendingBalance: nextPending,
+            paymentMethod: params.method,
+            paymentStatus: nextStatus,
+            updatedAt: serverTimestamp(),
+          });
+        }
 
         if (custSnap && custSnap.exists() && billData.customerId) {
           const cData = custSnap.data() as Customer;
@@ -1641,19 +1718,23 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (billData.billStatus === 'cancelled') throw new Error(pickMsg('Bill is already cancelled.', 'ఈ బిల్ ఇప్పటికే రద్దు చేయబడింది.'));
 
         const itemsForBill = billItems.filter((bi) => bi.billId === billId);
-        const prodSnaps = await Promise.all(itemsForBill.map((bi) => tx.get(doc(db, 'products', bi.productId))));
-        const custSnap = billData.customerId ? await tx.get(doc(db, 'customers', billData.customerId)) : null;
+        const inv = invoices.find((i) => i.billId === billId);
+        const [prodSnaps, custSnap, invSnap, pubSnap] = await Promise.all([
+          Promise.all(itemsForBill.map((bi) => tx.get(doc(db, 'products', bi.productId)))),
+          billData.customerId ? tx.get(doc(db, 'customers', billData.customerId)) : Promise.resolve(null),
+          inv ? tx.get(doc(db, 'invoices', inv.id)) : Promise.resolve(null),
+          billData.publicToken ? tx.get(doc(db, 'publicInvoices', billData.publicToken)) : Promise.resolve(null),
+        ]);
 
         tx.update(billRef, {
           billStatus: 'cancelled',
           paymentStatus: 'cancelled',
           publicLinkRevoked: true,
-          notes: `${billData.notes ? billData.notes + ' | ' : ''}Cancelled: ${reason}`,
+          notes: `${billData.notes ? billData.notes + ' | ' : ''}Cancelled: ${reason}`.slice(0, 400),
           updatedAt: serverTimestamp(),
         });
 
-        const inv = invoices.find((i) => i.billId === billId);
-        if (inv) {
+        if (inv && invSnap && invSnap.exists()) {
           tx.update(doc(db, 'invoices', inv.id), {
             paymentStatus: 'cancelled',
             revoked: true,
@@ -1661,11 +1742,13 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           });
         }
 
-        tx.update(doc(db, 'publicInvoices', billData.publicToken), {
-          paymentStatus: 'cancelled',
-          revoked: true,
-          updatedAt: serverTimestamp(),
-        });
+        if (billData.publicToken && pubSnap && pubSnap.exists()) {
+          tx.update(doc(db, 'publicInvoices', billData.publicToken), {
+            paymentStatus: 'cancelled',
+            revoked: true,
+            updatedAt: serverTimestamp(),
+          });
+        }
 
         // Restock items
         for (let i = 0; i < itemsForBill.length; i++) {
@@ -1694,7 +1777,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
               newStock: nextStock,
               billId,
               billNumber: billData.billNumber,
-              note: `Restocked from cancelled bill ${billData.billNumber}`,
+              note: `Restocked from cancelled bill ${billData.billNumber}`.slice(0, 300),
               createdByUid: actorUser.uid,
               createdAt: serverTimestamp(),
             });
@@ -1717,15 +1800,15 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           ownerUid: accessContext.ownerUid,
           authorizedUids: accessContext.authorizedUids,
           authorizedEmails: accessContext.authorizedEmails,
-          title: `Bill Cancelled · ${billData.billNumber}`,
-          message: `${creatorName} cancelled ${billData.billNumber}. Reason: ${reason}`,
+          title: `Bill Cancelled · ${billData.billNumber}`.slice(0, 160),
+          message: `${creatorName} cancelled ${billData.billNumber}. Reason: ${reason}`.slice(0, 400),
           type: 'cancellation',
           relatedRecordType: 'bill',
           relatedRecordId: billId,
           billNumber: billData.billNumber,
           amount: billData.grandTotal,
           customerName: billData.customerName,
-          creatorName,
+          creatorName: creatorName.slice(0, 120),
           isRead: false,
           createdAt: serverTimestamp(),
         });
@@ -1740,10 +1823,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           action: 'CANCEL_BILL',
           entityType: 'bill',
           entityId: billId,
-          summary: `Cancelled ${billData.billNumber} (₹${billData.grandTotal.toFixed(2)}). Reason: ${reason}`,
+          summary: `Cancelled ${billData.billNumber} (₹${billData.grandTotal.toFixed(2)}). Reason: ${reason}`.slice(0, 400),
           actorUid: actorUser.uid,
           actorEmail: actorUser.email || '',
-          actorName: creatorName,
+          actorName: creatorName.slice(0, 120),
           createdAt: serverTimestamp(),
         });
       });
@@ -1773,6 +1856,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const refundAmt = Math.min(billData.amountPaid, Math.round(params.amount * 100) / 100);
         if (refundAmt <= 0) throw new Error(pickMsg('No paid amount available to refund.', 'వాపసు చేయడానికి చెల్లించిన మొత్తం లేదు.'));
 
+        const inv = invoices.find((i) => i.billId === params.billId);
+        const [invSnap, pubSnap] = await Promise.all([
+          inv ? tx.get(doc(db, 'invoices', inv.id)) : Promise.resolve(null),
+          billData.publicToken ? tx.get(doc(db, 'publicInvoices', billData.publicToken)) : Promise.resolve(null),
+        ]);
+
         const nextPaid = Math.max(0, Math.round((billData.amountPaid - refundAmt) * 100) / 100);
         const nextPending = Math.round((billData.grandTotal - nextPaid) * 100) / 100;
 
@@ -1781,24 +1870,25 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           pendingBalance: nextPending,
           paymentStatus: 'refunded',
           billStatus: 'refunded',
-          notes: `${billData.notes ? billData.notes + ' | ' : ''}Refunded ₹${refundAmt.toFixed(2)}: ${params.reason}`,
+          notes: `${billData.notes ? billData.notes + ' | ' : ''}Refunded ₹${refundAmt.toFixed(2)}: ${params.reason}`.slice(0, 400),
           updatedAt: serverTimestamp(),
         });
 
-        const inv = invoices.find((i) => i.billId === params.billId);
-        if (inv) {
+        if (inv && invSnap && invSnap.exists()) {
           tx.update(doc(db, 'invoices', inv.id), {
             paymentStatus: 'refunded',
             updatedAt: serverTimestamp(),
           });
         }
 
-        tx.update(doc(db, 'publicInvoices', billData.publicToken), {
-          amountPaid: nextPaid,
-          pendingBalance: nextPending,
-          paymentStatus: 'refunded',
-          updatedAt: serverTimestamp(),
-        });
+        if (billData.publicToken && pubSnap && pubSnap.exists()) {
+          tx.update(doc(db, 'publicInvoices', billData.publicToken), {
+            amountPaid: nextPaid,
+            pendingBalance: nextPending,
+            paymentStatus: 'refunded',
+            updatedAt: serverTimestamp(),
+          });
+        }
 
         const payId = generateSafeId('ref');
         tx.set(doc(db, 'payments', payId), {
@@ -1817,8 +1907,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           status: 'refunded',
           type: 'refund',
           recordedByUid: actorUser.uid,
-          recordedByName: creatorName,
-          notes: params.reason,
+          recordedByName: creatorName.slice(0, 120),
+          notes: params.reason.slice(0, 300),
           createdAt: serverTimestamp(),
         });
 
@@ -1829,15 +1919,15 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           ownerUid: accessContext.ownerUid,
           authorizedUids: accessContext.authorizedUids,
           authorizedEmails: accessContext.authorizedEmails,
-          title: `Refund Recorded · ${billData.billNumber}`,
-          message: `₹${refundAmt.toFixed(2)} refunded via ${params.method}. Reason: ${params.reason}`,
+          title: `Refund Recorded · ${billData.billNumber}`.slice(0, 160),
+          message: `₹${refundAmt.toFixed(2)} refunded via ${params.method}. Reason: ${params.reason}`.slice(0, 400),
           type: 'refund',
           relatedRecordType: 'bill',
           relatedRecordId: billData.id,
           billNumber: billData.billNumber,
           amount: refundAmt,
           customerName: billData.customerName,
-          creatorName,
+          creatorName: creatorName.slice(0, 120),
           isRead: false,
           createdAt: serverTimestamp(),
         });
@@ -1852,10 +1942,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           action: 'RECORD_REFUND',
           entityType: 'bill',
           entityId: billData.id,
-          summary: `Refunded ₹${refundAmt.toFixed(2)} on ${billData.billNumber}. Reason: ${params.reason}`,
+          summary: `Refunded ₹${refundAmt.toFixed(2)} on ${billData.billNumber}. Reason: ${params.reason}`.slice(0, 400),
           actorUid: actorUser.uid,
           actorEmail: actorUser.email || '',
-          actorName: creatorName,
+          actorName: creatorName.slice(0, 120),
           createdAt: serverTimestamp(),
         });
       });
@@ -1872,7 +1962,20 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         throw new Error(pickMsg('Authentication and business profile required.', 'లాగిన్ మరియు వ్యాపార ప్రొఫైల్ అవసరం.'));
       }
       if (!isAdmin) {
-        throw new Error(pickMsg('Only business administrators can edit saved bills.', 'సేవ్ చేసిన బిల్లులను యజమాని మాత్రమే సవరించగలరు.'));
+        const targetBill = bills.find((b) => b.id === payload.billId);
+        if (
+          !targetBill ||
+          targetBill.createdByUid !== actorUser.uid ||
+          targetBill.editApprovedForUid !== actorUser.uid ||
+          !targetBill.editApprovalRequestId
+        ) {
+          throw new Error(
+            pickMsg(
+              'Owner approval is required before editing this bill.',
+              'ఈ బిల్‌ను సవరించడానికి ముందుగా యజమాని ఆమోదం అవసరం.'
+            )
+          );
+        }
       }
       if (!payload.items.length) {
         throw new Error(pickMsg('Bill must contain at least one item.', 'బిల్‌లో కనీసం ఒక వస్తువు ఉండాలి.'));
@@ -1892,8 +1995,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             body: JSON.stringify({
               items: payload.items,
               overallDiscount: payload.overallDiscount,
-              taxEnabled: Boolean(business.taxEnabled),
-              gstType: business.taxEnabled ? payload.gstType : 'NONE',
+              taxEnabled: false,
+              gstType: 'NONE',
               labourCharge: payload.labourCharge || 0,
               autoCharge: payload.autoCharge || 0,
               amountPaid: payload.amountPaid,
@@ -1911,8 +2014,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           calcData = calculateBillTotalsLocal({
             items: payload.items,
             overallDiscount: payload.overallDiscount,
-            taxEnabled: Boolean(business.taxEnabled),
-            gstType: business.taxEnabled ? payload.gstType : 'NONE',
+            taxEnabled: false,
+            gstType: 'NONE',
             labourCharge: payload.labourCharge || 0,
             autoCharge: payload.autoCharge || 0,
             amountPaid: payload.amountPaid,
@@ -1922,8 +2025,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         calcData = calculateBillTotalsLocal({
           items: payload.items,
           overallDiscount: payload.overallDiscount,
-          taxEnabled: Boolean(business.taxEnabled),
-          gstType: business.taxEnabled ? payload.gstType : 'NONE',
+          taxEnabled: false,
+          gstType: 'NONE',
           labourCharge: payload.labourCharge || 0,
           autoCharge: payload.autoCharge || 0,
           amountPaid: payload.amountPaid,
@@ -1961,9 +2064,12 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         applyDelete: (ref: ReturnType<typeof doc>) => void,
         billData: Bill,
         productLookup: Map<string, Product>,
-        customerData: Customer | null
+        customerData: Customer | null,
+        hasInvDoc = true,
+        hasPubDoc = true,
+        consumeReqId = ''
       ) => {
-        applyUpdate(doc(db, 'bills', payload.billId), {
+        const billUpdatePayload: Record<string, unknown> = {
           customerName: payload.customerName.trim(),
           customerMobile: mobileRaw,
           customerAddress: (payload.customerAddress || '').trim(),
@@ -1990,7 +2096,22 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           editedByName: editorName.slice(0, 120),
           editedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-        });
+        };
+
+        if (!isAdmin || billData.editApprovedForUid || billData.editApprovalRequestId) {
+          billUpdatePayload.editApprovedForUid = '';
+          billUpdatePayload.editApprovalRequestId = '';
+        }
+
+        applyUpdate(doc(db, 'bills', payload.billId), billUpdatePayload);
+
+        if (consumeReqId) {
+          applyUpdate(doc(db, 'approvalRequests', consumeReqId), {
+            status: 'consumed',
+            consumedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
 
         oldItems.forEach((oi) => {
           applyDelete(doc(db, 'billItems', oi.id));
@@ -2075,7 +2196,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
 
         const inv = invoices.find((i) => i.billId === payload.billId);
-        if (inv) {
+        if (inv && hasInvDoc) {
           applyUpdate(doc(db, 'invoices', inv.id), {
             customerName: payload.customerName.trim(),
             grandTotal: calcData.grandTotal,
@@ -2084,43 +2205,67 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           });
         }
 
-        applyUpdate(doc(db, 'publicInvoices', billData.publicToken), {
-          customerName: payload.customerName.trim(),
-          customerPhoneMasked: maskedMobile,
-          customerAddress: (payload.customerAddress || '').trim(),
-          itemsSummary: payload.items
-            .map(
-              (it, idx) =>
-                `${it.productName}${it.variantLabel ? ` (${it.variantLabel})` : ''} | ${it.quantity} x ₹${it.unitPrice.toFixed(2)} = ₹${calcData.items[idx].lineTotal.toFixed(2)}`
-            )
-            .join('\n')
-            .slice(0, 1450),
-          itemsJson: JSON.stringify(
-            payload.items.map((it, idx) => ({
-              n: it.productName.slice(0, 100),
-              v: (it.variantLabel || '').slice(0, 40),
-              q: it.quantity,
-              p: it.unitPrice,
-              t: calcData.items[idx].lineTotal,
-              img: it.imageUrl && it.imageUrl.length <= 500 && !it.imageUrl.startsWith('data:') ? it.imageUrl : '',
-            }))
-          ).slice(0, 7900),
-          subtotal: calcData.subtotal,
-          discountAmount: calcData.discountAmount,
-          cgstAmount: calcData.cgstAmount,
-          sgstAmount: calcData.sgstAmount,
-          igstAmount: calcData.igstAmount,
-          totalTax: calcData.totalTax,
-          labourCharge: calcData.labourCharge,
-          labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
-          autoCharge: calcData.autoCharge,
-          grandTotal: calcData.grandTotal,
-          amountPaid: calcData.amountPaid,
-          pendingBalance: calcData.pendingBalance,
-          paymentMethod: resolvedPaymentMethod,
-          paymentStatus: calcData.paymentStatus,
-          updatedAt: serverTimestamp(),
-        });
+        if (billData.publicToken && hasPubDoc) {
+          applyUpdate(doc(db, 'publicInvoices', billData.publicToken), {
+            customerName: payload.customerName.trim(),
+            customerPhoneMasked: maskedMobile,
+            customerAddress: (payload.customerAddress || '').trim(),
+            itemsSummary: payload.items
+              .map(
+                (it, idx) =>
+                  `${it.productName}${it.variantLabel ? ` (${it.variantLabel})` : ''} | ${it.quantity} x ₹${it.unitPrice.toFixed(2)} = ₹${calcData.items[idx].lineTotal.toFixed(2)}`
+              )
+              .join('\n')
+              .slice(0, 1450),
+            itemsJson: JSON.stringify(
+              payload.items.map((it, idx) => ({
+                n: it.productName.slice(0, 100),
+                v: (it.variantLabel || '').slice(0, 40),
+                q: it.quantity,
+                p: it.unitPrice,
+                t: calcData.items[idx].lineTotal,
+                img: it.imageUrl && it.imageUrl.length <= 500 && !it.imageUrl.startsWith('data:') ? it.imageUrl : '',
+              }))
+            ).slice(0, 7900),
+            subtotal: calcData.subtotal,
+            discountAmount: calcData.discountAmount,
+            cgstAmount: calcData.cgstAmount,
+            sgstAmount: calcData.sgstAmount,
+            igstAmount: calcData.igstAmount,
+            totalTax: calcData.totalTax,
+            labourCharge: calcData.labourCharge,
+            labourRatePerPiece: Math.max(0, Math.round((Number(payload.labourRatePerPiece) || 0) * 100) / 100),
+            autoCharge: calcData.autoCharge,
+            grandTotal: calcData.grandTotal,
+            amountPaid: calcData.amountPaid,
+            pendingBalance: calcData.pendingBalance,
+            paymentMethod: resolvedPaymentMethod,
+            paymentStatus: calcData.paymentStatus,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        if (!isAdmin) {
+          const notifId = generateSafeId('notif');
+          applySet(doc(db, 'notifications', notifId), {
+            id: notifId,
+            businessId,
+            ownerUid: accessContext.ownerUid,
+            authorizedUids: accessContext.authorizedUids,
+            authorizedEmails: accessContext.authorizedEmails,
+            title: `Staff Edited ${billData.billNumber}`,
+            message: `${editorName} updated approved bill ${billData.billNumber} (₹${Number(billData.grandTotal || 0).toFixed(2)} -> ₹${calcData.grandTotal.toFixed(2)}).`.slice(0, 400),
+            type: 'bill',
+            relatedRecordType: 'bill',
+            relatedRecordId: payload.billId,
+            billNumber: billData.billNumber,
+            amount: calcData.grandTotal,
+            customerName: payload.customerName.trim(),
+            creatorName: editorName.slice(0, 120),
+            isRead: false,
+            createdAt: serverTimestamp(),
+          });
+        }
 
         const audId = generateSafeId('aud');
         applySet(doc(db, 'auditLogs', audId), {
@@ -2132,10 +2277,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           action: 'EDIT_BILL',
           entityType: 'bill',
           entityId: payload.billId,
-          summary: `Admin ${editorName} edited ${billData.billNumber}: ₹${Number(billData.grandTotal || 0).toFixed(2)} -> ₹${calcData.grandTotal.toFixed(2)}`,
+          summary: `${isAdmin ? 'Admin' : 'Staff'} ${editorName} edited ${billData.billNumber}: ₹${Number(billData.grandTotal || 0).toFixed(2)} -> ₹${calcData.grandTotal.toFixed(2)}`.slice(0, 400),
           actorUid: actorUser.uid,
           actorEmail: actorUser.email || '',
-          actorName: editorName,
+          actorName: editorName.slice(0, 120),
           createdAt: serverTimestamp(),
         });
       };
@@ -2145,6 +2290,20 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         if (!cachedBill) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
         if (cachedBill.billStatus !== 'active') {
           throw new Error(pickMsg('Only active bills can be edited.', 'సక్రియ బిల్లులను మాత్రమే సవరించగలరు.'));
+        }
+        if (!isAdmin) {
+          if (
+            cachedBill.createdByUid !== actorUser.uid ||
+            cachedBill.editApprovedForUid !== actorUser.uid ||
+            !cachedBill.editApprovalRequestId
+          ) {
+            throw new Error(
+              pickMsg(
+                'Owner approval is required before editing this bill.',
+                'ఈ బిల్‌ను సవరించడానికి ముందుగా యజమాని ఆమోదం అవసరం.'
+              )
+            );
+          }
         }
         const productLookup = new Map<string, Product>();
         products.forEach((p) => productLookup.set(p.id, p));
@@ -2159,7 +2318,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           (ref) => batch.delete(ref),
           cachedBill,
           productLookup,
-          cachedCust
+          cachedCust,
+          true,
+          isAdmin,
+          cachedBill.editApprovalRequestId || ''
         );
         await commitWithOfflineSupport(batch.commit());
         setSyncState('offline');
@@ -2186,21 +2348,54 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (billData.billStatus !== 'active') {
             throw new Error(pickMsg('Only active bills can be edited.', 'సక్రియ బిల్లులను మాత్రమే సవరించగలరు.'));
           }
+          if (!isAdmin) {
+            if (
+              billData.createdByUid !== actorUser.uid ||
+              billData.editApprovedForUid !== actorUser.uid ||
+              !billData.editApprovalRequestId
+            ) {
+              throw new Error(
+                pickMsg(
+                  'Owner approval is required before editing this bill.',
+                  'ఈ బిల్‌ను సవరించడానికి ముందుగా యజమాని ఆమోదం అవసరం.'
+                )
+              );
+            }
+          }
 
-          const prodSnaps = await Promise.all(
-            affectedProdIds.map((pid) => tx.get(doc(db, 'products', pid)))
-          );
+          const inv = invoices.find((i) => i.billId === payload.billId);
+          const [prodSnaps, custSnap, invSnap, pubSnap, reqSnap] = await Promise.all([
+            Promise.all(affectedProdIds.map((pid) => tx.get(doc(db, 'products', pid)))),
+            billData.customerId ? tx.get(doc(db, 'customers', billData.customerId)) : Promise.resolve(null),
+            inv ? tx.get(doc(db, 'invoices', inv.id)) : Promise.resolve(null),
+            billData.publicToken ? tx.get(doc(db, 'publicInvoices', billData.publicToken)) : Promise.resolve(null),
+            billData.editApprovalRequestId
+              ? tx.get(doc(db, 'approvalRequests', billData.editApprovalRequestId))
+              : Promise.resolve(null),
+          ]);
+          const consumeReqId =
+            reqSnap && reqSnap.exists() && (reqSnap.data() as ApprovalRequest).status === 'approved'
+              ? reqSnap.id
+              : '';
+          if (!isAdmin && !consumeReqId) {
+            throw new Error(
+              pickMsg(
+                'This edit approval is missing or already used. Please request approval again.',
+                'ఈ సవరణ ఆమోదం లేదు లేదా ఇప్పటికే ఉపయోగించబడింది. మళ్లీ ఆమోదం కోసం అభ్యర్థించండి.'
+              )
+            );
+          }
+
           const productLookup = new Map<string, Product>();
           prodSnaps.forEach((snap, idx) => {
             if (snap.exists()) {
               productLookup.set(affectedProdIds[idx], snap.data() as Product);
             }
           });
-
-          const custSnap = billData.customerId
-            ? await tx.get(doc(db, 'customers', billData.customerId))
-            : null;
           const customerData = custSnap && custSnap.exists() ? (custSnap.data() as Customer) : null;
+          const canStaffUpdatePublic =
+            Boolean(pubSnap && pubSnap.exists()) &&
+            (isAdmin || (pubSnap?.data() as { billId?: string } | undefined)?.billId === payload.billId);
 
           applySharedUpdates(
             (ref, data) => tx.update(ref, data),
@@ -2208,7 +2403,10 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
             (ref) => tx.delete(ref),
             billData,
             productLookup,
-            customerData
+            customerData,
+            Boolean(invSnap && invSnap.exists()),
+            canStaffUpdatePublic,
+            consumeReqId
           );
         });
         setSyncState('saved');
@@ -2222,7 +2420,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
     },
-    [actorUser, userAccount, business, isAdmin, billItems, bills, products, customers, invoices, businessId, accessContext, showNotice]
+    [actorUser, userAccount, business, isAdmin, billItems, bills, products, customers, invoices, businessId, accessContext, showNotice, pickMsg]
   );
 
   const updateBillNotes = useCallback(
@@ -2258,17 +2456,26 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const togglePublicInvoiceRevoke = useCallback(
     async (billId: string, publicToken: string, revoked: boolean) => {
+      const inv = invoices.find((i) => i.billId === billId);
+      const [invExists, pubExists] = navigator.onLine
+        ? await Promise.all([
+            inv ? getDoc(doc(db, 'invoices', inv.id)).then((s) => s.exists()).catch(() => false) : Promise.resolve(false),
+            publicToken ? getDoc(doc(db, 'publicInvoices', publicToken)).then((s) => s.exists()).catch(() => false) : Promise.resolve(false),
+          ])
+        : [Boolean(inv), Boolean(publicToken)];
+
       const batch = writeBatch(db);
       batch.update(doc(db, 'bills', billId), {
         publicLinkRevoked: revoked,
         updatedAt: serverTimestamp(),
       });
-      batch.update(doc(db, 'publicInvoices', publicToken), {
-        revoked,
-        updatedAt: serverTimestamp(),
-      });
-      const inv = invoices.find((i) => i.billId === billId);
-      if (inv) {
+      if (pubExists && publicToken) {
+        batch.update(doc(db, 'publicInvoices', publicToken), {
+          revoked,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      if (invExists && inv) {
         batch.update(doc(db, 'invoices', inv.id), {
           revoked,
           updatedAt: serverTimestamp(),
@@ -2311,8 +2518,8 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lowStockThreshold: Number(product.lowStockThreshold ?? 10),
         taxRate: Number(product.taxRate || 0),
         unit: (product.unit || 'Piece').trim(),
-        variantsSummary: (product.variantsSummary || '').trim(),
-        imageUrl: (product.imageUrl || '').trim(),
+        variantsSummary: (product.variantsSummary || '').trim().slice(0, 1000),
+        imageUrl: (product.imageUrl || '').trim().slice(0, 350000),
         description: (product.description || '').trim(),
         updatedAt: serverTimestamp(),
       };
@@ -2357,6 +2564,14 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const softDeleteBillAtomic = useCallback(
     async (billId: string) => {
       if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
+      if (navigator.onLine && !auth.currentUser) {
+        throw new Error(
+          pickMsg(
+            'Please sign in again with your password or Google to sync changes online.',
+            'మార్పులను ఆన్‌లైన్‌లో సేవ్ చేయడానికి దయచేసి మీ పాస్‌వర్డ్ లేదా గూగుల్‌తో మళ్లీ సైన్ ఇన్ చేయండి.'
+          )
+        );
+      }
       const target = rawBills.find((b) => b.id === billId);
       if (!target) throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
       if (!isAdmin && target.createdByUid !== actorUser.uid) {
@@ -2365,51 +2580,82 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const nowMs = Date.now();
       const expiresAtMs = nowMs + TEN_DAYS_MS;
       const actorName = (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120);
-
-      const batch = writeBatch(db);
-      batch.update(doc(db, 'bills', billId), {
-        isDeleted: true,
-        deletedAt: serverTimestamp(),
-        deletedAtMs: nowMs,
-        deleteExpiresAtMs: expiresAtMs,
-        deletedByUid: actorUser.uid,
-        deletedByName: actorName,
-        publicLinkRevoked: true,
-        updatedAt: serverTimestamp(),
-      });
-
       const inv = invoices.find((i) => i.billId === billId);
-      if (inv) {
-        batch.update(doc(db, 'invoices', inv.id), {
-          revoked: true,
+
+      const [invExists, pubExists] = navigator.onLine
+        ? await Promise.all([
+            inv ? getDoc(doc(db, 'invoices', inv.id)).then((s) => s.exists()).catch(() => false) : Promise.resolve(false),
+            target.publicToken
+              ? getDoc(doc(db, 'publicInvoices', target.publicToken)).then((s) => s.exists()).catch(() => false)
+              : Promise.resolve(false),
+          ])
+        : [Boolean(inv), Boolean(target.publicToken)];
+
+      const buildCoreSoftDeleteBatch = (includeLinkedDocs: boolean) => {
+        const batch = writeBatch(db);
+        batch.update(doc(db, 'bills', billId), {
+          isDeleted: true,
+          deletedAt: serverTimestamp(),
+          deletedAtMs: nowMs,
+          deleteExpiresAtMs: expiresAtMs,
+          deletedByUid: actorUser.uid,
+          deletedByName: actorName,
+          publicLinkRevoked: true,
           updatedAt: serverTimestamp(),
         });
-      }
-      if (target.publicToken) {
-        batch.update(doc(db, 'publicInvoices', target.publicToken), {
-          revoked: true,
-          updatedAt: serverTimestamp(),
+
+        if (includeLinkedDocs) {
+          if (inv && invExists) {
+            batch.update(doc(db, 'invoices', inv.id), {
+              revoked: true,
+              updatedAt: serverTimestamp(),
+            });
+          }
+          if (target.publicToken && pubExists) {
+            batch.update(doc(db, 'publicInvoices', target.publicToken), {
+              revoked: true,
+              updatedAt: serverTimestamp(),
+            });
+          }
+        }
+
+        const audId = generateSafeId('aud');
+        batch.set(doc(db, 'auditLogs', audId), {
+          id: audId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          action: 'SOFT_DELETE_BILL',
+          entityType: 'bill',
+          entityId: billId,
+          summary: `Moved bill ${target.billNumber} (${target.customerName}) to 10-day Removed Bills & Products bin`.slice(0, 400),
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
+          actorName,
+          createdAt: serverTimestamp(),
         });
+        return batch;
+      };
+
+      const hasLinkedUpdates = (inv && invExists) || (target.publicToken && pubExists);
+      try {
+        await commitWithOfflineSupport(buildCoreSoftDeleteBatch(true).commit());
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
+        if (hasLinkedUpdates && errMsg.includes('permission')) {
+          await commitWithOfflineSupport(buildCoreSoftDeleteBatch(false).commit());
+          if (inv && invExists) {
+            await updateDoc(doc(db, 'invoices', inv.id), { revoked: true, updatedAt: serverTimestamp() }).catch(() => {});
+          }
+          if (target.publicToken && pubExists) {
+            await updateDoc(doc(db, 'publicInvoices', target.publicToken), { revoked: true, updatedAt: serverTimestamp() }).catch(() => {});
+          }
+        } else {
+          throw err;
+        }
       }
 
-      const audId = generateSafeId('aud');
-      batch.set(doc(db, 'auditLogs', audId), {
-        id: audId,
-        businessId,
-        ownerUid: accessContext.ownerUid,
-        authorizedUids: accessContext.authorizedUids,
-        authorizedEmails: accessContext.authorizedEmails,
-        action: 'SOFT_DELETE_BILL',
-        entityType: 'bill',
-        entityId: billId,
-        summary: `Moved bill ${target.billNumber} (${target.customerName}) to 10-day Removed Bills & Products bin`,
-        actorUid: actorUser.uid,
-        actorEmail: actorUser.email || '',
-        actorName,
-        createdAt: serverTimestamp(),
-      });
-
-      await commitWithOfflineSupport(batch.commit());
       if (!navigator.onLine) {
         setSyncState('offline');
         showNotice(
@@ -2427,6 +2673,14 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const softDeleteBillsBulkAtomic = useCallback(
     async (billIds: string[]): Promise<number> => {
       if (!actorUser || !userAccount) throw new Error(pickMsg('Authentication required.', 'లాగిన్ అవసరం.'));
+      if (navigator.onLine && !auth.currentUser) {
+        throw new Error(
+          pickMsg(
+            'Please sign in again with your password or Google to sync changes online.',
+            'మార్పులను ఆన్‌లైన్‌లో సేవ్ చేయడానికి దయచేసి మీ పాస్‌వర్డ్ లేదా గూగుల్‌తో మళ్లీ సైన్ ఇన్ చేయండి.'
+          )
+        );
+      }
       const uniqueIds = Array.from(new Set(billIds.filter(Boolean)));
       if (uniqueIds.length === 0) return 0;
 
@@ -2454,54 +2708,97 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const CHUNK_SIZE = 100;
       for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
         const chunk = targets.slice(i, i + CHUNK_SIZE);
-        const batch = writeBatch(db);
+        const linkedFlags = navigator.onLine
+          ? await Promise.all(
+              chunk.map(async (target) => {
+                const inv = invoices.find((entry) => entry.billId === target.id);
+                const [invExists, pubExists] = await Promise.all([
+                  inv ? getDoc(doc(db, 'invoices', inv.id)).then((s) => s.exists()).catch(() => false) : Promise.resolve(false),
+                  target.publicToken
+                    ? getDoc(doc(db, 'publicInvoices', target.publicToken)).then((s) => s.exists()).catch(() => false)
+                    : Promise.resolve(false),
+                ]);
+                return { inv, invExists, pubExists };
+              })
+            )
+          : chunk.map((target) => {
+              const inv = invoices.find((entry) => entry.billId === target.id);
+              return { inv, invExists: Boolean(inv), pubExists: Boolean(target.publicToken) };
+            });
 
-        for (const target of chunk) {
-          batch.update(doc(db, 'bills', target.id), {
-            isDeleted: true,
-            deletedAt: serverTimestamp(),
-            deletedAtMs: nowMs,
-            deleteExpiresAtMs: expiresAtMs,
-            deletedByUid: actorUser.uid,
-            deletedByName: actorName,
-            publicLinkRevoked: true,
-            updatedAt: serverTimestamp(),
-          });
-
-          const inv = invoices.find((entry) => entry.billId === target.id);
-          if (inv) {
-            batch.update(doc(db, 'invoices', inv.id), {
-              revoked: true,
+        const buildChunkBatch = (includeLinkedDocs: boolean) => {
+          const batch = writeBatch(db);
+          chunk.forEach((target, idx) => {
+            const { inv, invExists, pubExists } = linkedFlags[idx];
+            batch.update(doc(db, 'bills', target.id), {
+              isDeleted: true,
+              deletedAt: serverTimestamp(),
+              deletedAtMs: nowMs,
+              deleteExpiresAtMs: expiresAtMs,
+              deletedByUid: actorUser.uid,
+              deletedByName: actorName,
+              publicLinkRevoked: true,
               updatedAt: serverTimestamp(),
             });
-          }
 
-          if (target.publicToken) {
-            batch.update(doc(db, 'publicInvoices', target.publicToken), {
-              revoked: true,
-              updatedAt: serverTimestamp(),
+            if (includeLinkedDocs) {
+              if (inv && invExists) {
+                batch.update(doc(db, 'invoices', inv.id), {
+                  revoked: true,
+                  updatedAt: serverTimestamp(),
+                });
+              }
+
+              if (target.publicToken && pubExists) {
+                batch.update(doc(db, 'publicInvoices', target.publicToken), {
+                  revoked: true,
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            }
+
+            const audId = generateSafeId('aud');
+            batch.set(doc(db, 'auditLogs', audId), {
+              id: audId,
+              businessId,
+              ownerUid: accessContext.ownerUid,
+              authorizedUids: accessContext.authorizedUids,
+              authorizedEmails: accessContext.authorizedEmails,
+              action: 'SOFT_DELETE_BILL',
+              entityType: 'bill',
+              entityId: target.id,
+              summary: `Bulk moved bill ${target.billNumber} (${target.customerName}) to 10-day Removed Bills & Products bin`.slice(0, 400),
+              actorUid: actorUser.uid,
+              actorEmail: actorUser.email || '',
+              actorName,
+              createdAt: serverTimestamp(),
             });
-          }
-
-          const audId = generateSafeId('aud');
-          batch.set(doc(db, 'auditLogs', audId), {
-            id: audId,
-            businessId,
-            ownerUid: accessContext.ownerUid,
-            authorizedUids: accessContext.authorizedUids,
-            authorizedEmails: accessContext.authorizedEmails,
-            action: 'SOFT_DELETE_BILL',
-            entityType: 'bill',
-            entityId: target.id,
-            summary: `Bulk moved bill ${target.billNumber} (${target.customerName}) to 10-day Removed Bills & Products bin`.slice(0, 400),
-            actorUid: actorUser.uid,
-            actorEmail: actorUser.email || '',
-            actorName,
-            createdAt: serverTimestamp(),
           });
+          return batch;
+        };
+
+        const hasAnyLinked = linkedFlags.some((f) => (f.inv && f.invExists) || f.pubExists);
+        try {
+          await commitWithOfflineSupport(buildChunkBatch(true).commit());
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
+          if (hasAnyLinked && errMsg.includes('permission')) {
+            await commitWithOfflineSupport(buildChunkBatch(false).commit());
+            await Promise.all(
+              chunk.map(async (target, idx) => {
+                const { inv, invExists, pubExists } = linkedFlags[idx];
+                if (inv && invExists) {
+                  await updateDoc(doc(db, 'invoices', inv.id), { revoked: true, updatedAt: serverTimestamp() }).catch(() => {});
+                }
+                if (target.publicToken && pubExists) {
+                  await updateDoc(doc(db, 'publicInvoices', target.publicToken), { revoked: true, updatedAt: serverTimestamp() }).catch(() => {});
+                }
+              })
+            );
+          } else {
+            throw err;
+          }
         }
-
-        await commitWithOfflineSupport(batch.commit());
       }
 
       if (!navigator.onLine) {
@@ -2545,7 +2842,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         action: 'RESTORE_BILL',
         entityType: 'bill',
         entityId: billId,
-        summary: `Restored bill ${target.billNumber} (${target.customerName}) from Removed Bills & Products`,
+        summary: `Restored bill ${target.billNumber} (${target.customerName}) from Removed Bills & Products`.slice(0, 400),
         actorUid: actorUser.uid,
         actorEmail: actorUser.email || '',
         actorName,
@@ -2562,6 +2859,14 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (!actorUser || !userAccount || !isAdmin) {
         throw new Error(pickMsg('Only business administrators can permanently delete bills.', 'బిల్లులను శాశ్వతంగా యజమాని మాత్రమే తొలగించగలరు.'));
       }
+      if (navigator.onLine && !auth.currentUser) {
+        throw new Error(
+          pickMsg(
+            'Please sign in again with your password or Google to sync changes online.',
+            'మార్పులను ఆన్‌లైన్‌లో సేవ్ చేయడానికి దయచేసి మీ పాస్‌వర్డ్ లేదా గూగుల్‌తో మళ్లీ సైన్ ఇన్ చేయండి.'
+          )
+        );
+      }
       const target = rawBills.find((b) => b.id === billId);
       if (!target) return;
       if (!target.isDeleted) {
@@ -2571,16 +2876,28 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         });
       }
 
+      const targetItems = billItems.filter((bi) => bi.billId === billId);
+      const targetInvoices = invoices.filter((inv) => inv.billId === billId);
+      const [itemExistsFlags, invExistsFlags, pubExists] = navigator.onLine
+        ? await Promise.all([
+            Promise.all(targetItems.map((bi) => getDoc(doc(db, 'billItems', bi.id)).then((s) => s.exists()).catch(() => false))),
+            Promise.all(targetInvoices.map((inv) => getDoc(doc(db, 'invoices', inv.id)).then((s) => s.exists()).catch(() => false))),
+            target.publicToken
+              ? getDoc(doc(db, 'publicInvoices', target.publicToken)).then((s) => s.exists()).catch(() => false)
+              : Promise.resolve(false),
+          ])
+        : [targetItems.map(() => true), targetInvoices.map(() => true), Boolean(target.publicToken)];
+
       const actorName = (userAccount.displayName || actorUser.email || 'Admin').slice(0, 120);
       const batch = writeBatch(db);
       batch.delete(doc(db, 'bills', billId));
-      billItems
-        .filter((bi) => bi.billId === billId)
-        .forEach((bi) => batch.delete(doc(db, 'billItems', bi.id)));
-      invoices
-        .filter((inv) => inv.billId === billId)
-        .forEach((inv) => batch.delete(doc(db, 'invoices', inv.id)));
-      if (target.publicToken) {
+      targetItems.forEach((bi, idx) => {
+        if (itemExistsFlags[idx]) batch.delete(doc(db, 'billItems', bi.id));
+      });
+      targetInvoices.forEach((inv, idx) => {
+        if (invExistsFlags[idx]) batch.delete(doc(db, 'invoices', inv.id));
+      });
+      if (target.publicToken && pubExists) {
         batch.delete(doc(db, 'publicInvoices', target.publicToken));
       }
 
@@ -2594,7 +2911,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         action: 'PERMANENT_DELETE_BILL',
         entityType: 'bill',
         entityId: billId,
-        summary: `Permanently removed bill ${target.billNumber} (${target.customerName})`,
+        summary: `Permanently removed bill ${target.billNumber} (${target.customerName})`.slice(0, 400),
         actorUid: actorUser.uid,
         actorEmail: actorUser.email || '',
         actorName,
@@ -2603,7 +2920,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       await commitWithOfflineSupport(batch.commit());
     },
-    [actorUser, userAccount, isAdmin, rawBills, billItems, invoices, businessId, accessContext]
+    [actorUser, userAccount, isAdmin, rawBills, billItems, invoices, businessId, accessContext, pickMsg]
   );
 
   const deleteProduct = useCallback(
@@ -3184,6 +3501,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       await commitWithOfflineSupport(
         setDoc(doc(db, 'messageLogs', id), {
           ...entry,
+          recipientMobile: (entry.recipientMobile || '').slice(0, 30),
+          billNumber: (entry.billNumber || '').slice(0, 40),
+          ...(entry.messageBody ? { messageBody: entry.messageBody.slice(0, 1000) } : {}),
           id,
           businessId,
           ownerUid: accessContext.ownerUid,
@@ -3192,7 +3512,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
           sentByUid: actorUser.uid,
           createdAt: serverTimestamp(),
         })
-      );
+      ).catch(() => {});
     },
     [actorUser, businessId, accessContext]
   );
@@ -3241,7 +3561,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
       for (const colName of cols) {
         try {
           const snap = await getDocs(
-            query(collection(db, colName), where('businessId', '==', businessId), limit(300))
+            query(collection(db, colName), where('businessId', '==', businessId), limit(500))
           );
           for (const d of snap.docs) {
             const data = d.data() as { authorizedUids?: string[]; authorizedEmails?: string[] };
@@ -3559,6 +3879,595 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
   }, []);
 
+  const submitProfileUpdateRequest = useCallback(
+    async (params: {
+      displayName: string;
+      phoneNumber?: string;
+      photoDataUrl?: string;
+      username?: string;
+      email?: string;
+    }): Promise<string> => {
+      if (!actorUser || !userAccount) {
+        throw new Error(pickMsg('Sign in required to submit profile update.', 'ప్రొఫైల్ మార్పు అభ్యర్థనకు సైన్ ఇన్ అవసరం.'));
+      }
+      if (!navigator.onLine) {
+        throw new Error(
+          pickMsg(
+            'Connect to the internet to submit profile update approval request.',
+            'ప్రొఫైల్ నవీకరణ ఆమోద అభ్యర్థన పంపడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'
+          )
+        );
+      }
+
+      const existingPending = approvalRequests.find(
+        (r) => r.requestType === 'profile_update' && r.requesterUid === actorUser.uid && r.status === 'pending'
+      );
+      if (existingPending) {
+        throw new Error(
+          pickMsg(
+            'You already have a pending profile update waiting for owner approval.',
+            'మీ ప్రొఫైల్ మార్పు అభ్యర్థన ఇప్పటికే యజమాని ఆమోదం కోసం పెండింగ్‌లో ఉంది.'
+          )
+        );
+      }
+
+      const cleanName = params.displayName.trim().slice(0, 120);
+      if (!cleanName) {
+        throw new Error(pickMsg('Full name cannot be empty.', 'పూర్తి పేరు ఖాళీగా ఉండకూడదు.'));
+      }
+      const cleanPhone = (params.phoneNumber ?? userAccount.phoneNumber ?? '').trim().slice(0, 30);
+      const cleanPhoto = (params.photoDataUrl ?? userAccount.photoDataUrl ?? '').slice(0, 120000);
+      const cleanUsernameRaw = params.username !== undefined ? normalizeUsername(params.username) : normalizeUsername(userAccount.username || '');
+      const cleanEmailRaw = (params.email ?? userAccount.email).trim().toLowerCase();
+
+      const curName = (userAccount.displayName || '').trim();
+      const curPhone = (userAccount.phoneNumber || '').trim();
+      const curPhoto = userAccount.photoDataUrl || '';
+      const curUsername = normalizeUsername(userAccount.username || '');
+      const curEmail = (userAccount.email || '').trim().toLowerCase();
+
+      const changes: string[] = [];
+      const reqPayload: Record<string, unknown> = {
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        requestType: 'profile_update',
+        status: 'pending',
+        requesterUid: actorUser.uid,
+        requesterName: (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120),
+        requesterEmail: (userAccount.email || actorUser.email || '').slice(0, 160),
+      };
+
+      if (cleanName !== curName) {
+        reqPayload.currentDisplayName = curName;
+        reqPayload.proposedDisplayName = cleanName;
+        changes.push(`Name: ${cleanName}`);
+      }
+      if (cleanPhone !== curPhone) {
+        reqPayload.currentPhoneNumber = curPhone;
+        reqPayload.proposedPhoneNumber = cleanPhone;
+        changes.push(`Phone: ${cleanPhone || '(cleared)'}`);
+      }
+      if (cleanPhoto !== curPhoto) {
+        reqPayload.currentPhotoDataUrl = curPhoto;
+        reqPayload.proposedPhotoDataUrl = cleanPhoto;
+        changes.push('Profile Photo');
+      }
+      if (params.username !== undefined && cleanUsernameRaw !== curUsername) {
+        if (!isValidUsername(cleanUsernameRaw)) {
+          throw new Error(
+            pickMsg(
+              'Username must be 3-40 characters (letters, numbers, dot, underscore, or hyphen).',
+              'యూజర్‌నేమ్ 3-40 అక్షరాలు ఉండాలి (అక్షరాలు, సంఖ్యలు, డాట్, అండర్‌స్కోర్ లేదా హైఫన్).'
+            )
+          );
+        }
+        const idxSnap = await getDoc(doc(db, 'usernameIndex', cleanUsernameRaw));
+        if (idxSnap.exists()) {
+          const idxData = idxSnap.data() as { uid?: string; active?: boolean };
+          if (idxData.uid !== actorUser.uid && idxData.active !== false) {
+            throw new Error(
+              pickMsg(
+                `Username "@${cleanUsernameRaw}" is already taken.`,
+                `యూజర్‌నేమ్ "@${cleanUsernameRaw}" ఇప్పటికే వాడుకలో ఉంది.`
+              )
+            );
+          }
+        }
+        reqPayload.currentUsername = curUsername;
+        reqPayload.proposedUsername = cleanUsernameRaw;
+        changes.push(`Username: @${cleanUsernameRaw}`);
+      }
+      if (params.email !== undefined && cleanEmailRaw !== curEmail) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmailRaw) || cleanEmailRaw.length > 160) {
+          throw new Error(pickMsg('Enter a valid email address.', 'సరైన ఇమెయిల్ చిరునామా నమోదు చేయండి.'));
+        }
+        reqPayload.currentEmail = curEmail;
+        reqPayload.proposedEmail = cleanEmailRaw;
+        changes.push(`Email: ${cleanEmailRaw}`);
+      }
+
+      if (changes.length === 0) {
+        throw new Error(
+          pickMsg(
+            'No changes detected compared to your current profile.',
+            'ప్రస్తుత ప్రొఫైల్‌తో పోలిస్తే ఎలాంటి మార్పులు లేవు.'
+          )
+        );
+      }
+
+      const reqId = generateSafeId('apr');
+      reqPayload.id = reqId;
+      reqPayload.createdAt = serverTimestamp();
+      reqPayload.updatedAt = serverTimestamp();
+
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'approvalRequests', reqId), reqPayload);
+
+      const notifId = generateSafeId('notif');
+      batch.set(doc(db, 'notifications', notifId), {
+        id: notifId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        title: `Profile Update Request · ${userAccount.displayName}`.slice(0, 160),
+        message: `${userAccount.displayName} requested profile changes (${changes.join(', ')}).`.slice(0, 400),
+        type: 'approval_request',
+        relatedRecordType: 'approval_request',
+        relatedRecordId: reqId,
+        creatorName: userAccount.displayName.slice(0, 120),
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'REQUEST_PROFILE_UPDATE',
+        entityType: 'approval_request',
+        entityId: reqId,
+        summary: `${userAccount.displayName} requested profile update (${changes.join(', ')})`.slice(0, 400),
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName: userAccount.displayName.slice(0, 120),
+        createdAt: serverTimestamp(),
+      });
+
+      await batch.commit();
+      return reqId;
+    },
+    [actorUser, userAccount, approvalRequests, businessId, accessContext, pickMsg]
+  );
+
+  const requestBillEditApproval = useCallback(
+    async (params: { billId: string; reason?: string }): Promise<string> => {
+      if (!actorUser || !userAccount) {
+        throw new Error(pickMsg('Sign in required to request bill edit approval.', 'బిల్ సవరణ ఆమోదం అభ్యర్థించడానికి సైన్ ఇన్ అవసరం.'));
+      }
+      if (!navigator.onLine) {
+        throw new Error(
+          pickMsg(
+            'Connect to the internet to request owner approval for editing a bill.',
+            'బిల్ సవరణకు యజమాని ఆమోదం కోరడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'
+          )
+        );
+      }
+
+      const targetBill = bills.find((b) => b.id === params.billId);
+      if (!targetBill) {
+        throw new Error(pickMsg('Bill not found.', 'బిల్ కనుగొనబడలేదు.'));
+      }
+      if (targetBill.createdByUid !== actorUser.uid) {
+        throw new Error(pickMsg('You can only request edit approval for bills you created.', 'మీరు సృష్టించిన బిల్లులకు మాత్రమే సవరణ ఆమోదం అభ్యర్థించగలరు.'));
+      }
+      if (targetBill.billStatus !== 'active') {
+        throw new Error(pickMsg('Only active bills can be edited.', 'సక్రియ బిల్లులను మాత్రమే సవరించగలరు.'));
+      }
+      if (targetBill.editApprovedForUid === actorUser.uid && targetBill.editApprovalRequestId) {
+        throw new Error(pickMsg('This bill is already approved for editing.', 'ఈ బిల్ సవరణకు ఇప్పటికే ఆమోదించబడింది.'));
+      }
+
+      const alreadyPending = approvalRequests.find(
+        (r) => r.requestType === 'bill_edit' && r.billId === targetBill.id && r.status === 'pending'
+      );
+      if (alreadyPending) {
+        throw new Error(
+          pickMsg(
+            'An edit approval request for this bill is already pending owner review.',
+            'ఈ బిల్ సవరణ అభ్యర్థన ఇప్పటికే యజమాని ఆమోదం కోసం పెండింగ్‌లో ఉంది.'
+          )
+        );
+      }
+
+      const cleanReason = (params.reason || '').trim().slice(0, 400);
+      const reqId = generateSafeId('apr');
+      const batch = writeBatch(db);
+
+      batch.set(doc(db, 'approvalRequests', reqId), {
+        id: reqId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        requestType: 'bill_edit',
+        status: 'pending',
+        requesterUid: actorUser.uid,
+        requesterName: (userAccount.displayName || actorUser.email || 'Staff').slice(0, 120),
+        requesterEmail: (userAccount.email || actorUser.email || '').slice(0, 160),
+        billId: targetBill.id,
+        billNumber: targetBill.billNumber.slice(0, 40),
+        customerName: targetBill.customerName.slice(0, 160),
+        grandTotal: Number(targetBill.grandTotal || 0),
+        ...(cleanReason ? { reason: cleanReason } : {}),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      const notifId = generateSafeId('notif');
+      batch.set(doc(db, 'notifications', notifId), {
+        id: notifId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        title: `Bill Edit Request · ${targetBill.billNumber}`.slice(0, 160),
+        message: `${userAccount.displayName} requested permission to edit ${targetBill.billNumber} (${targetBill.customerName}).${cleanReason ? ` Reason: ${cleanReason}` : ''}`.slice(0, 400),
+        type: 'approval_request',
+        relatedRecordType: 'approval_request',
+        relatedRecordId: reqId,
+        billNumber: targetBill.billNumber,
+        amount: Number(targetBill.grandTotal || 0),
+        customerName: targetBill.customerName,
+        creatorName: userAccount.displayName.slice(0, 120),
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+
+      const audId = generateSafeId('aud');
+      batch.set(doc(db, 'auditLogs', audId), {
+        id: audId,
+        businessId,
+        ownerUid: accessContext.ownerUid,
+        authorizedUids: accessContext.authorizedUids,
+        authorizedEmails: accessContext.authorizedEmails,
+        action: 'REQUEST_BILL_EDIT',
+        entityType: 'bill',
+        entityId: targetBill.id,
+        summary: `${userAccount.displayName} requested edit approval for ${targetBill.billNumber}${cleanReason ? ` (${cleanReason})` : ''}`.slice(0, 400),
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email || '',
+        actorName: userAccount.displayName.slice(0, 120),
+        createdAt: serverTimestamp(),
+      });
+
+      await batch.commit();
+      return reqId;
+    },
+    [actorUser, userAccount, bills, approvalRequests, businessId, accessContext, pickMsg]
+  );
+
+  const reviewApprovalRequest = useCallback(
+    async (params: {
+      requestId: string;
+      decision: 'approved' | 'rejected';
+      decisionNote?: string;
+    }) => {
+      if (!actorUser || !userAccount || !isAdmin) {
+        throw new Error(pickMsg('Owner/Administrator permission required.', 'యజమాని/అడ్మిన్ అనుమతి అవసరం.'));
+      }
+      if (!navigator.onLine) {
+        throw new Error(
+          pickMsg(
+            'Connect to the internet to approve or reject requests.',
+            'అభ్యర్థనలను ఆమోదించడానికి లేదా తిరస్కరించడానికి ఇంటర్నెట్‌కు కనెక్ట్ చేయండి.'
+          )
+        );
+      }
+
+      const reqRef = doc(db, 'approvalRequests', params.requestId);
+      const reqSnap = await getDoc(reqRef);
+      if (!reqSnap.exists()) {
+        throw new Error(pickMsg('Approval request not found.', 'ఆమోద అభ్యర్థన కనుగొనబడలేదు.'));
+      }
+      const req = reqSnap.data() as ApprovalRequest;
+      if (req.status !== 'pending') {
+        throw new Error(pickMsg('This request has already been processed.', 'ఈ అభ్యర్థన ఇప్పటికే ప్రాసెస్ చేయబడింది.'));
+      }
+
+      const reviewerName = (userAccount.displayName || actorUser.email || 'Owner').slice(0, 120);
+      const cleanNote = (params.decisionNote || '').trim().slice(0, 400);
+      const batch = writeBatch(db);
+
+      if (params.decision === 'rejected') {
+        batch.update(reqRef, {
+          status: 'rejected',
+          reviewedByUid: actorUser.uid,
+          reviewedByName: reviewerName,
+          reviewedAt: serverTimestamp(),
+          ...(cleanNote ? { decisionNote: cleanNote } : {}),
+          updatedAt: serverTimestamp(),
+        });
+
+        const notifId = generateSafeId('notif');
+        batch.set(doc(db, 'notifications', notifId), {
+          id: notifId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          title:
+            req.requestType === 'profile_update'
+              ? 'Profile Update Rejected'
+              : `Bill Edit Rejected · ${req.billNumber || ''}`.slice(0, 160),
+          message:
+            req.requestType === 'profile_update'
+              ? `${reviewerName} declined profile update for ${req.requesterName}.${cleanNote ? ` Note: ${cleanNote}` : ''}`.slice(0, 400)
+              : `${reviewerName} declined edit permission for ${req.billNumber || 'bill'} (${req.requesterName}).${cleanNote ? ` Note: ${cleanNote}` : ''}`.slice(0, 400),
+          type: 'approval_decision',
+          relatedRecordType: 'approval_request',
+          relatedRecordId: req.id,
+          ...(req.billNumber ? { billNumber: req.billNumber } : {}),
+          creatorName: reviewerName,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        });
+
+        const audId = generateSafeId('aud');
+        batch.set(doc(db, 'auditLogs', audId), {
+          id: audId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          action: 'REJECT_APPROVAL_REQUEST',
+          entityType: 'approval_request',
+          entityId: req.id,
+          summary: `Rejected ${req.requestType} for ${req.requesterName}${req.billNumber ? ` (${req.billNumber})` : ''}`.slice(0, 400),
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
+          actorName: reviewerName,
+          createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+        return;
+      }
+
+      if (req.requestType === 'profile_update') {
+        const userRef = doc(db, 'users', req.requesterUid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) {
+          throw new Error(pickMsg('Staff user account not found.', 'సిబ్బంది ఖాతా కనుగొనబడలేదు.'));
+        }
+        const targetUser = userSnap.data() as UserAccount;
+        const userPatch: Record<string, unknown> = {
+          updatedAt: serverTimestamp(),
+        };
+
+        if (req.proposedDisplayName !== undefined) {
+          userPatch.displayName = req.proposedDisplayName;
+        }
+        if (req.proposedPhoneNumber !== undefined) {
+          userPatch.phoneNumber = req.proposedPhoneNumber;
+        }
+        if (req.proposedPhotoDataUrl !== undefined) {
+          userPatch.photoDataUrl = req.proposedPhotoDataUrl;
+        }
+
+        if (req.proposedUsername && req.proposedUsername !== targetUser.username) {
+          const nextUsername = normalizeUsername(req.proposedUsername);
+          const idxSnap = await getDoc(doc(db, 'usernameIndex', nextUsername));
+          if (idxSnap.exists() && idxSnap.data().uid !== targetUser.uid && idxSnap.data().active !== false) {
+            throw new Error(
+              pickMsg(
+                `Username "@${nextUsername}" is already taken.`,
+                `యూజర్‌నేమ్ "@${nextUsername}" ఇప్పటికే వాడుకలో ఉంది.`
+              )
+            );
+          }
+          if (targetUser.username && targetUser.username !== nextUsername) {
+            batch.delete(doc(db, 'usernameIndex', targetUser.username));
+          }
+          const authEmail = (targetUser.authEmail || targetUser.email).toLowerCase();
+          batch.set(doc(db, 'usernameIndex', nextUsername), {
+            username: nextUsername,
+            authEmail,
+            uid: targetUser.uid,
+            businessId,
+            active: targetUser.status === 'active',
+            createdAt: idxSnap.exists() ? idxSnap.data().createdAt || serverTimestamp() : serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          userPatch.username = nextUsername;
+          userPatch.authEmail = authEmail;
+        }
+
+        if (req.proposedEmail && req.proposedEmail !== targetUser.email.toLowerCase()) {
+          const nextEmail = req.proposedEmail.trim().toLowerCase();
+          userPatch.email = nextEmail;
+
+          const bizRef = doc(db, 'businesses', businessId);
+          const bizSnap = await getDoc(bizRef);
+          const existingEmails: string[] = bizSnap.exists()
+            ? ((bizSnap.data().authorizedEmails as string[]) || [])
+            : [];
+          batch.update(bizRef, {
+            authorizedEmails: [...new Set([...existingEmails, nextEmail])].slice(0, 25),
+            updatedAt: serverTimestamp(),
+          });
+
+          const inviteId = emailToInviteId(nextEmail);
+          batch.set(doc(db, 'invites', inviteId), {
+            id: inviteId,
+            businessId,
+            ownerUid: targetUser.ownerUid,
+            authorizedUids: targetUser.authorizedUids,
+            email: nextEmail,
+            displayName: (req.proposedDisplayName || targetUser.displayName).slice(0, 120),
+            role: targetUser.role,
+            status: 'pending',
+            canEditBills: Boolean(targetUser.canEditBills),
+            canCancelBills: Boolean(targetUser.canCancelBills),
+            canViewReports: Boolean(targetUser.canViewReports),
+            canManageProducts: Boolean(targetUser.canManageProducts),
+            ...(req.proposedPhoneNumber !== undefined
+              ? { phoneNumber: req.proposedPhoneNumber }
+              : targetUser.phoneNumber
+              ? { phoneNumber: targetUser.phoneNumber }
+              : {}),
+            ...(req.proposedPhotoDataUrl !== undefined
+              ? { photoDataUrl: req.proposedPhotoDataUrl }
+              : targetUser.photoDataUrl
+              ? { photoDataUrl: targetUser.photoDataUrl }
+              : {}),
+            ...(targetUser.mpinHash ? { mpinHash: targetUser.mpinHash } : {}),
+            ...(targetUser.mpinSalt ? { mpinSalt: targetUser.mpinSalt } : {}),
+            ...(targetUser.mpinEnabled !== undefined ? { mpinEnabled: Boolean(targetUser.mpinEnabled) } : {}),
+            previousUid: targetUser.uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        batch.update(userRef, userPatch);
+        batch.update(reqRef, {
+          status: 'approved',
+          reviewedByUid: actorUser.uid,
+          reviewedByName: reviewerName,
+          reviewedAt: serverTimestamp(),
+          ...(cleanNote ? { decisionNote: cleanNote } : {}),
+          updatedAt: serverTimestamp(),
+        });
+
+        const notifId = generateSafeId('notif');
+        batch.set(doc(db, 'notifications', notifId), {
+          id: notifId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          title: 'Profile Update Approved',
+          message: `${reviewerName} approved profile changes for ${req.proposedDisplayName || req.requesterName}.`.slice(0, 400),
+          type: 'approval_decision',
+          relatedRecordType: 'approval_request',
+          relatedRecordId: req.id,
+          creatorName: reviewerName,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        });
+
+        const audId = generateSafeId('aud');
+        batch.set(doc(db, 'auditLogs', audId), {
+          id: audId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          action: 'APPROVE_PROFILE_UPDATE',
+          entityType: 'user',
+          entityId: req.requesterUid,
+          summary: `Approved profile update for ${req.requesterName}`.slice(0, 400),
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
+          actorName: reviewerName,
+          createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+        return;
+      }
+
+      if (req.requestType === 'bill_edit') {
+        if (!req.billId) {
+          throw new Error(pickMsg('Bill reference missing from request.', 'అభ్యర్థనలో బిల్ వివరాలు లేవు.'));
+        }
+        const billRef = doc(db, 'bills', req.billId);
+        const billSnap = await getDoc(billRef);
+        if (!billSnap.exists()) {
+          throw new Error(pickMsg('Bill no longer exists.', 'బిల్ కనుగొనబడలేదు.'));
+        }
+        const billData = billSnap.data() as Bill;
+        if (billData.billStatus !== 'active') {
+          throw new Error(pickMsg('Only active bills can be approved for edit.', 'సక్రియ బిల్లులకు మాత్రమే సవరణ ఆమోదం ఇవ్వగలరు.'));
+        }
+
+        batch.update(billRef, {
+          editApprovedForUid: req.requesterUid,
+          editApprovalRequestId: req.id,
+          editApprovedAt: serverTimestamp(),
+          editApprovedByName: reviewerName,
+          updatedAt: serverTimestamp(),
+        });
+
+        if (billData.publicToken) {
+          const pubRef = doc(db, 'publicInvoices', billData.publicToken);
+          const pubSnap = await getDoc(pubRef).catch(() => null);
+          if (pubSnap && pubSnap.exists() && !(pubSnap.data() as { billId?: string }).billId) {
+            batch.update(pubRef, {
+              billId: billData.id,
+              updatedAt: serverTimestamp(),
+            });
+          }
+        }
+
+        batch.update(reqRef, {
+          status: 'approved',
+          reviewedByUid: actorUser.uid,
+          reviewedByName: reviewerName,
+          reviewedAt: serverTimestamp(),
+          ...(cleanNote ? { decisionNote: cleanNote } : {}),
+          updatedAt: serverTimestamp(),
+        });
+
+        const notifId = generateSafeId('notif');
+        batch.set(doc(db, 'notifications', notifId), {
+          id: notifId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          title: `Bill Edit Approved · ${billData.billNumber}`.slice(0, 160),
+          message: `${reviewerName} approved ${req.requesterName} to edit ${billData.billNumber}.`.slice(0, 400),
+          type: 'approval_decision',
+          relatedRecordType: 'bill',
+          relatedRecordId: billData.id,
+          billNumber: billData.billNumber,
+          amount: Number(billData.grandTotal || 0),
+          customerName: billData.customerName,
+          creatorName: reviewerName,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        });
+
+        const audId = generateSafeId('aud');
+        batch.set(doc(db, 'auditLogs', audId), {
+          id: audId,
+          businessId,
+          ownerUid: accessContext.ownerUid,
+          authorizedUids: accessContext.authorizedUids,
+          authorizedEmails: accessContext.authorizedEmails,
+          action: 'APPROVE_BILL_EDIT',
+          entityType: 'bill',
+          entityId: billData.id,
+          summary: `Approved ${req.requesterName} to edit ${billData.billNumber}`.slice(0, 400),
+          actorUid: actorUser.uid,
+          actorEmail: actorUser.email || '',
+          actorName: reviewerName,
+          createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+      }
+    },
+    [actorUser, userAccount, isAdmin, businessId, accessContext, pickMsg]
+  );
+
   return (
     <BillingDataContext.Provider
       value={{
@@ -3583,6 +4492,7 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         auditLogs,
         labourWorks,
         shopEntries,
+        approvalRequests,
         syncState,
         pendingSyncCount,
         cloudNotice,
@@ -3623,6 +4533,9 @@ export const BillingDataProvider: React.FC<{ children: React.ReactNode }> = ({ c
         updateUserAccess,
         revokeInvite,
         setDeviceStatus,
+        submitProfileUpdateRequest,
+        requestBillEditApproval,
+        reviewApprovalRequest,
       }}
     >
       {children}

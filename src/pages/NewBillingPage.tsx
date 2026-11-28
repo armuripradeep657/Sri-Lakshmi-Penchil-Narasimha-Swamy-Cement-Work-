@@ -13,24 +13,34 @@ import {
   ReceiptText,
   HardHat,
   Truck,
+  MessageCircle,
+  Camera,
 } from 'lucide-react';
 import { useBillingData, CartItemInput } from '../context/BillingDataContext';
 import { useAuth } from '../context/AuthContext';
 import { parseVariants } from '../lib/seedData';
 import { formatCurrency } from '../lib/upiAndExport';
 import { generateSafeId } from '../lib/firebase';
+import {
+  buildWhatsAppDirectUrl,
+  buildWhatsAppReceiptText,
+  formatReadableWhatsAppPhone,
+  formatWhatsAppPhone,
+  openExternalLinkSafely,
+} from '../lib/whatsapp';
 import { getDefaultProductImage, resolveProductImage } from '../lib/productImages';
 import {
   tr,
   translateCartProductName,
   translateCategory,
-  translateGstType,
   translateProductName,
   translateUnit,
   translateVariantLabel,
 } from '../lib/i18n';
-import { Bill, BillItem, GstType, PaymentMethod, Product } from '../types/billing';
+import { Bill, BillItem, PaymentMethod, Product } from '../types/billing';
 import { PostBillActionsModal } from '../components/InvoiceViews';
+import { PaperListCameraModal } from '../components/PaperListCameraModal';
+import { ModalPortal } from '../components/ModalPortal';
 import { AnimatedNumber } from '../components/MotionPrimitives';
 
 export interface QuickAddBillPayload {
@@ -58,8 +68,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   onAddToCart,
   viewCartNonce,
 }) => {
-  const { business, categories, products, customers, createBillAtomic, saveCustomer, billItems } = useBillingData();
-  const { language } = useAuth();
+  const { business, categories, products, customers, createBillAtomic, saveCustomer, billItems, logMessageDispatch } =
+    useBillingData();
+  const { language, userAccount, activeUid, isAdmin } = useAuth();
 
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -90,7 +101,6 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const [labourFixedAmount, setLabourFixedAmount] = useState<string>('');
   const [autoApplicable, setAutoApplicable] = useState(false);
   const [autoChargeInput, setAutoChargeInput] = useState<string>('');
-  const [gstType, setGstType] = useState<GstType>(business?.taxEnabled ? 'CGST_SGST' : 'NONE');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [amountPaidInput, setAmountPaidInput] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState('');
@@ -100,11 +110,15 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedBill, setSavedBill] = useState<Bill | null>(null);
+  const [savedJustNow, setSavedJustNow] = useState(false);
   const [quickCustModal, setQuickCustModal] = useState(false);
+  const [paperCamOpen, setPaperCamOpen] = useState(false);
+  const [paperNotice, setPaperNotice] = useState<string | null>(null);
 
   const [pressedChip, setPressedChip] = useState<{ key: string; productId: string; nonce: number } | null>(null);
   const cartPanelRef = useRef<HTMLDivElement | null>(null);
   const chipTimerRef = useRef<number | null>(null);
+  const paperNoticeTimerRef = useRef<number | null>(null);
 
   const categoriesList = useMemo(() => {
     const set = new Set<string>(['All']);
@@ -128,7 +142,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 
   const addToCart = (product: Product, variantLabel?: string, variantPrice?: number) => {
     const price = variantPrice ?? product.sellingPrice;
-    const taxRate = business?.taxEnabled ? product.taxRate : 0;
+    const taxRate = 0;
     const chipKey = `${product.id}::${variantLabel || 'BASE'}`;
     const nonce = Date.now() + Math.random();
 
@@ -168,6 +182,46 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
     });
   };
 
+  const handleBulkAddFromPaper = (incomingItems: CartItemInput[]) => {
+    if (incomingItems.length === 0) return;
+
+    setCart((prev) => {
+      const nextCart = [...prev];
+      incomingItems.forEach((incoming) => {
+        const idx = nextCart.findIndex(
+          (c) =>
+            c.productId === incoming.productId &&
+            (c.variantLabel || '') === (incoming.variantLabel || '')
+        );
+        if (idx >= 0) {
+          nextCart[idx] = {
+            ...nextCart[idx],
+            quantity: Math.round((nextCart[idx].quantity + incoming.quantity) * 100) / 100,
+            unitPrice: incoming.unitPrice > 0 ? incoming.unitPrice : nextCart[idx].unitPrice,
+          };
+        } else {
+          nextCart.push(incoming);
+        }
+      });
+      return nextCart;
+    });
+
+    setMobilePane('cart');
+    window.setTimeout(() => {
+      cartPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 80);
+
+    if (paperNoticeTimerRef.current) window.clearTimeout(paperNoticeTimerRef.current);
+    setPaperNotice(
+      tr(
+        language,
+        `${incomingItems.length} item(s) from paper photo saved to cart.`,
+        `కాగితం ఫోటో నుండి ${incomingItems.length} వస్తువులు కార్ట్‌లో సేవ్ చేయబడ్డాయి.`
+      )
+    );
+    paperNoticeTimerRef.current = window.setTimeout(() => setPaperNotice(null), 4500);
+  };
+
   useEffect(() => {
     if (!viewCartNonce) return;
     setMobilePane('cart');
@@ -197,26 +251,20 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
   const totalUnitsInCart = useMemo(() => cart.reduce((sum, i) => sum + i.quantity, 0), [cart]);
 
   const totals = useMemo(() => {
-    const taxEnabled = Boolean(business?.taxEnabled) && gstType !== 'NONE';
     let subtotal = 0;
     let itemDiscounts = 0;
-    let rawTax = 0;
 
     cart.forEach((it) => {
       const gross = it.quantity * it.unitPrice;
       const disc = Math.min(gross, Math.max(0, it.discount || 0));
-      const net = gross - disc;
-      const tax = taxEnabled ? (net * (it.taxRate || 0)) / 100 : 0;
       subtotal += gross;
       itemDiscounts += disc;
-      rawTax += tax;
     });
 
     const extraDisc = Math.min(Math.max(0, overallDiscount), Math.max(0, subtotal - itemDiscounts));
     const totalDiscount = itemDiscounts + extraDisc;
     const taxableAmount = Math.max(0, subtotal - totalDiscount);
-    const factor = subtotal - itemDiscounts > 0 ? taxableAmount / (subtotal - itemDiscounts) : 1;
-    const totalTax = taxEnabled ? Math.round(rawTax * factor * 100) / 100 : 0;
+    const totalTax = 0;
 
     const ratePerPieceNum =
       labourApplicable && labourMode === 'per_piece'
@@ -231,7 +279,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
       ? Math.max(0, Math.round((Number(autoChargeInput) || 0) * 100) / 100)
       : 0;
 
-    const grandTotal = Math.round((taxableAmount + totalTax + labourCharge + autoCharge) * 100) / 100;
+    const grandTotal = Math.round((taxableAmount + labourCharge + autoCharge) * 100) / 100;
 
     const paidNum =
       amountPaidInput === ''
@@ -258,8 +306,6 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
     cart,
     totalUnitsInCart,
     overallDiscount,
-    gstType,
-    business?.taxEnabled,
     labourApplicable,
     labourMode,
     labourRatePerPiece,
@@ -309,7 +355,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
         customerAddress: customerAddress.trim(),
         items: cart,
         overallDiscount,
-        gstType: business?.taxEnabled ? gstType : 'NONE',
+        gstType: 'NONE',
         labourCharge: totals.labourCharge,
         labourRatePerPiece: totals.labourRatePerPiece,
         autoCharge: totals.autoCharge,
@@ -318,6 +364,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
         paymentReference,
         notes,
       });
+      setSavedJustNow(true);
       setSavedBill(created);
       setCart([]);
       setOverallDiscount(0);
@@ -342,6 +389,107 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
     }
   };
 
+  const handleShareCartWhatsApp = () => {
+    setError(null);
+    if (cart.length === 0) {
+      setError(tr(language, 'Add at least one product to share on WhatsApp.', 'వాట్సాప్‌లో షేర్ చేయడానికి కనీసం ఒక ఉత్పత్తిని జోడించండి.'));
+      return;
+    }
+
+    const prefix = business?.billPrefix || 'SLP';
+    const nextNum = String(business?.nextBillNumber || 1).padStart(4, '0');
+    const draftBillNumber = `${prefix}-${nextNum}`;
+    const normalizedCustName =
+      customerName.trim() === 'సాధారణ కస్టమర్' || !customerName.trim()
+        ? 'Walk-in Customer'
+        : customerName.trim();
+    const resolvedMethod: PaymentMethod = totals.paidNum === 0 ? 'Unpaid' : paymentMethod;
+    const resolvedStatus =
+      totals.pendingBalance === 0 ? 'paid' : totals.paidNum > 0 ? 'partial' : 'pending';
+    const uid = activeUid || business?.ownerUid || 'draft';
+
+    const draftItems: BillItem[] = cart.map((it, idx) => {
+      const gross = it.quantity * it.unitPrice;
+      const disc = Math.min(gross, Math.max(0, it.discount || 0));
+      const lineTotal = Math.round((gross - disc) * 100) / 100;
+      return {
+        id: `draft_item_${idx}`,
+        billId: 'draft_bill',
+        businessId: business?.id || 'default',
+        ownerUid: business?.ownerUid || uid,
+        authorizedUids: business?.authorizedUids || [uid],
+        productId: it.productId,
+        productCode: it.productCode,
+        productName: it.productName,
+        variantLabel: it.variantLabel,
+        barcode: it.barcode,
+        imageUrl: it.imageUrl,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        discount: disc,
+        taxRate: 0,
+        taxAmount: 0,
+        lineTotal,
+      };
+    });
+
+    const draftBill: Bill = {
+      id: 'draft_bill',
+      businessId: business?.id || 'default',
+      ownerUid: business?.ownerUid || uid,
+      authorizedUids: business?.authorizedUids || [uid],
+      billNumber: draftBillNumber,
+      customerId: selectedCustomerId || undefined,
+      customerName: normalizedCustName,
+      customerMobile: customerMobile.trim(),
+      customerAddress: customerAddress.trim(),
+      itemCount: cart.length,
+      subtotal: totals.subtotal,
+      discountAmount: totals.totalDiscount,
+      taxableAmount: totals.taxableAmount,
+      gstType: 'NONE',
+      totalTax: 0,
+      labourCharge: totals.labourCharge,
+      labourRatePerPiece: totals.labourRatePerPiece,
+      autoCharge: totals.autoCharge,
+      grandTotal: totals.grandTotal,
+      amountPaid: totals.paidNum,
+      pendingBalance: totals.pendingBalance,
+      paymentMethod: resolvedMethod,
+      paymentStatus: resolvedStatus,
+      billStatus: 'active',
+      publicToken: '',
+      publicLinkRevoked: false,
+      createdByUid: uid,
+      createdByName: userAccount?.displayName || 'Cashier',
+      notes: notes.trim(),
+      createdAt: new Date(),
+    };
+
+    const receiptText = buildWhatsAppReceiptText({
+      bill: draftBill,
+      items: draftItems,
+      business,
+      products,
+      publicUrl: window.location.origin,
+      language,
+    });
+
+    const waUrl = buildWhatsAppDirectUrl(customerMobile, receiptText);
+    openExternalLinkSafely(waUrl);
+
+    if (customerMobile.trim()) {
+      logMessageDispatch({
+        channel: 'whatsapp',
+        recipientMobile: customerMobile.trim(),
+        billId: 'draft_cart',
+        billNumber: draftBillNumber,
+        messageBody: receiptText,
+        status: 'opened_share_screen',
+      }).catch(() => {});
+    }
+  };
+
   const activeModalBill = savedBill;
   const activeModalItems: BillItem[] = useMemo(() => {
     if (!activeModalBill) return [];
@@ -353,24 +501,59 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Left: Product Catalog Selector */}
         <div
-          className={`lg:col-span-7 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3.5 shadow-sm shadow-blue-900/5 ${
+          className={`lg:col-span-7 bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 space-y-3.5 shadow-sm shadow-[#0A2240]/5 ${
             mobilePane === 'cart' ? 'hidden lg:block' : 'block'
           }`}
         >
-          <div className="relative">
-            <Search className="w-4 h-4 text-[#1D4ED8] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={tr(
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="w-4 h-4 text-[#9A4307] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={
+                  isAdmin
+                    ? tr(
+                        language,
+                        'Search products in English, తెలుగు, code, or barcode...',
+                        'ఉత్పత్తి పేరు, కోడ్ లేదా బార్‌కోడ్‌తో వెతకండి...'
+                      )
+                    : tr(
+                        language,
+                        'Search products in English or తెలుగు...',
+                        'ఉత్పత్తి పేరుతో వెతకండి...'
+                      )
+                }
+                className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-[#DFD7CC] dark:border-slate-700 bg-[#F6F1EA] dark:bg-slate-950 text-[#0A2240] dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0A2240]"
+              />
+            </div>
+
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setPaperCamOpen(true)}
+              title={tr(
                 language,
-                'Search products in English, తెలుగు, code, or barcode...',
-                'ఉత్పత్తి పేరు, కోడ్ లేదా బార్‌కోడ్‌తో వెతకండి...'
+                'Photo paper item list to add all to cart',
+                'కాగితంపై వ్రాసిన వస్తువుల జాబితాను ఫోటో తీసి కార్ట్‌లో సేవ్ చేయండి'
               )}
-              className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-blue-200/80 dark:border-slate-700 bg-blue-50/40 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]"
-            />
+              className="px-3 py-2.5 rounded-xl bg-[#0A2240] hover:bg-[#13325B] text-white text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-sm shadow-[#0A2240]/20"
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden sm:inline">
+                {tr(language, 'Paper Photo', 'కాగితం ఫోటో')}
+              </span>
+              <span className="sm:hidden">{tr(language, 'Photo', 'ఫోటో')}</span>
+            </motion.button>
           </div>
+
+          {paperNotice && (
+            <div className="px-3 py-2 rounded-xl bg-[#E7F6EC] dark:bg-emerald-950/50 border border-[#C5E8D1] dark:border-emerald-900 text-emerald-800 dark:text-emerald-200 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-[#15803D] shrink-0" />
+              <span>{paperNotice}</span>
+            </div>
+          )}
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
             {categoriesList.map((cat) => {
@@ -384,14 +567,14 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   className={`relative px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
                     active
                       ? 'text-white'
-                      : 'bg-blue-50 dark:bg-slate-800 text-[#0B1F44] dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-slate-700'
+                      : 'bg-[#F6F1EA] dark:bg-slate-800 text-[#0A2240] dark:text-slate-300 hover:bg-[#EFE8DF] dark:hover:bg-slate-700'
                   }`}
                 >
                   {active && (
                     <motion.span
                       layoutId="billing-cat-pill"
                       transition={{ type: 'spring', stiffness: 460, damping: 32 }}
-                      className="absolute inset-0 rounded-xl bg-[#1D4ED8] shadow-sm shadow-blue-600/20"
+                      className="absolute inset-0 rounded-xl bg-[#0A2240] shadow-sm shadow-[#0A2240]/20"
                     />
                   )}
                   <span className="relative z-10">{catLabel}</span>
@@ -415,8 +598,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   transition={{ duration: 0.25 }}
                   className={`p-3 rounded-2xl border transition-colors flex flex-col justify-between gap-3 ${
                     isCardPressed
-                      ? 'border-[#1D4ED8] bg-blue-50/90 dark:bg-blue-950/30 ring-2 ring-[#1D4ED8]/20'
-                      : 'border-blue-100 dark:border-slate-800 bg-white dark:bg-slate-950/60 hover:border-blue-200'
+                      ? 'border-[#0A2240] bg-[#F6F1EA] dark:bg-blue-950/30 ring-2 ring-[#0A2240]/20'
+                      : 'border-[#E5DDD3] dark:border-slate-800 bg-white dark:bg-slate-950/60 hover:border-[#DFD7CC]'
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -428,30 +611,34 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                         const fallback = getDefaultProductImage(product.name, product.category);
                         if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
                       }}
-                      className="w-14 h-14 rounded-xl object-cover border border-blue-100 dark:border-slate-700 bg-white shrink-0"
+                      className="w-14 h-14 rounded-xl object-cover border border-[#E5DDD3] dark:border-slate-700 bg-white shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <h3 className="text-sm font-semibold text-[#0B1F44] dark:text-white leading-snug truncate">
+                          <h3 className="text-sm font-semibold text-[#0A2240] dark:text-white leading-snug truncate">
                             {displayName}
                           </h3>
                           {language === 'en' && product.nameTe && (
-                            <div className="text-xs text-[#1D4ED8] dark:text-sky-400 font-medium mt-0.5 truncate">
+                            <div className="text-xs text-[#9A4307] dark:text-sky-400 font-medium mt-0.5 truncate">
                               {product.nameTe}
                             </div>
                           )}
                         </div>
-                        <span className="font-mono text-xs font-bold text-[#1D4ED8] dark:text-sky-300 shrink-0">
+                        <span className="font-mono text-xs font-bold text-[#9A4307] dark:text-sky-300 shrink-0">
                           ₹{product.sellingPrice}
                         </span>
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
-                        <span className="font-mono">{product.productCode}</span>
-                        <span>·</span>
+                      <div className="text-[11px] text-[#6D665E] mt-1 flex items-center gap-1.5">
+                        {isAdmin && (
+                          <>
+                            <span className="font-mono">{product.productCode}</span>
+                            <span>·</span>
+                          </>
+                        )}
                         <span
                           className={
-                            product.stock <= (product.lowStockThreshold ?? 10) ? 'text-rose-600 font-semibold' : ''
+                            product.stock <= (product.lowStockThreshold ?? 10) ? 'text-[#C23B2B] font-semibold' : ''
                           }
                         >
                           {tr(language, 'Stock:', 'స్టాక్:')} {product.stock} {displayUnit}
@@ -481,16 +668,16 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                             onClick={() => addToCart(product, v.label, v.price)}
                             className={`relative overflow-visible min-h-[38px] px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold transition-colors flex items-center gap-1.5 ${
                               isPressed
-                                ? 'bg-[#1D4ED8] border-[#1D4ED8] text-white shadow-md shadow-blue-600/30'
+                                ? 'bg-[#0A2240] border-[#0A2240] text-white shadow-md shadow-[#0A2240]/30'
                                 : inCartQty > 0
-                                ? 'bg-blue-50 dark:bg-blue-950/60 border-[#1D4ED8] text-[#0B1F44] dark:text-sky-300'
-                                : 'bg-blue-50/50 dark:bg-slate-900 border-blue-200/80 dark:border-slate-700 text-[#0B1F44] dark:text-slate-100 hover:border-[#1D4ED8] hover:bg-blue-50'
+                                ? 'bg-[#F6F1EA] dark:bg-blue-950/60 border-[#0A2240] text-[#0A2240] dark:text-sky-300'
+                                : 'bg-[#F6F1EA] dark:bg-slate-900 border-[#DFD7CC] dark:border-slate-700 text-[#0A2240] dark:text-slate-100 hover:border-[#0A2240] hover:bg-[#F6F1EA]'
                             }`}
                           >
                             {isPressed && (
                               <span
                                 aria-hidden="true"
-                                className="pointer-events-none absolute inset-0 rounded-xl border-2 border-[#1D4ED8] animate-slp-ring"
+                                className="pointer-events-none absolute inset-0 rounded-xl border-2 border-[#0A2240] animate-slp-ring"
                               />
                             )}
                             <AnimatePresence>
@@ -501,7 +688,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                                   animate={{ opacity: 1, y: -22, scale: 1 }}
                                   exit={{ opacity: 0, y: -32, scale: 0.85 }}
                                   transition={{ duration: 0.48, ease: [0.16, 1, 0.3, 1] }}
-                                  className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#0B1F44] text-white text-[10px] font-bold whitespace-nowrap shadow-md z-10"
+                                  className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#0A2240] text-white text-[10px] font-bold whitespace-nowrap shadow-md z-10"
                                 >
                                   {tr(language, '+1 Added', '+1 జోడించబడింది')}
                                 </motion.span>
@@ -516,7 +703,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                                 animate={{ scale: 1 }}
                                 transition={{ type: 'spring', stiffness: 600, damping: 18 }}
                                 className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
-                                  isPressed ? 'bg-white text-[#1D4ED8]' : 'bg-[#1D4ED8] text-white'
+                                  isPressed ? 'bg-white text-[#9A4307]' : 'bg-[#0A2240] text-white'
                                 }`}
                               >
                                 ×{inCartQty}
@@ -541,8 +728,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                           onClick={() => addToCart(product)}
                           className={`relative w-full min-h-[40px] py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors ${
                             isPressed
-                              ? 'bg-[#1D4ED8] text-white shadow-md shadow-blue-600/30'
-                              : 'bg-[#0B1F44] hover:bg-[#1D4ED8] text-white'
+                              ? 'bg-[#0A2240] text-white shadow-md shadow-[#0A2240]/30'
+                              : 'bg-[#0A2240] hover:bg-[#0A2240] text-white'
                           }`}
                         >
                           <span>{tr(language, '+ Add to Bill', '+ బిల్‌లో చేర్చండి')}</span>
@@ -551,7 +738,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                               key={inCartQty}
                               initial={{ scale: 0.6 }}
                               animate={{ scale: 1 }}
-                              className="px-1.5 py-0.5 rounded-md bg-white text-[#0B1F44] font-mono text-[10px] font-bold"
+                              className="px-1.5 py-0.5 rounded-md bg-white text-[#0A2240] font-mono text-[10px] font-bold"
                             >
                               ×{inCartQty}
                             </motion.span>
@@ -565,16 +752,16 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
             })}
           </div>
 
-          <div className="hidden lg:flex items-center justify-between pt-3 border-t border-blue-100">
-            <div className="text-xs text-[#0B1F44] font-medium">
+          <div className="hidden lg:flex items-center justify-between pt-3 border-t border-[#E5DDD3]">
+            <div className="text-xs text-[#0A2240] font-medium">
               <span className="font-bold">{totalUnitsInCart}</span>{' '}
               {tr(language, 'items selected', 'వస్తువులు ఎంచుకోబడ్డాయి')} ·{' '}
-              <span className="font-mono font-bold text-[#1D4ED8]">{formatCurrency(totals.grandTotal)}</span>
+              <span className="font-mono font-bold text-[#9A4307]">{formatCurrency(totals.grandTotal)}</span>
             </div>
             <button
               type="button"
               onClick={() => cartPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] text-white text-xs font-bold shadow-sm hover:opacity-95 transition"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0A2240] text-white text-xs font-bold shadow-sm hover:opacity-95 transition"
             >
               <ReceiptText className="w-3.5 h-3.5" />
               <span>{tr(language, 'View Bill →', 'బిల్ చూడండి →')}</span>
@@ -585,35 +772,35 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
         {/* Right: Customer, Cart & Payment */}
         <div
           ref={cartPanelRef}
-          className={`lg:col-span-5 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm shadow-blue-900/5 ${
+          className={`lg:col-span-5 bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm shadow-[#0A2240]/5 ${
             mobilePane === 'products' ? 'hidden lg:block' : 'block'
           }`}
         >
           {/* Back to Product Selection (Mobile) */}
-          <div className="lg:hidden flex items-center justify-between pb-3 border-b border-blue-100">
+          <div className="lg:hidden flex items-center justify-between pb-3 border-b border-[#E5DDD3]">
             <button
               type="button"
               onClick={() => setMobilePane('products')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-[#0B1F44] text-xs font-bold hover:bg-blue-100 transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F6F1EA] text-[#0A2240] text-xs font-bold hover:bg-[#EFE8DF] transition"
             >
-              <ArrowLeft className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              <ArrowLeft className="w-3.5 h-3.5 text-[#9A4307]" />
               {tr(language, 'Select Products', 'ఉత్పత్తులు ఎంచుకోండి')}
             </button>
-            <span className="text-xs font-mono font-bold text-[#1D4ED8]">
+            <span className="text-xs font-mono font-bold text-[#9A4307]">
               {totalUnitsInCart} {tr(language, 'items', 'వస్తువులు')} · {formatCurrency(totals.grandTotal)}
             </span>
           </div>
 
           {/* Customer Selection */}
-          <div className="space-y-2.5 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="space-y-2.5 pb-4 border-b border-[#E5DDD3] dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+              <label className="text-xs font-semibold text-[#2D3138] dark:text-slate-200">
                 {tr(language, 'Customer', 'కస్టమర్')}
               </label>
               <button
                 type="button"
                 onClick={() => setQuickCustModal(true)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#1D4ED8] dark:text-sky-400 hover:underline"
+                className="inline-flex items-center gap-1 text-xs font-medium text-[#9A4307] dark:text-sky-400 hover:underline"
               >
                 <UserPlus className="w-3.5 h-3.5" /> {tr(language, 'Save New Customer', 'కొత్త కస్టమర్‌ను సేవ్ చేయండి')}
               </button>
@@ -621,7 +808,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
             <select
               value={selectedCustomerId}
               onChange={(e) => handleSelectCustomer(e.target.value)}
-              className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+              className="w-full px-3 py-2.5 text-sm rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950 text-[#0A2240] dark:text-slate-100"
             >
               <option value="">{tr(language, 'Walk-in / Custom Customer', 'సాధారణ / కొత్త కస్టమర్')}</option>
               {customers.map((c) => (
@@ -636,29 +823,55 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder={tr(language, 'Customer Name *', 'కస్టమర్ పేరు *')}
-                className="px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                className="px-3 py-2 text-xs rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950 text-[#0A2240] dark:text-slate-100"
               />
               <input
                 type="tel"
                 value={customerMobile}
                 onChange={(e) => setCustomerMobile(e.target.value)}
                 placeholder={tr(language, 'WhatsApp / Mobile', 'వాట్సాప్ / మొబైల్')}
-                className="px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                className="px-3 py-2 text-xs rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950 text-[#0A2240] dark:text-slate-100"
               />
             </div>
+            {customerMobile.trim().length > 0 && (
+              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                <MessageCircle
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    formatWhatsAppPhone(customerMobile) ? 'text-[#16A34A]' : 'text-amber-600'
+                  }`}
+                />
+                {formatWhatsAppPhone(customerMobile) ? (
+                  <span className="text-[#15803D] dark:text-emerald-400">
+                    {tr(
+                      language,
+                      `1-Click WhatsApp ready for ${formatReadableWhatsAppPhone(customerMobile)} (works even if unsaved)`,
+                      `${formatReadableWhatsAppPhone(customerMobile)} కు 1-క్లిక్ వాట్సాప్ సిద్ధం (కాంటాక్ట్ సేవ్ లేకపోయినా వెళ్తుంది)`
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-[#9A4307] dark:text-amber-400">
+                    {tr(
+                      language,
+                      'Enter 10-digit mobile number for 1-click WhatsApp receipt send',
+                      '1-క్లిక్ వాట్సాప్ రసీదు పంపడానికి 10 అంకెల మొబైల్ నంబర్ నమోదు చేయండి'
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
             <input
               type="text"
               value={customerAddress}
               onChange={(e) => setCustomerAddress(e.target.value)}
               placeholder={tr(language, 'Delivery Address / Site (Optional)', 'డెలివరీ చిరునామా / సైట్ (ఐచ్ఛికం)')}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+              className="w-full px-3 py-2 text-xs rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950 text-[#0A2240] dark:text-slate-100"
             />
           </div>
 
           {/* Cart Items with Images */}
           <div className="space-y-2.5 max-h-72 overflow-y-auto">
             {cart.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+              <div className="py-8 text-center text-xs text-[#8A8279] border border-dashed border-[#E5DDD3] dark:border-slate-800 rounded-xl">
                 {tr(
                   language,
                   'Select products or size variants to build a bill.',
@@ -685,7 +898,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, x: 16, scale: 0.95 }}
                       transition={{ duration: 0.2 }}
-                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2"
+                      className="p-3 rounded-xl border border-[#E5DDD3] dark:border-slate-800 bg-[#FAF8F5] dark:bg-slate-950 space-y-2"
                     >
                       <div className="flex items-start justify-between gap-2.5">
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -697,13 +910,13 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                               const fallback = getDefaultProductImage(item.productName);
                               if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
                             }}
-                            className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white shrink-0"
+                            className="w-11 h-11 rounded-lg object-cover border border-[#E5DDD3] dark:border-slate-700 bg-white shrink-0"
                           />
                           <div className="min-w-0">
-                            <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                            <div className="text-xs font-semibold text-[#0A2240] dark:text-white truncate">
                               {cartItemTitle} {cartVariantText ? `(${cartVariantText})` : ''}
                             </div>
-                            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono text-slate-600">
+                            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono text-[#6D665E]">
                               <span>{tr(language, 'Rate ₹', 'ధర ₹')}</span>
                               <input
                                 type="number"
@@ -716,19 +929,14 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                                     unitPrice: Math.max(0, Number(e.target.value) || 0),
                                   })
                                 }
-                                className="w-20 px-1.5 py-0.5 font-mono text-xs font-semibold rounded-md border border-blue-200 bg-white text-[#0B1F44] focus:outline-none focus:ring-1 focus:ring-[#1D4ED8]"
+                                className="w-20 px-1.5 py-0.5 font-mono text-xs font-semibold rounded-md border border-[#DFD7CC] bg-white text-[#0A2240] focus:outline-none focus:ring-1 focus:ring-[#0A2240]"
                               />
-                              {item.taxRate > 0 && (
-                                <span className="text-slate-400">
-                                  · {tr(language, 'Tax', 'పన్ను')} {item.taxRate}%
-                                </span>
-                              )}
                             </div>
                           </div>
                         </div>
                         <button
                           onClick={() => removeCartItem(idx)}
-                          className="text-slate-400 hover:text-rose-600 p-1"
+                          className="text-[#8A8279] hover:text-[#C23B2B] p-1"
                           aria-label={tr(language, 'Remove item', 'తొలగించండి')}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -738,7 +946,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => updateCartItem(idx, { quantity: Math.max(1, item.quantity - 1) })}
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                            className="p-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                           >
                             <Minus className="w-3 h-3" />
                           </button>
@@ -749,17 +957,17 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                             onChange={(e) =>
                               updateCartItem(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })
                             }
-                            className="w-12 text-center font-mono text-xs py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                            className="w-12 text-center font-mono text-xs py-1 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                           />
                           <button
                             onClick={() => updateCartItem(idx, { quantity: item.quantity + 1 })}
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                            className="p-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                           >
                             <Plus className="w-3 h-3" />
                           </button>
                         </div>
                         <div className="flex items-center gap-2 text-xs">
-                          <span className="text-slate-500">{tr(language, 'Disc ₹', 'డిస్కౌంట్ ₹')}</span>
+                          <span className="text-[#6D665E]">{tr(language, 'Disc ₹', 'డిస్కౌంట్ ₹')}</span>
                           <input
                             type="number"
                             min={0}
@@ -767,9 +975,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                             onChange={(e) =>
                               updateCartItem(idx, { discount: Math.max(0, Number(e.target.value) || 0) })
                             }
-                            className="w-16 text-right font-mono py-1 px-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                            className="w-16 text-right font-mono py-1 px-1.5 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                           />
-                          <span className="font-mono font-bold tabular-nums text-slate-900 dark:text-white w-20 text-right">
+                          <span className="font-mono font-bold tabular-nums text-[#0A2240] dark:text-white w-20 text-right">
                             ₹{Math.max(0, item.quantity * item.unitPrice - item.discount).toFixed(2)}
                           </span>
                         </div>
@@ -781,44 +989,29 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
             )}
           </div>
 
-          {/* Tax & Payment Controls */}
-          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-500 mb-1">
-                  {tr(language, 'Extra Discount (₹)', 'అదనపు డిస్కౌంట్ (₹)')}
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={overallDiscount}
-                  onChange={(e) => setOverallDiscount(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full px-3 py-2 font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-500 mb-1">{tr(language, 'GST Mode', 'జీఎస్టీ రకం')}</label>
-                <select
-                  value={business?.taxEnabled ? gstType : 'NONE'}
-                  disabled={!business?.taxEnabled}
-                  onChange={(e) => setGstType(e.target.value as GstType)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 disabled:opacity-60"
-                >
-                  <option value="NONE">{tr(language, 'No GST / Exempt', 'జీఎస్టీ లేదు / మినహాయింపు')}</option>
-                  <option value="CGST_SGST">{tr(language, 'CGST + SGST', 'సీజీఎస్టీ + ఎస్‌జీఎస్టీ')}</option>
-                  <option value="IGST">{tr(language, 'IGST (Inter-State)', 'ఐజీఎస్టీ (అంతర్-రాష్ట్ర)')}</option>
-                </select>
-              </div>
+          {/* Discount, Charges & Payment Controls */}
+          <div className="space-y-3 pt-3 border-t border-[#E5DDD3] dark:border-slate-800 text-xs">
+            <div>
+              <label className="block text-[#6D665E] mb-1">
+                {tr(language, 'Extra Discount (₹)', 'అదనపు డిస్కౌంట్ (₹)')}
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={overallDiscount}
+                onChange={(e) => setOverallDiscount(Math.max(0, Number(e.target.value) || 0))}
+                className="w-full px-3 py-2 font-mono rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
+              />
             </div>
 
             {/* Optional Labour Charges (per-piece or total) & Auto Charges */}
-            <div className="p-3 rounded-xl border border-blue-100 dark:border-slate-800 bg-blue-50/40 dark:bg-slate-950/80 space-y-2.5">
+            <div className="p-3 rounded-xl border border-[#E5DDD3] dark:border-slate-800 bg-[#F6F1EA] dark:bg-slate-950/80 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-[#0B1F44] dark:text-slate-200">
+                <span className="text-[11px] font-bold text-[#0A2240] dark:text-slate-200">
                   {tr(language, 'Additional Charges (If Applicable)', 'అదనపు ఛార్జీలు (వర్తిస్తే)')}
                 </span>
                 {cart.length > 0 && (
-                  <span className="text-[11px] font-mono font-semibold text-[#1D4ED8] dark:text-sky-400">
+                  <span className="text-[11px] font-mono font-semibold text-[#9A4307] dark:text-sky-400">
                     {tr(language, `Cart: ${totalUnitsInCart} pcs`, `కార్ట్: ${totalUnitsInCart} పీసులు`)}
                   </span>
                 )}
@@ -827,18 +1020,18 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               {/* Labour Charge Toggle + Per-Piece / Fixed Controls */}
               <div className="space-y-2">
                 <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
-                  <span className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200">
+                  <span className="inline-flex items-center gap-2 font-semibold text-[#2D3138] dark:text-slate-200">
                     <input
                       type="checkbox"
                       checked={labourApplicable}
                       onChange={(e) => setLabourApplicable(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
+                      className="w-4 h-4 rounded border-[#DFD7CC] text-[#9A4307] focus:ring-[#0A2240]"
                     />
-                    <HardHat className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                    <HardHat className="w-3.5 h-3.5 text-[#9A4307]" />
                     <span>{tr(language, 'Labour Charges', 'లేబర్ ఛార్జీలు')}</span>
                   </span>
                   {labourApplicable && (
-                    <span className="font-mono font-bold text-[#0B1F44] dark:text-white">
+                    <span className="font-mono font-bold text-[#0A2240] dark:text-white">
                       +{formatCurrency(totals.labourCharge)}
                     </span>
                   )}
@@ -846,14 +1039,14 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 
                 {labourApplicable && (
                   <div className="pl-6 space-y-2">
-                    <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-700">
                       <button
                         type="button"
                         onClick={() => setLabourMode('per_piece')}
                         className={`py-1 px-2 rounded-md text-[11px] font-semibold transition ${
                           labourMode === 'per_piece'
-                            ? 'bg-[#0B1F44] text-white shadow-sm'
-                            : 'text-slate-600 dark:text-slate-300'
+                            ? 'bg-[#0A2240] text-white shadow-sm'
+                            : 'text-[#6D665E] dark:text-slate-300'
                         }`}
                       >
                         {tr(language, `Per Piece (×${totalUnitsInCart})`, `పీస్‌కు (×${totalUnitsInCart})`)}
@@ -863,8 +1056,8 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                         onClick={() => setLabourMode('fixed')}
                         className={`py-1 px-2 rounded-md text-[11px] font-semibold transition ${
                           labourMode === 'fixed'
-                            ? 'bg-[#0B1F44] text-white shadow-sm'
-                            : 'text-slate-600 dark:text-slate-300'
+                            ? 'bg-[#0A2240] text-white shadow-sm'
+                            : 'text-[#6D665E] dark:text-slate-300'
                         }`}
                       >
                         {tr(language, 'Total Amount', 'మొత్తం విలువ')}
@@ -880,12 +1073,12 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                           value={labourRatePerPiece}
                           onChange={(e) => setLabourRatePerPiece(e.target.value)}
                           placeholder={tr(language, 'Rate per piece (₹)', 'ఒక్కో పీస్ ధర (₹)')}
-                          className="w-32 px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          className="w-32 px-2.5 py-1.5 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                         />
-                        <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                        <span className="text-[11px] font-mono text-[#6D665E] dark:text-slate-400">
                           {totalUnitsInCart} {tr(language, 'pcs', 'పీసులు')} × ₹
                           {(Number(labourRatePerPiece) || 0).toFixed(2)} ={' '}
-                          <strong className="text-[#0B1F44] dark:text-white">
+                          <strong className="text-[#0A2240] dark:text-white">
                             {formatCurrency(totals.labourCharge)}
                           </strong>
                         </span>
@@ -898,7 +1091,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                         value={labourFixedAmount}
                         onChange={(e) => setLabourFixedAmount(e.target.value)}
                         placeholder={tr(language, 'Total labour charges (₹)', 'మొత్తం లేబర్ ఛార్జీ (₹)')}
-                        className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                        className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                       />
                     )}
                   </div>
@@ -906,20 +1099,20 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               </div>
 
               {/* Auto / Transport Charges Toggle + Amount */}
-              <div className="space-y-2 pt-1.5 border-t border-blue-100/80 dark:border-slate-800">
+              <div className="space-y-2 pt-1.5 border-t border-[#E5DDD3] dark:border-slate-800">
                 <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
-                  <span className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200">
+                  <span className="inline-flex items-center gap-2 font-semibold text-[#2D3138] dark:text-slate-200">
                     <input
                       type="checkbox"
                       checked={autoApplicable}
                       onChange={(e) => setAutoApplicable(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
+                      className="w-4 h-4 rounded border-[#DFD7CC] text-[#9A4307] focus:ring-[#0A2240]"
                     />
-                    <Truck className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                    <Truck className="w-3.5 h-3.5 text-[#9A4307]" />
                     <span>{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
                   </span>
                   {autoApplicable && (
-                    <span className="font-mono font-bold text-[#0B1F44] dark:text-white">
+                    <span className="font-mono font-bold text-[#0A2240] dark:text-white">
                       +{formatCurrency(totals.autoCharge)}
                     </span>
                   )}
@@ -934,7 +1127,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                       value={autoChargeInput}
                       onChange={(e) => setAutoChargeInput(e.target.value)}
                       placeholder={tr(language, 'Auto / transport charge (₹)', 'ఆటో / రవాణా ఛార్జీ (₹)')}
-                      className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      className="w-full px-2.5 py-1.5 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-900"
                     />
                   </div>
                 )}
@@ -943,13 +1136,13 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-500 mb-1">
+                <label className="block text-[#6D665E] mb-1">
                   {tr(language, 'Payment Method', 'చెల్లింపు విధానం')}
                 </label>
                 <select
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+                  className="w-full px-3 py-2 rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
                 >
                   <option value="Cash">{tr(language, 'Cash', 'నగదు')}</option>
                   <option value="UPI">{tr(language, 'UPI (PhonePe / GPay)', 'యూపీఐ (ఫోన్‌పే / జీపే)')}</option>
@@ -959,7 +1152,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block text-slate-500 mb-1">
+                <label className="block text-[#6D665E] mb-1">
                   {tr(language, 'Amount Paid (₹)', 'చెల్లించిన మొత్తం (₹)')}
                 </label>
                 <input
@@ -969,7 +1162,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   value={paymentMethod === 'Unpaid' ? '0' : amountPaidInput}
                   disabled={paymentMethod === 'Unpaid'}
                   onChange={(e) => setAmountPaidInput(e.target.value)}
-                  className="w-full px-3 py-2 font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+                  className="w-full px-3 py-2 font-mono rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
                 />
               </div>
             </div>
@@ -984,7 +1177,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                   'UPI / PhonePe / Bank Transaction Reference',
                   'యూపీఐ / ఫోన్‌పే / బ్యాంక్ లావాదేవీ నంబర్'
                 )}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+                className="w-full px-3 py-2 rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
               />
             )}
 
@@ -997,32 +1190,24 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 'Bill remarks or delivery note (Optional)',
                 'బిల్ గమనికలు లేదా డెలివరీ నోట్ (ఐచ్ఛికం)'
               )}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+              className="w-full px-3 py-2 rounded-xl border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
             />
           </div>
 
           {/* Totals Box */}
-          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-mono">
-            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+          <div className="p-4 rounded-xl bg-[#FAF8F5] dark:bg-slate-950 border border-[#E5DDD3] dark:border-slate-800 space-y-1.5 text-xs font-mono">
+            <div className="flex justify-between text-[#6D665E] dark:text-slate-400">
               <span className="font-sans">{tr(language, 'Subtotal', 'ఉప మొత్తం')}</span>
               <span className="tabular-nums">{formatCurrency(totals.subtotal)}</span>
             </div>
             {totals.totalDiscount > 0 && (
-              <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+              <div className="flex justify-between text-[#15803D] dark:text-emerald-400">
                 <span className="font-sans">{tr(language, 'Discount', 'డిస్కౌంట్')}</span>
                 <span className="tabular-nums">-{formatCurrency(totals.totalDiscount)}</span>
               </div>
             )}
-            {totals.totalTax > 0 && (
-              <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span className="font-sans">
-                  {tr(language, `GST (${gstType})`, `జీఎస్టీ (${translateGstType(gstType, language)})`)}
-                </span>
-                <span className="tabular-nums">{formatCurrency(totals.totalTax)}</span>
-              </div>
-            )}
             {totals.labourCharge > 0 && (
-              <div className="flex justify-between text-slate-700 dark:text-slate-300">
+              <div className="flex justify-between text-[#2D3138] dark:text-slate-300">
                 <span className="font-sans">
                   {totals.labourRatePerPiece > 0
                     ? tr(
@@ -1036,24 +1221,24 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               </div>
             )}
             {totals.autoCharge > 0 && (
-              <div className="flex justify-between text-slate-700 dark:text-slate-300">
+              <div className="flex justify-between text-[#2D3138] dark:text-slate-300">
                 <span className="font-sans">{tr(language, 'Auto Charges', 'ఆటో ఛార్జీలు')}</span>
                 <span className="tabular-nums">+{formatCurrency(totals.autoCharge)}</span>
               </div>
             )}
-            <div className="flex justify-between text-base font-bold text-[#0B1F44] dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex justify-between text-base font-bold text-[#0A2240] dark:text-white pt-2 border-t border-[#E5DDD3] dark:border-slate-800">
               <span className="font-sans">{tr(language, 'Grand Total', 'మొత్తం బిల్')}</span>
               <AnimatedNumber value={totals.grandTotal} format={(n) => formatCurrency(n)} />
             </div>
-            <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+            <div className="flex justify-between text-[#15803D] dark:text-emerald-400">
               <span className="font-sans">{tr(language, 'Paying Now', 'ఇప్పుడు చెల్లిస్తున్నది')}</span>
               <AnimatedNumber value={totals.paidNum} format={(n) => formatCurrency(n)} />
             </div>
             <div
               className={`flex justify-between font-semibold ${
                 totals.pendingBalance > 0
-                  ? 'text-amber-700 dark:text-amber-400'
-                  : 'text-emerald-700 dark:text-emerald-400'
+                  ? 'text-[#9A4307] dark:text-amber-400'
+                  : 'text-[#15803D] dark:text-emerald-400'
               }`}
             >
               <span className="font-sans">
@@ -1070,22 +1255,35 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
           </div>
 
           {error && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <div className="p-3 rounded-xl bg-[#FCE8E6] dark:bg-rose-950/50 border border-[#F5C6C0] dark:border-rose-800 text-xs text-[#C23B2B] dark:text-rose-300 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <button
-            onClick={handleSaveBill}
-            disabled={saving || cart.length === 0}
-            className="w-full py-3.5 px-4 rounded-xl bg-[#0B1F44] hover:bg-[#13326b] text-white text-sm font-semibold flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            {saving
-              ? tr(language, 'Confirming with Cloud Server...', 'క్లౌడ్ సర్వర్‌లో సేవ్ అవుతోంది...')
-              : tr(language, 'Save & Generate Bill', 'సేవ్ చేసి బిల్ తయారు చేయండి')}
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={handleSaveBill}
+              disabled={saving || cart.length === 0}
+              className="w-full py-3.5 px-4 rounded-xl bg-[#0A2240] hover:bg-[#13325B] text-white text-sm font-semibold flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {saving
+                ? tr(language, 'Confirming with Cloud Server...', 'క్లౌడ్ సర్వర్‌లో సేవ్ అవుతోంది...')
+                : tr(language, 'Save & Generate Bill', 'సేవ్ చేసి బిల్ తయారు చేయండి')}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShareCartWhatsApp}
+              disabled={saving || cart.length === 0}
+              className="w-full py-3.5 px-4 rounded-xl bg-[#16A34A] hover:bg-[#15803D] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99] disabled:opacity-50"
+            >
+              <MessageCircle className="w-4 h-4 shrink-0" />
+              <span>{tr(language, 'Share via WhatsApp', 'వాట్సాప్‌లో షేర్ చేయండి')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1104,7 +1302,7 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
               setMobilePane('cart');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-gradient-to-r from-[#0B1F44] to-[#1D4ED8] text-white shadow-xl shadow-blue-900/25 border border-white/20 active:scale-[0.98] transition"
+            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-[#0A2240] text-white shadow-xl shadow-[#0A2240]/25 border border-white/20 active:scale-[0.98] transition"
           >
             <div className="flex items-center gap-2.5 text-left">
               <motion.span
@@ -1112,9 +1310,9 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                 initial={{ scale: 0.75 }}
                 animate={{ scale: 1 }}
                 transition={{ duration: 0.2 }}
-                className="px-2.5 py-0.5 rounded-lg bg-white text-[#0B1F44] font-mono font-bold text-xs flex items-center gap-1"
+                className="px-2.5 py-0.5 rounded-lg bg-white text-[#0A2240] font-mono font-bold text-xs flex items-center gap-1"
               >
-                <ReceiptText className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                <ReceiptText className="w-3.5 h-3.5 text-[#9A4307]" />
                 {totalUnitsInCart}
               </motion.span>
               <div>
@@ -1123,10 +1321,10 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
                     ? tr(language, `${cart.length} Products Selected`, `${cart.length} ఉత్పత్తులు ఎంచుకోబడ్డాయి`)
                     : tr(language, 'Select Items for Bill', 'బిల్ కోసం వస్తువులను ఎంచుకోండి')}
                 </div>
-                <div className="text-[10px] text-blue-100">{formatCurrency(totals.grandTotal)}</div>
+                <div className="text-[10px] text-[#E5DDD3]">{formatCurrency(totals.grandTotal)}</div>
               </div>
             </div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-[#0B1F44] text-xs font-bold shadow-sm">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-[#0A2240] text-xs font-bold shadow-sm">
               <span>{tr(language, 'View Bill', 'బిల్ చూడండి')}</span>
               <span>→</span>
             </div>
@@ -1157,9 +1355,20 @@ export const NewBillingPage: React.FC<NewBillingPageProps> = ({
       <PostBillActionsModal
         bill={activeModalBill}
         items={activeModalItems}
+        justSaved={savedJustNow}
         onClose={() => {
           setSavedBill(null);
+          setSavedJustNow(false);
         }}
+      />
+
+      <PaperListCameraModal
+        open={paperCamOpen}
+        onClose={() => setPaperCamOpen(false)}
+        products={products}
+        taxEnabled={false}
+        language={language}
+        onSaveAllToCart={handleBulkAddFromPaper}
       />
     </div>
   );
@@ -1190,12 +1399,13 @@ const QuickCustomerModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <ModalPortal>
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/50 p-2 sm:p-4 overflow-y-auto">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4"
+        className="w-full max-w-sm rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-6 space-y-4 max-h-[92dvh] overflow-y-auto"
       >
-        <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+        <h3 className="text-base font-semibold text-[#0A2240] dark:text-white">
           {tr(language, 'Register Customer', 'కొత్త కస్టమర్ నమోదు')}
         </h3>
         <input
@@ -1204,35 +1414,36 @@ const QuickCustomerModal: React.FC<{
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={tr(language, 'Customer Full Name *', 'కస్టమర్ పూర్తి పేరు *')}
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
         />
         <input
           type="tel"
           value={mobile}
           onChange={(e) => setMobile(e.target.value)}
           placeholder={tr(language, 'Mobile Number (Optional)', 'మొబైల్ నంబర్ (ఐచ్ఛికం)')}
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
         />
         <input
           type="text"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           placeholder={tr(language, 'Address (Optional)', 'చిరునామా (ఐచ్ఛికం)')}
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-white dark:bg-slate-950"
         />
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700"
+            className="px-4 py-2 text-xs font-medium rounded-lg border border-[#E5DDD3] dark:border-slate-700"
           >
             {tr(language, 'Cancel', 'రద్దు')}
           </button>
-          <button type="submit" disabled={busy} className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#0B1F44] text-white">
+          <button type="submit" disabled={busy} className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#0A2240] text-white">
             {busy ? tr(language, 'Saving...', 'సేవ్ అవుతోంది...') : tr(language, 'Save Customer', 'కస్టమర్‌ను సేవ్ చేయండి')}
           </button>
         </div>
       </form>
     </div>
+    </ModalPortal>
   );
 };

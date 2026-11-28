@@ -154,29 +154,29 @@ export const UpiQrPage: React.FC = () => {
       {/* Configuration Form */}
       <form
         onSubmit={handleSave}
-        className="lg:col-span-7 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4"
+        className="lg:col-span-7 rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-6 space-y-4"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+          <h2 className="text-base font-bold text-[#0A2240] dark:text-white">
             {tr(language, 'UPI QR Payment Settings', 'యూపీఐ క్యూఆర్ చెల్లింపు సెట్టింగ్స్')}
           </h2>
-          <QrCode className="w-6 h-6 text-[#1D4ED8]" />
+          <QrCode className="w-6 h-6 text-[#9A4307]" />
         </div>
 
         {feedback && (
-          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+          <div className="rounded-lg bg-[#E7F6EC] dark:bg-emerald-950/30 border border-[#C5E8D1] dark:border-emerald-900/50 px-3 py-2 text-xs text-[#15803D] dark:text-emerald-300">
             {feedback}
           </div>
         )}
         {error && (
-          <div className="rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
+          <div className="rounded-lg bg-[#FCE8E6] dark:bg-rose-950/30 border border-[#F5C6C0] dark:border-rose-900/50 px-3 py-2 text-xs text-[#C23B2B] dark:text-rose-300">
             {error}
           </div>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+            <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
               {tr(language, 'Merchant UPI ID (VPA) *', 'మర్చంట్ యూపీఐ ఐడి *')}
             </label>
             <input
@@ -185,11 +185,11 @@ export const UpiQrPage: React.FC = () => {
               value={upiId}
               onChange={(e) => setUpiId(e.target.value)}
               placeholder={tr(language, 'e.g. 9912179771@ybl', 'ఉదా. 9912179771@ybl')}
-              className="w-full px-3 py-2 font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="w-full px-3 py-2 font-mono rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+            <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
               {tr(language, 'Account Holder Name *', 'ఖాతాదారుని పేరు *')}
             </label>
             <input
@@ -197,35 +197,35 @@ export const UpiQrPage: React.FC = () => {
               disabled={!isAdmin}
               value={accountHolderName}
               onChange={(e) => setAccountHolderName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+            <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
               {tr(language, 'Display Business Name', 'వ్యాపార పేరు')}
             </label>
             <input
               disabled={!isAdmin}
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
             />
           </div>
           <div>
-            <label className="block font-medium text-slate-600 dark:text-slate-300 mb-1">
+            <label className="block font-medium text-[#6D665E] dark:text-slate-300 mb-1">
               {tr(language, 'Default Payment Note', 'డిఫాల్ట్ చెల్లింపు వివరణ')}
             </label>
             <input
               disabled={!isAdmin}
               value={paymentDescription}
               onChange={(e) => setPaymentDescription(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="w-full px-3 py-2 rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
             />
           </div>
         </div>
 
         <div className="space-y-2 pt-2">
-          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
+          <label className="block text-xs font-medium text-[#6D665E] dark:text-slate-300">
             {tr(language, 'Active QR Source', 'క్యూఆర్ రకం')}
           </label>
           <div className="grid grid-cols-2 gap-3 text-xs">
@@ -235,14 +235,14 @@ export const UpiQrPage: React.FC = () => {
               onClick={() => setActiveMode('generated')}
               className={`p-3 rounded-lg border text-left transition ${
                 activeMode === 'generated'
-                  ? 'border-[#1D4ED8] bg-[#1D4ED8]/10 text-[#1D4ED8]'
-                  : 'border-slate-200 dark:border-slate-700'
+                  ? 'border-[#0A2240] bg-[#0A2240]/10 text-[#9A4307]'
+                  : 'border-[#E5DDD3] dark:border-slate-700'
               }`}
             >
               <div className="font-semibold">
                 {tr(language, 'Dynamic Bill-Amount QR', 'డైనమిక్ బిల్ మొత్తం క్యూఆర్')}
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
+              <div className="text-[11px] text-[#6D665E] mt-0.5">
                 {tr(
                   language,
                   'Auto-encodes exact payable amount & bill # via NPCI UPI URI.',
@@ -256,14 +256,14 @@ export const UpiQrPage: React.FC = () => {
               onClick={() => setActiveMode('uploaded')}
               className={`p-3 rounded-lg border text-left transition ${
                 activeMode === 'uploaded'
-                  ? 'border-[#1D4ED8] bg-[#1D4ED8]/10 text-[#1D4ED8]'
-                  : 'border-slate-200 dark:border-slate-700'
+                  ? 'border-[#0A2240] bg-[#0A2240]/10 text-[#9A4307]'
+                  : 'border-[#E5DDD3] dark:border-slate-700'
               }`}
             >
               <div className="font-semibold">
                 {tr(language, 'Uploaded Bank Standee QR', 'అప్‌లోడ్ చేసిన బ్యాంక్ క్యూఆర్')}
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
+              <div className="text-[11px] text-[#6D665E] mt-0.5">
                 {tr(
                   language,
                   'Use your static PhonePe / GPay / SBI merchant QR image.',
@@ -275,23 +275,23 @@ export const UpiQrPage: React.FC = () => {
         </div>
 
         {activeMode === 'uploaded' && isAdmin && (
-          <div className="p-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-xs flex items-center justify-between">
+          <div className="p-3 rounded-lg border border-dashed border-[#DFD7CC] dark:border-slate-700 text-xs flex items-center justify-between">
             <div>
-              <div className="font-medium text-slate-700 dark:text-slate-300">
+              <div className="font-medium text-[#2D3138] dark:text-slate-300">
                 {tr(language, 'Upload Static QR Image (PNG/JPG)', 'స్టాటిక్ క్యూఆర్ చిత్రాన్ని అప్‌లోడ్ చేయండి')}
               </div>
-              <div className="text-[11px] text-slate-500">
+              <div className="text-[11px] text-[#6D665E]">
                 {tr(language, 'Max 400 KB · Synced to all counters', 'గరిష్టం 400 కేబీ · అన్ని కౌంటర్లకు సింక్ అవుతుంది')}
               </div>
             </div>
-            <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 font-medium cursor-pointer hover:bg-slate-200">
+            <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#F3EDE5] dark:bg-slate-800 font-medium cursor-pointer hover:bg-slate-200">
               <Upload className="w-3.5 h-3.5" /> {tr(language, 'Choose File', 'ఫైల్ ఎంచుకోండి')}
               <input type="file" accept="image/*" onChange={handleUploadQrFile} className="hidden" />
             </label>
           </div>
         )}
 
-        <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 p-3 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2">
+        <div className="rounded-lg bg-[#FDF3DF] dark:bg-amber-950/30 border border-[#F0D9B5] dark:border-amber-900/50 p-3 text-[11px] text-[#9A4307] dark:text-amber-300 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>
             {tr(
@@ -307,7 +307,7 @@ export const UpiQrPage: React.FC = () => {
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 rounded-lg bg-[#0B1F44] text-white text-xs font-semibold hover:bg-[#1D4ED8] disabled:opacity-50"
+              className="px-5 py-2.5 rounded-lg bg-[#0A2240] text-white text-xs font-semibold hover:bg-[#0A2240] disabled:opacity-50"
             >
               {saving
                 ? tr(language, 'Saving to Cloud...', 'క్లౌడ్‌లో సేవ్ అవుతోంది...')
@@ -318,15 +318,15 @@ export const UpiQrPage: React.FC = () => {
       </form>
 
       {/* Live Preview & Decoder Verification */}
-      <div className="lg:col-span-5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 flex flex-col items-center text-center space-y-4">
+      <div className="lg:col-span-5 rounded-xl bg-white dark:bg-slate-900 border border-[#E5DDD3] dark:border-slate-800 p-6 flex flex-col items-center text-center space-y-4">
         <div className="w-full flex items-center justify-between text-xs">
-          <span className="font-semibold text-slate-700 dark:text-slate-300">
+          <span className="font-semibold text-[#2D3138] dark:text-slate-300">
             {tr(language, 'Live Counter QR Preview', 'లైవ్ కౌంటర్ క్యూఆర్ ప్రివ్యూ')}
           </span>
           <button
             type="button"
             onClick={() => setScannerOpen(true)}
-            className="inline-flex items-center gap-1 text-[#1D4ED8] font-medium hover:underline"
+            className="inline-flex items-center gap-1 text-[#9A4307] font-medium hover:underline"
           >
             <ScanLine className="w-3.5 h-3.5" /> {tr(language, 'Test QR Scanner', 'క్యూఆర్ స్కానర్ పరీక్షించండి')}
           </button>
@@ -339,22 +339,22 @@ export const UpiQrPage: React.FC = () => {
             value={previewAmount}
             onChange={(e) => setPreviewAmount(e.target.value)}
             placeholder={tr(language, 'Test amount ₹ (optional)', 'పరీక్ష మొత్తం ₹ (ఐచ్ఛికం)')}
-            className="w-full px-3 py-1.5 text-xs font-mono text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+            className="w-full px-3 py-1.5 text-xs font-mono text-center rounded-lg border border-[#E5DDD3] dark:border-slate-700 bg-[#FAF8F5] dark:bg-slate-950"
           />
         </div>
 
         {activeQrDisplay ? (
-          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+          <div className="p-4 rounded-xl bg-white border border-[#E5DDD3] shadow-sm">
             <img src={activeQrDisplay} alt={tr(language, 'Business UPI QR', 'వ్యాపార యూపీఐ క్యూఆర్')} className="w-52 h-52 object-contain mx-auto" />
-            <div className="mt-2 text-xs font-bold text-[#0B1F44]">
+            <div className="mt-2 text-xs font-bold text-[#0A2240]">
               {translateBusinessName(businessName, language) || translateProprietor(accountHolderName, language)}
             </div>
-            <div className="text-[11px] font-mono text-slate-500">
+            <div className="text-[11px] font-mono text-[#6D665E]">
               {upiId || tr(language, 'Uploaded QR', 'అప్‌లోడ్ చేసిన క్యూఆర్')}
             </div>
           </div>
         ) : (
-          <div className="w-52 h-52 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs text-slate-400 p-4">
+          <div className="w-52 h-52 rounded-xl border-2 border-dashed border-[#E5DDD3] dark:border-slate-700 flex items-center justify-center text-xs text-[#8A8279] p-4">
             {tr(
               language,
               'Enter a Merchant UPI ID or upload a static QR image to preview.',
@@ -364,12 +364,12 @@ export const UpiQrPage: React.FC = () => {
         )}
 
         {activeMode === 'generated' && verifiedDecoded && (
-          <div className="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-3 text-left space-y-1">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+          <div className="w-full rounded-lg bg-[#FAF8F5] dark:bg-slate-950 border border-[#E5DDD3] dark:border-slate-800 p-3 text-left space-y-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#15803D] dark:text-emerald-400">
               {qrValid ? <ShieldCheck className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
               {tr(language, 'jsQR Payload Verification Passed', 'క్యూఆర్ కోడ్ ధృవీకరణ విజయవంతమైంది')}
             </div>
-            <div className="text-[11px] font-mono text-slate-500 break-all">{verifiedDecoded}</div>
+            <div className="text-[11px] font-mono text-[#6D665E] break-all">{verifiedDecoded}</div>
           </div>
         )}
 

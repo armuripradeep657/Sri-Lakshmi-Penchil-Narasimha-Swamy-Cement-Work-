@@ -135,6 +135,13 @@ const STATUS_TE_MAP: Record<string, string> = {
   generated: 'జనరేట్ చేసినది',
   uploaded: 'అప్‌లోడ్ చేసినది',
   pending_due: 'బాకీ',
+  approval_request: 'ఆమోద అభ్యర్థన',
+  approval_decision: 'ఆమోద నిర్ణయం',
+  approved: 'ఆమోదించబడింది',
+  rejected: 'తిరస్కరించబడింది',
+  consumed: 'వినియోగించబడింది',
+  profile_update: 'ప్రొఫైల్ మార్పు',
+  bill_edit: 'బిల్ సవరణ',
 };
 
 export function cleanTeluguProductLabel(text: string): string {
@@ -400,6 +407,27 @@ export function translateSystemText(text: string | undefined, language: Language
   }
   if (clean.startsWith('Edited bill ')) {
     return clean.replace('Edited bill ', 'బిల్ సవరించబడింది ').replace(' by ', ' ద్వారా: ');
+  }
+  if (clean.startsWith('Profile Update Request · ')) {
+    return clean.replace('Profile Update Request · ', 'ప్రొఫైల్ మార్పు అభ్యర్థన · ');
+  }
+  if (clean.startsWith('Bill Edit Request · ')) {
+    return clean.replace('Bill Edit Request · ', 'బిల్ సవరణ అభ్యర్థన · ');
+  }
+  if (clean.startsWith('Staff Edited ')) {
+    return clean.replace('Staff Edited ', 'సిబ్బంది సవరించిన బిల్ ');
+  }
+  if (clean.startsWith('Profile Update Approved')) {
+    return 'ప్రొఫైల్ మార్పు ఆమోదించబడింది';
+  }
+  if (clean.startsWith('Profile Update Rejected')) {
+    return 'ప్రొఫైల్ మార్పు తిరస్కరించబడింది';
+  }
+  if (clean.startsWith('Bill Edit Approved · ')) {
+    return clean.replace('Bill Edit Approved · ', 'బిల్ సవరణ ఆమోదించబడింది · ');
+  }
+  if (clean.startsWith('Bill Edit Rejected · ')) {
+    return clean.replace('Bill Edit Rejected · ', 'బిల్ సవరణ తిరస్కరించబడింది · ');
   }
 
   const billedMatch = clean.match(/^(.+?)\s+billed\s+(.+?)\s+for\s+₹([0-9.,]+)\s*\(([^)]+)\)\.?$/i);

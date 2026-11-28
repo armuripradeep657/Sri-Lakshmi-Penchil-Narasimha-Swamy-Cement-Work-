@@ -18,9 +18,11 @@ export default defineConfig(() => {
           name: 'Sri Lakshmi Penchil Narasimha Swamy Cement Work',
           short_name: 'SLP Cement',
           description: 'Offline-ready cloud billing, POS, labour cashbook, and inventory management for Sri Lakshmi Penchil Narasimha Swamy Cement Work.',
-          theme_color: '#0B1F44',
-          background_color: '#FFFFFF',
+          theme_color: '#0A2240',
+          background_color: '#FAF8F5',
           display: 'standalone',
+          display_override: ['standalone', 'minimal-ui'],
+          prefer_related_applications: false,
           orientation: 'portrait',
           categories: ['business', 'finance', 'productivity'],
           start_url: '/',
@@ -89,7 +91,7 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,svg,woff,woff2}'],
           navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//, /^\/__\//],
+          navigateFallbackDenylist: [/^\/api\//, /^\/__\//, /^\/manifest\.webmanifest$/],
           ignoreURLParametersMatching: [/^page$/, /^invoice$/],
           runtimeCaching: [
             {

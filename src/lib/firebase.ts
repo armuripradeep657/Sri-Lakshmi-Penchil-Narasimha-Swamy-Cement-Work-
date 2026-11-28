@@ -6,6 +6,7 @@ import {
   getDocFromServer,
   getFirestore,
   initializeFirestore,
+  memoryLocalCache,
   persistentLocalCache,
   persistentMultipleTabManager,
   waitForPendingWrites,
@@ -22,11 +23,23 @@ function createFirestoreInstance(): Firestore {
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager(),
         }),
+        experimentalForceLongPolling: true,
       },
       firebaseConfig.firestoreDatabaseId
     );
   } catch {
-    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    try {
+      return initializeFirestore(
+        app,
+        {
+          localCache: memoryLocalCache(),
+          experimentalForceLongPolling: true,
+        },
+        firebaseConfig.firestoreDatabaseId
+      );
+    } catch {
+      return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    }
   }
 }
 
@@ -138,6 +151,39 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+export function isTransientFirestoreNetworkError(error: unknown): boolean {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return true;
+  }
+  const errObj = error as { code?: string; message?: string } | null;
+  const code = (errObj?.code || '').toLowerCase();
+  const msg = (error instanceof Error ? error.message : String(error || '')).toLowerCase();
+
+  if (code === 'permission-denied' || msg.includes('missing or insufficient permissions')) {
+    return false;
+  }
+
+  if (
+    code === 'unavailable' ||
+    code === 'deadline-exceeded' ||
+    code === 'aborted' ||
+    code === 'cancelled' ||
+    code === 'resource-exhausted'
+  ) {
+    return true;
+  }
+
+  return (
+    msg.includes('the client is offline') ||
+    msg.includes('could not reach cloud firestore backend') ||
+    msg.includes("backend didn't respond") ||
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network error') ||
+    msg.includes('connection failed')
+  );
+}
+
 export async function testConnection(): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return false;
@@ -146,7 +192,7 @@ export async function testConnection(): Promise<boolean> {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
+    if (isTransientFirestoreNetworkError(error)) {
       console.warn('Firestore running in offline mode using local cache.');
       return false;
     }
